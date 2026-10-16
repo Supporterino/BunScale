@@ -73,7 +73,7 @@ preconditions hold.
 
 ## Open items
 
-### Q13 — `cargo tauri capability new` cannot run headless, and its artefact already exists (open for task 0.6)
+### Q13 — `cargo tauri capability new` cannot run headless, and its artefact already exists (resolved 2026-10-16: harden the generated capability, no second file)
 
 Task 0.1 step 4 ran and failed: `Error failed to prompt input: IO error: not a terminal`, exit 1,
 nothing generated. Two facts behind it:
@@ -88,9 +88,10 @@ nothing generated. Two facts behind it:
   hand-owned table assigns to task 0.6 to harden.
 
 **Resolution taken:** step 4 is recorded in `design.md` (D0.11, "Generator pass — observed output") as
-satisfied by generator output, and no second capability file was invented. **Open item:** whether 0.6
-wants an additional capability file at all is a least-privilege question for `tauri-security` in task
-0.6 ("one capability per window"), not a naming choice for the bootstrap. Harness note: an unargued
+satisfied by generator output, and no second capability file was invented. **Decided (product owner,
+2026-10-16):** task 0.6 hardens the generated `src-tauri/capabilities/default.json` to least privilege
+and does **not** create a second capability file — with a single window there is nothing to split, and
+an extra file would only widen the surface 0.6 exists to narrow. Harness note: an unargued
 `capability new` needs a TTY, so an agent session must always pass an explicit identifier if the step is
 ever re-run. Task 0.6's text has been corrected accordingly (`tasks.md`).
 
