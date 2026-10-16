@@ -72,6 +72,11 @@ permissions:
   - action: shell
     resource: "bun add *"
     effect: allow
+  # Needed from task 0.13 on: the hand-written exact pins have to be materialised
+  # into node_modules before any `bun run typecheck|lint|test|test:e2e` can pass.
+  - action: shell
+    resource: "bun install *"
+    effect: allow
   - action: shell
     resource: "git diff *"
     effect: allow
