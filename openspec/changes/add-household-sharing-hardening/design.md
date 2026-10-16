@@ -119,10 +119,9 @@ frontend (TanStack Query)                   →  invalidates only the affected h
 
 The skill `testing-strategy` records that native lifecycle and plugin behaviour cannot be driven by
 `tauri-driver` on iOS/macOS, so background delivery carries a manual simulator verification task (5.15)
-in addition to Rust-level tests of the handoff (5.6). The presentation question — whether a delivered
-change may raise a user-visible notification or must be silent until the product is next shown — is a
-genuine unknown recorded as `questions.md` Q2; HS-11 says delivery MAY happen in the background and does
-not decide this.
+in addition to Rust-level tests of the handoff (5.6). How a delivered change is presented is **settled**:
+it is visible, and it raises a local notification naming the household only, carrying no health content
+(D-H14).
 
 ### D-H7 — Storage is attributed to the owner, and that attribution must be observable end to end
 
@@ -138,10 +137,10 @@ distinct and must not be conflated:
    precondition of mapping an exhausted allowance to the storage-allowance cause (HS-12 scenario 2,
    SYNC-2) and is therefore guaranteed rather than hoped for.
 
-What remains open is downstream of both: whether a contribution made by a **non-owner** is attributed by
-the service to the owner's allowance end to end, and how that attribution is observed. That is this
-change's own question and is recorded as `questions.md` Q4 and as risk R8 rather than papered over with
-a generic message (NFR-8).
+What remains is settled by D-H16: a contribution made by a **non-owner** must be attributed by the
+service to the owner's allowance end to end — that is a **hard selection criterion** for the mechanism,
+not an open point — and the household's owner-attributed usage must be observable from the product.
+Nothing here is papered over with a generic message (NFR-8).
 
 ### D-H8 — Status is derived from fresh outcomes only
 
@@ -204,6 +203,142 @@ with the same `request_id`, so it cannot produce a second invitation or a second
 a re-invocation of the original command rather than a separate retry command, and it does not make a
 stalled attempt complete on its own (D-H1).
 
+### D-H13 — The member cap is enforced at membership level (former Q1)
+
+The six-member cap (HS-7) is a property of the **household's membership**, so it is enforced at that
+level and not at the moment an invitation is created: the household never holds more than six members at
+any moment. Two consequences are stated as behaviour, not left to be inferred from the number:
+
+1. Creating an invitation is refused when the household already holds six members, with the limit
+   explained (HS-7 scenario 1, unchanged).
+2. **Accepting an outstanding invitation into a household that already holds six members is refused**,
+   with the **same** six-member-limit explanation, and the accepting person is not admitted (HS-7
+   scenario 2, strengthened). An invitation issued while the household had room does not stay usable
+   once the room is gone.
+
+The rejected alternative — enforcing the cap only where the invitation is created — would let an issued
+invitation carry the household past six members, which contradicts the cap being stated as a property of
+the household, and would make the cap depend on the order in which two people happened to act. The check
+runs inside the same attempt that would admit the member, so the refusal is an outcome of that attempt
+and not a pre-flight guess; no new bound and no new cause are introduced (the explanation is a limit
+message, not a failure cause, consistent with HS-7's wording).
+
+### D-H14 — A background-delivered change is visible, and the notification names the household only (former Q2)
+
+**The delivery is visible.** A change that reaches a member while the product is **not open** raises a
+**local notification naming the household** (HS-11). This **reverses the earlier, silent reading** of the
+delta, under which a delivered change was simply already present the next time the product was shown:
+silence made the phase's central promise — "changes reach every member" — unobservable to the person it
+happens to, which is exactly the class of failure IMP-2 records for this product.
+
+**Privacy constraint (binding on every surface this change adds).** The notification names the
+**household only**. It MUST NOT carry health content or anything else taken from the household's record:
+**no rabbit name, no symptom, no note text, no weight, no medication name**, and no identifier or value
+that would let a reader infer a rabbit's condition. Rationale: a notification is presented on a lock
+screen that anyone holding the device can read, and a line naming a rabbit's symptom or a weight would
+publish the household's health content to whoever is looking — the exact disclosure the product's
+privacy stance elsewhere refuses (NFR-3's redaction discipline: identifiers and outcomes only, never
+names or content). The notification's payload therefore carries the household's name and nothing from
+the record; it is raised from the delivery event, not from the delivered content's fields. The
+constraint is asserted in HS-11 (requirement text and the scenario "A background-delivered change
+notifies the household without revealing its content"), unit-tested at the native seam (task 1.8) and
+manually verified (task 5.15).
+
+**What the platform genuinely requires to request authorization.** The notification is a **local**
+notification, so authorization is requested at runtime through `UNUserNotificationCenter`, and the
+declaration is the *absence* of platform keys rather than the addition of speculative ones:
+
+| Platform | What notification authorization requires | What it does **not** require |
+|---|---|---|
+| iOS | a runtime authorization request (`UNUserNotificationCenter.requestAuthorization(options:)`) presented as the system prompt | **no `Info.plist` usage-description string** — the `NS…UsageDescription` pattern (camera, photos, contacts, location) does not extend to notifications, so no key is invented or added for it; and no entitlement |
+| macOS | the same runtime authorization request; the system presents the prompt for the running app | **no `Info.plist` usage-description string** and **no entitlement** for local notifications; the app must be a bundled, signed app with a stable bundle identifier for the system to present them, which is `release-signing`'s configuration (identifier fixed by P0's D0.15, `com.bunscale.app`) and not a security widening here |
+
+`UNUserNotificationCenter` requires macOS 10.14, far below the deployment target P0 derives from the
+installed SDKs (D0.16), so no deployment-target change follows. `aps-environment` and
+`remote-notification` are **not** added speculatively: they are required only if the mechanism selected
+in task 1.1 delivers changes remotely, and `tauri-security` declares them in task 1.3 in that case, with
+the one-line justification `tauri-security`'s change protocol requires. Requesting a background window
+to *receive* a change and raising a notification about it are separate concerns: the authorization adds
+no background mode.
+
+**When authorization is asked for, and what happens without it.** The product asks — through
+`request_notification_authorization()` — at the first moment it has a change to deliver in the background
+and needs to make it visible, not at launch for a capability it is not yet using. Authorization is a gate on the notification, never on the delivery:
+when the device has not granted it, the change is still applied and is still present when the product is
+next shown, and only the notification is missing (HS-11's final clause and the scenario "A change is
+still delivered when a notification cannot be raised"). This keeps HS-11's promise independent of a
+device state the product does not control (R6).
+
+**One authorization surface, introduced here and consumed by P4.** This phase is the first to request
+notification authorization, so it is declared **once, here**: `tauri-security` declares it (task 1.3),
+`apple-native` requests and observes it behind one shared contract-facing entry point (task 1.9), and
+the contract exposes it as exactly two commands and one state:
+`request_notification_authorization()` asks the platform, `get_notification_authorization()` returns the
+state freshly observed, and `NotificationAuthorization` carries it as
+`{ state: unknown | not_determined | granted | denied, observed_at }` (see the command table and the
+shared-types table below). `add-vet-export-and-reminders` (P4) — which owns medication and weigh
+reminders and the behaviour when authorization is **denied or revoked** (its D4.7) — **consumes this
+same authorization** rather than declaring, requesting or exposing a second one; P4's D4.5 already
+applies exactly this stance to the background mechanism ("P3's, not a new one"). Any P4 draft that reads
+as a second authorization declaration (for example its task 1.8's wording, or a separately named
+reminder-authorization command or state) MUST resolve to this one request path and this one observed
+state, or the difference is reported as a blocker under project hard rule 7 rather than settled by
+adding a second surface — a second request path would let the two phases disagree about whether the
+product may notify at all. All four values are the state space and none may be dropped: **`unknown` is
+"not yet observed"** and is the starting state until a fresh outcome exists, while **`not_determined` is
+an observed outcome** — the person has not been asked — so the two are distinct and neither is presented
+as the other. The denied/revoked *behaviour* for reminders stays P4's and is not stated here.
+
+### D-H15 — An offline member keeps reading until the device next reaches the service (former Q3)
+
+HS-10 requires deletion to withdraw access from every member; SYNC-3 serves reads from previously loaded
+data while the shared service is unreachable. For a member whose device is offline at the moment of
+deletion those two point in different directions, and the observable rule is fixed here:
+
+1. **The withdrawal takes effect at the first reachable moment.** That member's device keeps reading the
+   household's previously loaded data until it next reaches the shared service; at that next reach the
+   deletion takes effect, the household's cached copy is dropped and access is gone (HS-10's scenario "A
+   member who is unreachable at the moment of deletion loses access at the next refresh").
+2. **SYNC-3's read path stands unchanged for that window.** No new read rule, no new offline state and
+   no exception to D1 are introduced: the window is the ordinary loaded-data read of P0, ended by the
+   ordinary refresh.
+3. **The product does not attempt to erase another device's cache while that device is unreachable.**
+   There is no remote-wipe mechanism, no push that must be honoured before access ends, and no promise
+   that the copy is gone the instant the owner confirms. Deleting a copy on a device the product cannot
+   reach is not possible, so the phase states the window instead of claiming the impossible. The
+   rejected alternative — declaring access instantly gone everywhere — would be a false claim that no
+   test could honour, and it would put a second mechanism (a remote erasure channel) into a phase whose
+   write model is one bounded attempt against one service (D-H1).
+
+The consequence for HS-10's requirement text is one added clause, and for risk R11 that the gap is now a
+stated, asserted rule rather than an open question.
+
+### D-H16 — Attribution to the owner is a hard selection criterion (former Q4)
+
+Attribution is required **end to end**, not at the product's boundary alone. Two parts are now both
+settled, and neither is an open item:
+
+1. **The product applies attribution** — content saved into a household is charged to the owner
+   whichever member saved it (D-H7 part 1, HS-12 scenario 1).
+2. **The shared service performs it too.** A contribution made by a **non-owner** MUST be charged to the
+   household **owner's** account end to end, and MUST NOT be charged to the contributing member's own
+   account, and the household's owner-attributed usage must be **observable** from the product
+   (`get_storage_usage`, HS-12 scenario 1's final clause). This is a **hard selection criterion** for the
+   shared-service mechanism, exactly as P0's D0.12 made distinct exhaustion reporting one: a candidate
+   that cannot attribute a non-owner's contribution to the owner, or that cannot expose the household's
+   owner-attributed usage, is **rejected**.
+
+The criterion extends the mechanism's criteria set rather than replacing it: it sits beside P0's D0.7
+list (which D0.12 already tightened) as the property this phase consumes. Because the selection itself
+is P0's task 1.1 and its outcome is recorded in `docs/adr/0002-shared-service-mechanism.md`, this
+change's task 1.1 (`architect`) **confirms the selected mechanism against the criterion** and, if the
+mechanism cannot meet it, reports a blocker under project hard rule 7 — it does not degrade to a generic
+failure message (NFR-8) and it does not silently fall back to product-side attribution alone. The
+observable consequence of the two parts together is that the phase can show a member's contribution
+landing on the owner's allowance rather than on their own, and that an exhausted **owner** allowance
+refuses a member's save with the storage-allowance cause (HS-12 scenario 2, SYNC-2). R8 is resolved by
+this criterion, in the same way R12/D0.12 was closed by P0.
+
 ## State and boundaries
 
 ```
@@ -222,8 +357,10 @@ Rust (src-tauri/)                                   Frontend (src/)
   src-tauri/src/settings/       sharing policy values (attempt and probe bounds,
                                 failure threshold)
   src-tauri/src/diagnostics/    non-completed acceptance records (identifiers only)
-  src-tauri/plugins/            Swift: standard sharing options, background delivery
-  src-tauri/capabilities/       background modes, notification permissions, entitlements
+  src-tauri/plugins/            Swift: standard sharing options, background delivery, the
+                                household-naming notification (D-H14)
+  src-tauri/capabilities/       background modes, the notification authorization (no usage-description
+                                key and no entitlement is required for it, D-H14), entitlements
                                                         → src/features/sharing/{api.ts,hooks}
                                                         → src/features/members/{api.ts,hooks}
                                                         → src/features/households/ (delete flow)
@@ -266,7 +403,9 @@ gen:bindings` regenerates `src/bindings.ts`. Naming follows P0's style: `<verb>_
 | `delete_household(household_id)` | Owner-gated irreversible deletion with the full cascade and access withdrawal; returns the post-deletion active household or none; retryable — a retry re-invokes it with the same `request_id` | HS-10 |
 | `subscribe_household_updates(household_id)` | Start live updates for a household created or joined mid-session | SYNC-6, HS-11 |
 | `unsubscribe_household_updates(household_id)` | Stop live updates when a household stops being held | SYNC-6 |
-| `get_storage_usage(household_id)` *(optional)* | Owner-attributed usage, so HS-12 is observable; omitted or degraded when the mechanism cannot report it (R8) | HS-12 |
+| `get_storage_usage(household_id)` | The household's **owner-attributed** usage, so HS-12's attribution is observable from the product; the mechanism must attribute a non-owner's contribution to the owner and expose this (D-H16's hard selection criterion), so this is not a degraded extra | HS-12 |
+| `request_notification_authorization()` | Ask the platform for authorization to raise notifications and return the resulting state through the same surface; asked at the first delivery that needs a notification, not at launch. Introduced **here**, because this phase is the first to request it, and **consumed** by `add-vet-export-and-reminders` rather than declared a second time (D-H14) | HS-11 |
+| `get_notification_authorization()` | This device's notification authorization state, freshly observed: `unknown` until a fresh outcome exists, then `not_determined`, `granted` or `denied`. Introduced **here** and **consumed** by `add-vet-export-and-reminders` rather than declared a second time (D-H14) | HS-11 |
 
 Reused from P0 without change: `get_active_household()`, `set_active_household(household_id)`,
 `list_households()`, `load_household(household_id)`, `check_service_reachability()` (used as HS-5's
@@ -290,7 +429,8 @@ second attempt (settled decision; D-H2, D-H12).
 Reused from P0: `household:changed` with `kind: created | switched | refreshed | removed` — the
 `removed` kind carries deletion propagation, and `refreshed` is what a background-delivered change
 produces when the product is next foregrounded. No new event is defined for background delivery:
-the delivery itself is a native-to-Rust handoff (D-H6), not an IPC event.
+the delivery itself is a native-to-Rust handoff (D-H6), not an IPC event, and the notification it raises
+is presented by the native layer from that delivery (D-H14) rather than driven by a frontend subscription.
 
 ### Shared types (extending P0's set)
 
@@ -303,7 +443,8 @@ the delivery itself is a native-to-Rust handoff (D-H6), not an IPC event.
 | `MemberList` | `{ household_id, members: [MemberView], participants_resolved: bool, cause? }` | `cause` set only when a participant refresh failed; `members` still populated |
 | `HouseholdDeletionOutcome` | `{ household_id, deleted: bool, cascade_counts?, next_active_household_id?, cause? }` | `cascade_counts` are **counts only** — no names or content (NFR-3) |
 | `SharingPolicy` | `{ attempt_timeout_ms: 15000, reachability_timeout_ms: 5000, offline_failure_threshold: 3 }` | Per-device configuration whose values are settled by P0's design and consumed here, not re-derived (D-H12) |
-| `StorageUsage` *(optional)* | `{ owner_account_user_id?, used?, allowance? }` | Degrades when the mechanism cannot report allowance state (R8) |
+| `StorageUsage` | `{ owner_account_user_id, used?, allowance? }` | The household's usage charged to its owner. `owner_account_user_id` is known from the household record; `used`/`allowance` are present where the mechanism reports them, and the mechanism's ability to attribute to the owner is guaranteed by D-H16's criterion rather than optional (ex-R8) |
+| `NotificationAuthorization` | `{ state: unknown \| not_determined \| granted \| denied, observed_at }` | The one authorization surface (D-H14), introduced here and consumed by P4. `unknown` is "not yet observed" — the starting state P0 established, kept until a fresh outcome exists — and is distinct from `not_determined`, which is an observed outcome (the person has not been asked); `observed_at` follows P0's staleness rule so a carried-over state is never presented as current (NFR-6 stance) |
 
 Extended from P0: `ServiceStatus` gains `syncing` in its state set and a `consecutive_failures` count,
 and keeps `observed_at` so a carried-over status can be recognised as stale rather than current.
@@ -341,12 +482,12 @@ one attempt at a time, which is also why NFR-6's single "syncing" state is reach
 | US-HS-16 | HS-9 | household-sharing: "The account display name is shown when it resolves", "An unresolved display name falls back without breaking the list" |
 | US-HS-17 | HS-9 | household-sharing: "A failed participant refresh keeps locally known members and states the cause" |
 | US-HS-18 | HS-9 | household-sharing: "The list renders before participants resolve and refreshes once they do" |
-| US-HS-19 | HS-10 | household-sharing: "The owner's delete control is directly visible on the household's Settings row", "Cancelling the confirmation deletes nothing", "Confirmed deletion removes the household and all of its data", "Confirmed deletion withdraws access from every member and reaches them" |
+| US-HS-19 | HS-10 | household-sharing: "The owner's delete control is directly visible on the household's Settings row", "Cancelling the confirmation deletes nothing", "Confirmed deletion removes the household and all of its data", "Confirmed deletion withdraws access from every member and reaches them", "A member who is unreachable at the moment of deletion loses access at the next refresh" |
 | US-HS-20 | HS-10 | household-sharing: "The confirmation states the full consequence" |
 | US-HS-21 | HS-10 | household-sharing: "A joined household offers no delete control to a non-owner" |
 | US-HS-22 | HS-10 | household-sharing: "The newest remaining household becomes active after deletion", "Onboarding is presented after the only household is deleted" |
 | US-HS-23 | HS-10 | household-sharing: "A failed deletion leaves the household intact and states its cause" (NFR-8 clause reuses P0's "No bare failure messages") |
-| US-HS-24 | HS-11 | household-sharing: "A change is delivered while the product is not open [ios]", "A change is delivered while the product is not open [macos]", "Every member of the household ends up with the same change" |
+| US-HS-24 | HS-11 | household-sharing: "A change is delivered while the product is not open [ios]", "A change is delivered while the product is not open [macos]", "A background-delivered change notifies the household without revealing its content", "A change is still delivered when a notification cannot be raised", "Every member of the household ends up with the same change" |
 | US-HS-25 | HS-12 | household-sharing: "Content saved by a non-owner counts against the owner's allowance", "An exhausted owner allowance refuses a member's save with that cause" |
 | US-SYNC-10 | SYNC-6 | sync-and-offline: "A household created mid-session receives live updates without a restart", "A household joined by accepting an invitation receives live updates without a restart" |
 | US-SYNC-11 | SYNC-7 | sync-and-offline: "Setting the product up again on the same account recovers the household", "Recovery does not present an empty household in place of the recovered data", "Nothing is recovered without the shared service" |
@@ -367,22 +508,27 @@ above.
 | R3 | **Acceptance appears to hang, or dumps the recipient into onboarding.** The historical "invitations not acceptable" failure. | Single-attempt bounded-time rule (D-H1) with a timeout cause; the pending-adoption state separates "no household" from "acceptance unfinished" (D-H3); Rust and E2E tests for the fresh-setup path and for the timeout path. |
 | R4 | **The current person is missing from the member list, or the list blanks on a failed refresh.** The third historical failure. | Local-first member-list construction (D-H4): the current person is never dependent on a remote refresh; a failed refresh keeps local members and reports the cause; component and Rust tests per scenario. |
 | R5 | **Deletion cascade incomplete, or a member keeps access.** A half-deleted household is worse than an undeleted one. | Cascade runs in one operation at the storage boundary; access withdrawal is asserted separately from data removal; NFR-10's isolation is re-asserted after deletion; a non-owner request is refused (UI hiding is not the protection). |
-| R6 | **Background delivery not granted by the platform.** Notification/background permissions may be denied, and macOS/iOS differ in how a change can be delivered while the product is not open — which would make the second clause of HS-11 unobservable. | Platform work is scheduled in the contract/native section (`tauri-security` task 1.3, `apple-native` tasks 1.4–1.8) before the backend work that depends on it; the foreground clause of HS-11 and the "present when next shown" clause stay testable if background delivery is unavailable; manual simulator verification (task 5.15) covers what cannot be automated; the presentation question is recorded as Q2 rather than guessed. |
+| R6 | **Background delivery not granted by the platform.** Notification/background permissions may be denied, and macOS/iOS differ in how a change can be delivered while the product is not open — which would make the second clause of HS-11 unobservable. | Platform work is scheduled in the contract/native section (`tauri-security` task 1.3, `apple-native` tasks 1.6–1.9) before the backend work that depends on it; the foreground clause of HS-11 and the "present when next shown" clause stay testable if background delivery is unavailable. The presentation question is **settled**: a delivered change is visible and raises a notification naming the household only (D-H14), and the notification is a gate on nothing — with authorization withheld or denied, the change is still applied and present when the product is next shown (HS-11's scenario "A change is still delivered when a notification cannot be raised"); the authorization state is observed rather than assumed — `get_notification_authorization()` returns the
+one four-value state (`unknown` until a fresh outcome exists, then `not_determined`, `granted` or
+`denied`), asked for through `request_notification_authorization()` — and manual simulator verification
+(task 5.15) covers both platforms and the denied path. |
 | R7 | **False or stale "offline" (NFR-6).** Claiming offline after one transient failure, or showing a previous session's status as current, is a truthfulness bug — P0 carried it as R3 and deferred the rule here. | Status starts `unknown` and is derived from fresh outcomes only (D-H8); the threshold is settled at three consecutive failures and consumed, not chosen (D-H12); `observed_at` lets staleness be recognised; a single "syncing" state is owned by one store; E2E covers the transient-failure and relaunch cases. |
-| R8 | **Allowance attribution not observable end to end.** Reporting an exhausted owner allowance *distinctly* is settled — D0.12 makes it a hard selection criterion at task 1.1 — so the storage-allowance cause itself is reachable. What is unconfirmed is whether content contributed by a **non-owner** is attributed by the service to the **owner's** allowance, and how that attribution is observed end to end. | Attribution itself is product behaviour and stays testable (scenario 1); the remaining gap is recorded as `questions.md` Q4 and must be stated rather than replaced with a generic failure message (NFR-8). |
+| R8 | **Allowance attribution not observable end to end** — *resolved by D-H16 (former Q4)*. Reporting an exhausted owner allowance *distinctly* was already settled by D0.12; what used to be unconfirmed was whether content contributed by a **non-owner** is attributed by the service to the **owner's** allowance and how that is observed. | **Closed by criterion, not by hope:** attribution to the owner end to end, and the observability of the household's owner-attributed usage, are a **hard selection criterion** for the mechanism (D-H16), so a candidate that cannot is rejected, exactly as D0.12 closed the reportability gap. This change's task 1.1 confirms the mechanism P0 selected (ADR 0002) against it and reports a blocker (rule 7) if it fails, rather than degrading to a generic message (NFR-8). Residual: none carried as a question; a failure at confirmation is a blocker on task 1.1, not a silent gap. |
 | **R9** | **Owner-dependent access (HS-13, D2) — carried, unmitigated, accepted.** If the account that created a household is removed, other members may lose access. No ownership-transfer and no backup/restore exists. | **No mitigation, by decision D2/NG-3.** Recorded here and in D-H10 so it is not silently forgotten; IMP-8 stays uncommitted backlog; the product makes no promise to the contrary in any P3 surface. |
 | R10 | **Scope creep** into reminders (D3), migration (D4), export, medications or read-path performance. | D-H11 and the "what changes" table in `proposal.md` bound the phase; reviewer task 6.2 verifies the delta contains exactly this phase's requirement IDs. |
-| R11 | **A member's local copy survives a deleted household.** HS-10 requires access to be withdrawn; SYNC-3 serves reads from previously loaded data. A member who is offline at deletion time may keep reading the cached household until a later refresh — a genuine gap in the source documents. | Recorded as `questions.md` Q3. Until answered, the phase's scenarios assert withdrawal of access and reachability of the deletion, not the erasure of another device's cache. |
-| R12 | **Dependency risk from task 1.1's mechanism selection.** The selected shared-service mechanism must actually satisfy D0.12 — reporting an exhausted owner allowance as its own condition, distinct from a generic write error — or the inherited `SaveCause.allowance_exceeded` reporting is not reachable in practice. This is a dependency on task 1.1's selection and review, not on an unanswered question: P0 has no remaining open question. | D0.12 makes the reportability a hard selection criterion at task 1.1, which rejects any candidate that cannot meet it; the separate attribution gap is recorded as R8 and `questions.md` Q4, so the phase is not blocked by it. The bounded times, the offline threshold and retry idempotency are settled and consumed as values (D-H12). |
+| R11 | **A member's local copy survives a deleted household** — *resolved by D-H15 (former Q3)*. HS-10 requires access to be withdrawn; SYNC-3 serves reads from previously loaded data, so a member offline at deletion time keeps reading the cached household until a later refresh. | **Stated as an observable rule rather than an open gap (D-H15):** access is withdrawn at the first moment the member's device reaches the shared service, the cached copy is dropped at that reach, and the product does not attempt to erase another device's copy while it is unreachable. Asserted by HS-10's scenario "A member who is unreachable at the moment of deletion loses access at the next refresh", covered by task 5.12. Residual: for that window the member can still read the loaded data — accepted, asserted, and bounded by the next reach; no remote erasure channel is promised (and none is claimed in any surface). |
+| R12 | **Dependency risk from task 1.1's mechanism selection.** The selected shared-service mechanism must actually satisfy D0.12 — reporting an exhausted owner allowance as its own condition, distinct from a generic write error — **and** D-H16's attribution criterion, or the inherited `SaveCause.allowance_exceeded` reporting and owner attribution are not reachable in practice. This is a dependency on task 1.1's selection and review, not on an unanswered question: P0 has no remaining open question and neither has this change. | D0.12 and D-H16 both make their property a hard selection criterion at task 1.1, which rejects any candidate that cannot meet it; task 1.1 confirms the mechanism P0 selected (ADR 0002) against both and reports a blocker if it fails. The bounded times, the offline threshold and retry idempotency are settled and consumed as values (D-H12); the cap level (D-H13), the visible notification and its content (D-H14) and the offline-deletion window (D-H15) are settled decisions, not questions. |
 
 ## Verification
 
 - Specs: `openspec validate add-household-sharing-hardening --strict`. **Passes** — re-run when the
-  settled values and the retry model were consumed; output:
+  settled values and the retry model were consumed, and again after the four decisions D-H13 … D-H16 were
+  folded into the requirements, scenarios and tasks; output:
   `Change 'add-household-sharing-hardening' is valid`. (The original authoring session had no shell
   access, so the deltas were first checked structurally instead — one `## ADDED Requirements` header per
   delta file, at least one `#### Scenario:` per requirement, `- **WHEN**` / `- **THEN**` bullet form, and
-  no `## MODIFIED` section.)
+  no `## MODIFIED` section. The same structural checks still hold: every requirement added here has at
+  least one scenario, and the deltas remain ADDED only.)
 - Gate (per `definition-of-done`): `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
   `cargo test`, `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` (no diff),
   `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,

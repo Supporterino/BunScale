@@ -28,8 +28,11 @@ preference and the screens SHALL remain usable at the supported baselines. Inter
 SHALL carry labels that identify them to assistive technology. The weight chart SHALL expose an
 **accessible summary** — for example the latest value and the trend direction — that assistive
 technology can read, derived from the same values the chart presents and not from a second source
-of chart data. Where there is no value to summarise, the summary SHALL say so instead of reporting
-a value or implying a trend.
+of chart data. The trend direction SHALL compare the **latest** entry with the **previous** entry and
+SHALL state the **direction only**, claiming no magnitude. When the chart holds exactly **one** entry,
+the summary SHALL report that value and SHALL state that there is no trend yet, inventing no
+direction it cannot support. Where there is **no** value to summarise, the summary SHALL say so,
+using the product's never-weighed wording, instead of reporting a value or implying a trend.
 
 #### Scenario: Text scales with the preferred text size and the layout stays usable [mobile]
 
@@ -53,6 +56,8 @@ a value or implying a trend.
 
 - **WHEN** the weight chart presents a series of weight entries
 - **THEN** an accessible summary of that chart states the latest value and the trend direction
+- **AND** the trend direction is that of the latest entry compared with the previous one, stating the
+  direction only and claiming no magnitude
 - **AND** the summary is available to assistive technology, not only visible on screen
 
 #### Scenario: The chart summary is read when the chart receives focus
@@ -66,10 +71,17 @@ a value or implying a trend.
 - **THEN** the accessible summary changes with it
 - **AND** no additional chart data is requested to produce the summary
 
+#### Scenario: A chart with a single entry reports no trend yet
+
+- **WHEN** the weight chart presents exactly one weight entry
+- **THEN** the accessible summary reports that value
+- **AND** it states that there is no trend yet and claims no direction
+
 #### Scenario: A chart with no values summarises that instead of a value
 
 - **WHEN** the weight chart has no values to present
-- **THEN** the accessible summary states that there is nothing to summarise
+- **THEN** the accessible summary states that there is nothing to summarise, using the product's
+  never-weighed wording
 - **AND** it presents no value and claims no trend direction
 
 ### Requirement: German and English coverage with metric defaults

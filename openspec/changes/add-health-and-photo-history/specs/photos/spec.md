@@ -68,7 +68,9 @@ rabbit appears.
 
 **PHOTO-3.** A per-rabbit gallery SHALL show all of the rabbit's photos — the photos attached to its
 entries and its profile photo — with the photos attached to entries ordered by the date of the entry
-they belong to. The gallery SHALL remain reachable and available for an archived rabbit.
+they belong to. When the rabbit has a profile photo, that photo SHALL appear first, before every photo
+attached to an entry, and the entry photos SHALL follow it. The gallery SHALL remain reachable and
+available for an archived rabbit.
 
 #### Scenario: The gallery shows the rabbit's photos
 
@@ -77,8 +79,9 @@ they belong to. The gallery SHALL remain reachable and available for an archived
 
 #### Scenario: Entry photos are ordered by entry date
 
-- **WHEN** the gallery lists photos attached to entries
-- **THEN** they are ordered by the date of the entry each photo belongs to
+- **WHEN** the gallery lists a rabbit's photos and that rabbit has a profile photo
+- **THEN** the profile photo is shown first, before every photo attached to an entry
+- **AND** the photos attached to entries follow it, ordered by the date of the entry each photo belongs to
 
 #### Scenario: The gallery remains available for an archived rabbit
 

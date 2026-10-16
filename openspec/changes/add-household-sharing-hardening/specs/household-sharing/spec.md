@@ -123,9 +123,12 @@ outcomes only.
 
 ### Requirement: A household holds at most six members
 
-**HS-7.** A household SHALL hold at most six members, counted including the member who created it. An
-invitation that would take a household beyond six members SHALL be blocked and the limit SHALL be
-explained to the person attempting it.
+**HS-7.** A household SHALL hold at most six members, counted including the member who created it. The
+cap SHALL be enforced at the level of the household's **membership**, so that the household never holds
+more than six members at any moment: an invitation that would take a household beyond six members SHALL
+be blocked, and an invitation that was issued earlier SHALL NOT be accepted into a household that
+already holds six members. The six-member limit SHALL be explained to the person attempting either
+operation — creating the invitation or accepting it — with the same explanation for both.
 
 #### Scenario: An invitation beyond the member cap is blocked with an explanation
 
@@ -138,6 +141,8 @@ explained to the person attempting it.
 - **WHEN** a household holds six members and a person accepts an invitation that was issued earlier
 - **THEN** the household still holds six members afterwards
 - **AND** the person accepting is given an explanation of the limit instead of being admitted
+- **AND** the explanation is the same six-member limit that a blocked invitation creation gives
+- **AND** the person is not a member of that household afterwards
 
 ### Requirement: The member list always includes the current person and survives resolution failures
 
@@ -186,7 +191,12 @@ household the person joined. Deletion SHALL require a confirmation that states t
 including that the household's members lose access and that the data cannot be recovered. Confirmed
 deletion SHALL be irreversible and SHALL remove the household together with its rabbits, its weight and
 health entries, its photos, its medications, its doses, its members and its tags, SHALL withdraw access
-from every member, and SHALL reach the household's members. After the active household is deleted, the
+from every member, and SHALL reach the household's members. Access withdrawal SHALL take effect at the
+first moment each member's device can reach the shared service: a member whose device is unreachable when
+the household is deleted SHALL keep reading that household's previously loaded data until that device
+next reaches the shared service, at which point the deletion takes effect, that household's cached copy is
+dropped and access is gone. The product SHALL NOT attempt to erase another device's cached copy while
+that device is unreachable. After the active household is deleted, the
 newest remaining household SHALL become active, or the household-creation onboarding SHALL be presented
 when none remains. A deletion that does not take effect SHALL leave the household and its data intact
 and SHALL state its cause.
@@ -227,6 +237,16 @@ and SHALL state its cause.
 - **THEN** no member of that household retains access to it
 - **AND** the deletion reaches the household's members
 
+#### Scenario: A member who is unreachable at the moment of deletion loses access at the next refresh
+
+- **WHEN** the owner confirms deletion of a shared household while a member's device cannot reach the
+  shared service
+- **THEN** that member's device keeps serving the household's previously loaded data until that device
+  next reaches the shared service
+- **AND** at that next reach the deletion takes effect, that household's cached copy is dropped and the
+  member has no access to it
+- **AND** the product does not attempt to erase that device's cached copy while it is unreachable
+
 #### Scenario: The newest remaining household becomes active after deletion
 
 - **WHEN** the active household is deleted and the person still holds others
@@ -250,7 +270,13 @@ and SHALL state its cause.
 **HS-11.** A change saved by any member SHALL reach that household's other members within normal
 shared-service propagation time, without those members refreshing manually and without them having to
 open the product to fetch it. A change MAY be delivered in the background while the product is not
-open, and a change delivered that way SHALL already be present when the product is next shown.
+open. A change delivered that way SHALL already be present when the product is next shown, and that
+delivery SHALL be visible to the person: it SHALL raise a local notification naming the household. That
+notification SHALL name the household **only** and SHALL NOT carry health content — no rabbit name, no
+symptom, no note text, no weight, no medication name — so that nothing about a rabbit's condition is
+revealed to anyone who can see the notification. When the device has not granted the authorization a
+notification requires, the change SHALL still be applied and SHALL still be present when the product is
+next shown.
 
 #### Scenario: A change made by one member appears for another without a manual refresh
 
@@ -264,6 +290,7 @@ open, and a change delivered that way SHALL already be present when the product 
 - **THEN** the change is delivered to that device in the background without the member opening the
   product
 - **AND** it is present when that member next opens the product
+- **AND** the delivery raises a local notification naming the household
 
 #### Scenario: A change is delivered while the product is not open [macos]
 
@@ -271,6 +298,22 @@ open, and a change delivered that way SHALL already be present when the product 
 - **THEN** the change is delivered to that device in the background without the member opening the
   product
 - **AND** it is present when that member next opens the product
+- **AND** the delivery raises a local notification naming the household
+
+#### Scenario: A background-delivered change notifies the household without revealing its content
+
+- **WHEN** a change is delivered in the background while the product is not open
+- **THEN** a notification naming the household is raised
+- **AND** the notification carries no health content: no rabbit name, no symptom, no note text, no
+  weight and no medication name
+- **AND** the notification identifies no rabbit, entry, note or value taken from the household's data
+
+#### Scenario: A change is still delivered when a notification cannot be raised
+
+- **WHEN** a change is delivered in the background while the device has not granted the authorization
+  notifications require
+- **THEN** the change is applied and is present when the product is next shown
+- **AND** no notification is raised, and the change is still not presented as missing
 
 #### Scenario: Every member of the household ends up with the same change
 
@@ -281,7 +324,12 @@ open, and a change delivered that way SHALL already be present when the product 
 ### Requirement: Shared content counts against the household owner's storage allowance
 
 **HS-12.** Content saved into a shared household SHALL count against the storage allowance of that
-household's owner, whichever member saved it. A save that cannot complete because that allowance is
+household's owner, whichever member saved it. That attribution SHALL be performed by the shared service
+as well as applied by the product: a contribution made by a member who is not the owner SHALL be charged
+to the owner's account end to end, and SHALL NOT be charged to the contributing member's own account, so
+that the owner's allowance reflects what the household consumes through other members' devices. The
+attribution SHALL be observable: the household's usage charged to the owner SHALL include what other
+members contributed to it. A save that cannot complete because that allowance is
 exhausted SHALL be refused and SHALL name the storage allowance as its cause rather than appearing to
 have succeeded.
 
@@ -290,6 +338,9 @@ have succeeded.
 - **WHEN** a member who is not the household's owner saves content into a shared household
 - **THEN** the storage that content consumes counts against the household owner's allowance
 - **AND** not against the saving member's own allowance
+- **AND** the shared service's own accounting charges it to the owner's account rather than to the saving
+  member's, so the attribution holds beyond the saving device
+- **AND** the household's usage charged to the owner includes what the other member contributed
 
 #### Scenario: An exhausted owner allowance refuses a member's save with that cause
 
@@ -297,3 +348,5 @@ have succeeded.
 - **THEN** the save is refused
 - **AND** the message names the storage allowance as the cause
 - **AND** the content is not presented as saved
+- **AND** the refusal follows from the household's consumption charged to the owner, not from the saving
+  member's own allowance

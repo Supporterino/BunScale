@@ -14,6 +14,14 @@ correction path. MED-13 adds no entity, changes no MED-1 … MED-12 requirement'
 one amendment it makes to the read-only boundary of MED-12 and to the lifecycle of MED-2 (both marked in
 place below).
 
+**MED-12 carries two bounded exceptions, and no others.** The end-date correction is MED-13's amendment
+(the mistyped end date MED-2 finishes and MED-12 would otherwise freeze). The second is the
+product-owner decision that a dose **actually given** stays recordable against a finished course, so a
+course ended in the product while doses continued in reality, and a last-day dose logged after midnight,
+are not lost (design D5.15). Neither exception lets an **existing** dose be edited, deleted or
+retargeted — the dose history stays frozen — and an **archived rabbit** gains neither of them, because
+DM-4 freezes it everywhere.
+
 `medication-tracking` is **created by this change**. It states ten requirements and no others. Three
 further requirements belong to this capability but are **`add-vet-export-and-reminders` (P4)**'s,
 where D3's one unified reminder mechanism is specified:
@@ -45,7 +53,11 @@ optional reason, a start date that defaults to today and is editable, an optiona
 per serving expressed as a numeric value together with a unit drawn from exactly **{mg, ml, drops,
 tablets}**, and an optional note. The name, the start date and the amount per serving SHALL be
 required; the reason, the end date and the note SHALL be optional. Several medications SHALL be able to
-be active for one rabbit at the same time.
+be active for one rabbit at the same time. An amount per serving SHALL be **positive**: an amount of
+zero or a negative amount SHALL be refused and SHALL never be stored. No upper bound and no
+implausible-value confirmation SHALL be applied to an amount per serving, because no single plausibility
+threshold holds across mg, ml, drops and tablets; this is deliberately unlike the implausible-value
+confirmation WT-4 states for weight (P1).
 
 #### Scenario: A medication is recorded with its treatment details
 
@@ -78,6 +90,18 @@ be active for one rabbit at the same time.
 - **WHEN** a person chooses the unit for an amount per serving
 - **THEN** mg, ml, drops and tablets are offered
 - **AND** no other unit can be recorded for a medication
+
+#### Scenario: A non-positive serving amount is refused
+
+- **WHEN** a person supplies an amount per serving of zero or a negative value
+- **THEN** the medication is not saved
+- **AND** the refusal states that the amount per serving must be positive
+
+#### Scenario: No plausibility confirmation is applied to a serving amount
+
+- **WHEN** a person supplies an amount per serving far outside the range of amounts they usually record
+- **THEN** the medication is saved without an implausible-value confirmation
+- **AND** the amount is stored as supplied
 
 ### Requirement: A medication is active until its end date passes, then finished and its record retained
 
@@ -230,10 +254,15 @@ omitting a parameter the person configured.
 
 **MED-5.** Recording a dose SHALL capture the medication it belongs to, a timestamp that defaults to
 **now** and is editable, an amount that is **pre-filled from the medication's amount per serving** and
-is editable, an optional note, and the identity of the **member who recorded it**. A recorded dose
-SHALL be part of the household's shared collection, so every member of the household resolves the same
-dose. (The giver itself is stated as an invariant by
-`A dose records the giver as a member of the household` in `data-integrity`.)
+is editable, an optional note, and the identity of the **member who recorded it**. A dose SHALL carry
+**its own unit together with its own value**, and that unit **MAY be a different unit** from the
+medication's amount per serving: the dose, not the course, is what the person declares was given, so a
+dose counted in drops against a serving recorded in ml SHALL be recordable, and the product SHALL
+perform **no conversion** between units. A dose's amount SHALL be **positive**: an amount of zero or a
+negative amount SHALL be refused and SHALL never be stored, and no upper bound and no
+implausible-value confirmation SHALL be applied to it. A recorded dose SHALL be part of the household's
+shared collection, so every member of the household resolves the same dose. (The giver itself is stated
+as an invariant by `A dose records the giver as a member of the household` in `data-integrity`.)
 
 #### Scenario: A dose is recorded with the serving amount, the current time and the recording member
 
@@ -249,6 +278,24 @@ dose. (The giver itself is stated as an invariant by
   confirming
 - **THEN** the recorded dose carries 0.2 ml
 - **AND** the medication's amount per serving is unchanged
+
+#### Scenario: A dose may carry a different unit from the serving
+
+- **WHEN** a medication's amount per serving is 0.2 ml and a person records a dose of 3 drops
+- **THEN** the dose is recorded carrying the value 3 and the unit drops
+- **AND** the medication's amount per serving and its unit are unchanged
+- **AND** no conversion between ml and drops is attempted
+
+#### Scenario: A non-positive dose amount is refused
+
+- **WHEN** a person confirms a dose with an amount of zero or a negative value
+- **THEN** no dose is recorded
+- **AND** the refusal states that the dose amount must be positive
+
+#### Scenario: No plausibility confirmation is applied to a dose amount
+
+- **WHEN** a person records a dose whose amount is far larger than the medication's amount per serving
+- **THEN** the dose is recorded without an implausible-value confirmation
 
 #### Scenario: A dose can be back-dated
 
@@ -273,9 +320,11 @@ dose. (The giver itself is stated as an invariant by
 **MED-6.** The product SHALL present a medication's doses in **chronological order**, each dose showing
 its timestamp, its amount and its **giver**. A recorded dose SHALL be editable in its amount, its note
 and its timestamp, and SHALL be deletable. Every such change SHALL be shared with all members of the
-household. This holds while the medication is not read-only: a finished medication's dose history is
-frozen (MED-12) and an archived rabbit's medications are read-only everywhere (DM-4, P1). (The giver is
-not among the editable attributes; see
+household. This holds while the medication is not read-only: a finished medication's **existing** dose
+history is frozen (MED-12) and an archived rabbit's medications are read-only everywhere (DM-4, P1).
+(Two exceptions leave the existing history frozen nonetheless: a dose that was actually given may still
+be **recorded** against a finished medication, and its end date stays correctable — both MED-12; an
+archived rabbit gets neither. The giver is not among the editable attributes; see
 `A dose records the giver as a member of the household` in `data-integrity`.)
 
 #### Scenario: The dose list is chronological and shows timestamp, amount and giver
@@ -306,11 +355,17 @@ not among the editable attributes; see
 ### Requirement: A near-simultaneous dose of the same medication is warned about before it is recorded
 
 **MED-7.** Before a dose is confirmed, the product SHALL determine whether a dose of **the same
-medication** was already logged within a short recent window of approximately **15 minutes**. When one
-was, the product SHALL present a warning that names the existing dose and SHALL let the person either
-**continue**, in which case the dose is recorded, or **cancel**, in which case no dose is recorded. When
-no dose of that medication falls within the window, no warning SHALL be presented and the dose SHALL be
-recorded.
+medication** was already logged within a short recent window of approximately **15 minutes**. The
+window SHALL be measured from **the timestamp entered for the new dose** — the instant that will be
+recorded, not the moment of confirmation — and SHALL cover doses of that medication **both before and
+after** that instant, so a back-dated dose colliding with a later one is caught as well as one logged
+minutes earlier. The determination SHALL be made against **that medication's doses read afresh** at
+the moment of confirmation, and not against a copy the device may already hold, so a dose another
+member recorded minutes ago is not missed. When one or more doses of that medication fall inside the
+window, the product SHALL present a warning that names the existing dose or doses and SHALL let the
+person either **continue**, in which case the dose is recorded, or **cancel**, in which case no dose is
+recorded. When no dose of that medication falls within the window, no warning SHALL be presented and
+the dose SHALL be recorded.
 
 #### Scenario: A dose inside the window raises a warning
 
@@ -333,7 +388,8 @@ recorded.
 
 #### Scenario: A dose outside the window records without a warning
 
-- **WHEN** the most recent dose of the same medication was logged well outside the window
+- **WHEN** no dose of the same medication falls inside the window, on either side of the timestamp
+  entered for the new dose
 - **THEN** no warning is presented
 - **AND** the dose is recorded
 
@@ -355,6 +411,30 @@ recorded.
 - **WHEN** the medication has no recorded dose at all
 - **THEN** no warning is presented
 - **AND** the dose is recorded
+
+#### Scenario: The window is measured from the timestamp entered for the new dose
+
+- **WHEN** a person records a dose stamped 09:00, hours after the moment of confirmation, and another
+  member's dose of the same medication was recorded at 08:50
+- **THEN** the warning is presented, because 08:50 falls inside the window measured from 09:00
+- **AND** the moment of confirmation is not the anchor of the window
+
+#### Scenario: A dose after the entered timestamp inside the window raises the warning too
+
+- **WHEN** a person records a dose stamped 09:00 and another member's dose of the same medication was
+  recorded at 09:05
+- **THEN** a warning is presented before the dose is confirmed
+- **AND** it names that dose, which lies after the timestamp entered
+- **AND** the person may continue or cancel
+
+#### Scenario: The check reads the medication's doses afresh before it is evaluated
+
+- **WHEN** another member recorded a dose of the same medication minutes ago on another device, and the
+  confirming device's local copy does not yet hold it
+- **THEN** confirming a dose reads that medication's doses from the household's shared collection before
+  the window is evaluated
+- **AND** the warning is presented for that dose
+- **AND** the check itself records nothing
 
 #### Scenario: The warning does not depend on the device [mobile]
 
@@ -383,15 +463,23 @@ record the dose and update the presented dose list.
 
 ### Requirement: A finished medication's records are read-only while remaining visible
 
-**MED-12.** While a medication is finished, its record and its dose history SHALL remain **viewable** and
-SHALL NOT be editable or deletable, and no dose SHALL be added to it. **Its end date is the one
-exception: it SHALL remain correctable while the medication is finished, so a mistyped end date is never
-frozen (MED-13); every other attribute and the whole dose history stay read-only.** For an **archived
-rabbit**, the medication section of the rabbit dashboard SHALL offer no control that creates, edits or
-deletes a medication or a dose — including no correction of the end date, because DM-4 freezes an
-archived rabbit everywhere. Restoring an archived rabbit SHALL return write access to its medications,
-while its finished medications SHALL remain read-only except for that same end-date correction. (That an
-archived rabbit is immutable *everywhere* is `An archived rabbit is read-only everywhere`, DM-4, owned by
+**MED-12.** While a medication is finished, its record and its dose history SHALL remain **viewable**,
+and **no existing dose SHALL be edited, deleted or retargeted**. Two deliberate and bounded exceptions
+exist, and **no others**; both leave the recorded dose history frozen:
+
+- **the end date stays correctable** while the medication is finished, so a mistyped end date is never
+  frozen (MED-13), while every other attribute of the course stays read-only;
+- **a dose that was actually given stays recordable**, carrying its own timestamp, so a course that was
+  ended in the product while doses continued in reality, and a dose given on the last day and logged
+  after midnight, are not lost. Recording it SHALL NOT unfreeze anything else: the course's other
+  attributes stay read-only, and its existing doses stay uneditable, undeletable and unretargeted.
+
+For an **archived rabbit**, the medication section of the rabbit dashboard SHALL offer no control that
+creates, edits or deletes a medication or a dose — **neither exception applies there**: no correction of
+the end date and no recording of a dose — because DM-4 freezes an archived rabbit everywhere. Restoring
+an archived rabbit SHALL return write access to its medications, while its finished medications SHALL
+remain read-only except for those same two exceptions. (That an archived rabbit is immutable
+*everywhere* is `An archived rabbit is read-only everywhere`, DM-4, owned by
 `add-rabbit-weight-core-loop` (P1); this requirement states only the observable medication behaviour and
 does not restate it.)
 
@@ -406,8 +494,22 @@ does not restate it.)
 
 - **WHEN** a person opens the dose list of a finished medication
 - **THEN** every dose recorded during the course is presented with its timestamp, amount and giver
-- **AND** no control is available that edits or deletes a dose
-- **AND** no control is available that records a new dose
+- **AND** no control is available that edits or deletes an existing dose
+
+#### Scenario: A dose that was actually given is recordable against a finished course
+
+- **WHEN** a course is finished — because it was ended in the product while doses continued in reality,
+  or because a dose given on its last day is being logged after midnight — and a person records a dose
+  that was actually given
+- **THEN** the give-dose action is available and the dose is recorded
+- **AND** the recorded dose carries its own timestamp
+- **AND** no attribute of the course other than its end date (MED-13) is editable
+
+#### Scenario: Recording a given dose leaves the frozen dose history frozen
+
+- **WHEN** a dose is recorded against a finished medication
+- **THEN** every existing dose keeps its timestamp, its amount and its giver
+- **AND** no existing dose is edited, deleted or retargeted
 
 #### Scenario: An archived rabbit's medication section offers no write action
 
@@ -416,12 +518,20 @@ does not restate it.)
 - **AND** no action is available that creates, edits or deletes a medication
 - **AND** no action is available that creates, edits or deletes a dose
 
+#### Scenario: An archived rabbit gains neither exception
+
+- **WHEN** an archived rabbit's finished medication is opened, from any entry point in the product
+- **THEN** no dose can be recorded against it
+- **AND** its end date cannot be corrected
+- **AND** no existing dose can be edited or deleted
+
 #### Scenario: Restoring the rabbit restores write access, but a finished medication stays read-only
 
 - **WHEN** an archived rabbit is restored and a person opens its medications
 - **THEN** its active medications are writable again
 - **AND** a medication of that rabbit that is finished remains read-only, except that its end date stays
-  correctable (MED-13)
+  correctable (MED-13) and a dose that was actually given stays recordable
+- **AND** no existing dose of that finished medication can be edited or deleted
 
 ### Requirement: An active course's details are correctable and a medication is never deleted
 
@@ -436,8 +546,12 @@ SHALL remain correctable while the medication is finished**, so a mistyped end d
 repaired; correcting it to a date in the future, or removing it, SHALL return the medication to active
 under MED-2's derivation. Every other attribute of a finished medication, and its entire dose history,
 SHALL remain read-only (MED-12). A correction SHALL NOT delete, rewrite or retarget any recorded dose, and
-SHALL NOT change a dose's giver (DM-5). For an **archived rabbit**, nothing is correctable at all, the end
-date included (DM-4, MED-12). (No requirement here restates DM-4, MED-6's dose edits or MED-12's
+SHALL NOT change a dose's giver (DM-5). MED-12's other exception — recording a dose that was actually
+given against a finished course — makes **none** of the course's own attributes correctable: the end
+date remains the only attribute MED-13 permits a person to correct on a finished course, and recording
+such a dose SHALL NOT become a path to correcting, deleting, rewriting or retargeting anything else. For
+an **archived rabbit**, nothing is correctable at all, the end date included, and no such dose can be
+recorded (DM-4, MED-12). (No requirement here restates DM-4, MED-6's dose edits or MED-12's
 read-only record: this requirement states the medication-detail edit path and the never-deletable rule,
 and references the boundaries it must not cross.)
 
@@ -485,7 +599,9 @@ and references the boundaries it must not cross.)
 - **THEN** its end date can be corrected
 - **AND** no control is available that changes its name, reason, start date, serving, unit, schedule or
   note
-- **AND** no control is available that edits, deletes or records a dose
+- **AND** no control is available that edits or deletes an existing dose
+- **AND** recording a dose that was actually given stays available as MED-12 states, and is not a path to
+  any of the changes above
 
 #### Scenario: An archived rabbit's course is not correctable
 

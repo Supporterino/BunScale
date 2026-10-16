@@ -12,33 +12,38 @@ and the weight-trend presentation of DASH-7 are owned by `add-rabbit-weight-core
 
 ### Requirement: Rabbits with a recent severe health entry are flagged on the dashboard
 
-**DASH-4 (severe-health clause).** A rabbit SHALL be flagged on the dashboard when it has a health
-entry of severity Severe whose timestamp is within the last 7 days. A Severe entry older than 7 days
-SHALL NOT flag the rabbit, and an entry of Mild or Moderate severity SHALL NOT flag it. The flag SHALL
-clear as soon as the rabbit no longer has a Severe entry within the last 7 days — for example because
-the entry was changed to a lower severity, was deleted, or has aged out of the window. The flag SHALL
-be the same dashboard warning flag that the weight-drop clause of this requirement raises.
+**DASH-4 (severe-health clause).** The window of this clause SHALL be a rolling window of 7 × 24 hours
+measured back from the present instant, independent of the device's timezone and of any calendar day
+boundary, because entry timestamps are absolute instants. A rabbit SHALL be flagged on the dashboard
+when it has a health entry of severity Severe whose timestamp falls inside that window. A Severe entry
+outside the window SHALL NOT flag the rabbit, and an entry of Mild or Moderate severity SHALL NOT flag
+it. The flag SHALL clear as soon as the rabbit no longer has a Severe entry within the window — for
+example because the entry was changed to a lower severity, was deleted, or has aged out of the window.
+The flag SHALL be the same dashboard warning flag that the weight-drop clause of this requirement
+raises.
 
 #### Scenario: A Severe health entry within the last 7 days flags the rabbit
 
-- **WHEN** a rabbit has a health entry of severity Severe whose timestamp is within the last 7 days
+- **WHEN** a rabbit has a health entry of severity Severe whose timestamp is within 7 × 24 hours before the present instant
 - **THEN** that rabbit is flagged on the dashboard
+- **AND** the window is measured back from the present instant, not from a calendar day boundary in the device's timezone
 
 #### Scenario: A Severe health entry older than 7 days does not flag the rabbit
 
-- **WHEN** a rabbit's most recent Severe health entry is older than 7 days
+- **WHEN** a rabbit's most recent Severe health entry is more than 7 × 24 hours before the present instant
 - **THEN** that entry does not flag the rabbit on the dashboard
+- **AND** this is decided from the entry's stored instant alone, without reference to a device calendar
 
 #### Scenario: A Mild or Moderate entry does not flag the rabbit
 
-- **WHEN** a rabbit has health entries within the last 7 days but none of them is Severe
+- **WHEN** a rabbit has health entries inside the window but none of them is Severe
 - **THEN** those entries do not flag the rabbit on the dashboard
 
 #### Scenario: The flag clears when no recent Severe entry remains
 
-- **WHEN** a Severe health entry is changed to a lower severity, or is deleted, or is no longer within the last 7 days
+- **WHEN** a Severe health entry is changed to a lower severity, or is deleted, or its timestamp is no longer inside the rolling window of 7 × 24 hours before the present instant
 - **THEN** that entry no longer flags the rabbit
-- **AND** the rabbit is no longer flagged unless it has another Severe entry within the last 7 days
+- **AND** the rabbit is no longer flagged unless it has another Severe entry inside the window
 
 ### Requirement: Health-only and full combined history views
 

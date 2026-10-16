@@ -55,12 +55,14 @@ Resolving a photo for display produces one of a small set of explicit availabili
 |---|---|---|
 | available locally | the device already holds the local copy | the photo is displayed, without connectivity |
 | fetched now | not held locally, and the shared service is reachable | the photo is displayed and the local copy is kept |
-| unavailable offline | not held locally, and the shared service is unreachable | the "cannot load without connectivity" placeholder |
+| unavailable offline | never displayed, so no local copy exists, and the shared service is unreachable | the "cannot load without connectivity" placeholder |
 | missing | the reference does not resolve in the shared collection | a distinct "no longer available" state |
 
 The decision is made from the *local copy's presence plus a fresh reachability outcome*, never from a
-status carried over from a previous session (P0's honesty rule). Two rules follow that must not be
-short-circuited for convenience:
+status carried over from a previous session (P0's honesty rule). The unavailable-offline state is
+reachable **only** for a photo that has never been displayed: retention is local and indefinite (D2.9),
+so a displayed photo is never evicted and never falls back into this state. Two rules follow that must
+not be short-circuited for convenience:
 
 - an entry that **has** photos which cannot be loaded SHALL NOT present as an entry with no photos —
   the placeholder occupies the photo's place, so the person can tell "not loaded" from "nothing here";
@@ -80,8 +82,9 @@ identifiers, never by a shared global identifier, which is what keeps DM-2 true.
 ### D2.5 — The dashboard health flag is derived, never stored
 
 Whether a rabbit carries the severe-health flag is computed on read from its health entries, never
-persisted onto the rabbit. The flag applies when the rabbit has a health entry of severity Severe
-whose timestamp falls within the last 7 days (the window definition is open question Q3). This keeps
+persisted onto the rabbit. The flag applies when the rabbit has a health entry of severity Severe whose
+timestamp falls inside a rolling window of 7 × 24 hours measured back from the present instant,
+independent of the device's timezone and of any calendar day boundary (D2.11). This keeps
 the flag automatically correct when an entry is edited to a lower severity, deleted, or ages out of
 the window, and it means a threshold-like recomputation (the weight-drop analogue owned by P1) needs no
 stored state. The flag is presented as the same dashboard warning flag that the weight-drop clause
@@ -111,6 +114,39 @@ DM-4 / RAB-8 make an archived rabbit's data immutable. P2 surfaces archived data
 the health-entry detail, the history views, and the per-rabbit gallery — and all three consult the
 single archived gate introduced in P1 rather than each re-deriving it. Read access stays available
 (the gallery in particular MUST remain reachable from an archived rabbit's timeline).
+
+### D2.9 — A displayed photo is kept locally and indefinitely (settles Q1)
+
+Local retention is not a cache with a budget: a photo that has been displayed at least once is kept
+**locally and indefinitely**, until the household or the photo itself is removed. It is **not
+size-bounded and not evictable**, not by the app and not as a reclaimable cache. Two consequences are
+made explicit because they are what the tests can hold onto:
+
+- SYNC-4's guarantee becomes **unconditional** — "available locally after first display" has no
+  "unless it was evicted" clause, so a photo that was displayed once is offline-available for as long
+  as it exists;
+- the "cannot load without connectivity" placeholder is reachable **only** for a photo that was never
+  displayed (D2.3). A displayed photo never falls back into the unavailable-offline state.
+
+The retained copy remains a **read** copy of the shared collection, so D2.1/D1 are untouched: nothing
+about it is a write, and no retention-related local record competes with the collection.
+
+### D2.10 — The gallery shows the profile photo first, then entry photos by entry date (settles Q2)
+
+A profile photo belongs to no entry and therefore has no entry date to sort by. PHOTO-3 orders the
+gallery explicitly: the rabbit's **profile photo appears first**, before all entry photos; the photos
+attached to entries **follow it, ordered by the date of the entry each belongs to**. When the rabbit
+has no profile photo, the entry photos simply start the order. Nothing is ordered by upload time, and
+the rule is the same for an active and an archived rabbit (D2.8).
+
+### D2.11 — The severe-health window is 7 × 24 hours rolling back from the present instant (settles Q3)
+
+DASH-4's severe-health clause uses a **rolling window of 7 × 24 hours measured back from the present
+instant**, not a count of calendar days. It is therefore **timezone-independent** and free of any
+calendar day boundary, which is consistent with P0's rule that timestamps are absolute instants (DM-6):
+the window is decided from the stored entry instant alone. A test can assert it against stored instants
+without a device calendar — instants stated relative to the entry's stored timestamp and to the present
+instant. The weight-drop clause of DASH-4 is P1's and is not redefined here.
 
 ## State and boundaries
 
@@ -162,7 +198,7 @@ may be implemented against them until the contract is frozen and `bun run gen:bi
 | `ensure_health_tag_catalog(household_id)` | Idempotently establish and return the household's canonical categories | HL-6, DM-2 |
 | `upload_photo(source, owner)` | Save photo content into the household's collection; reachability-gated; returns a reference | PHOTO-1, PHOTO-4 |
 | `resolve_photo(photo_ref)` | Resolve a photo for display: local copy, fresh fetch, or an explicit unavailable-offline state | SYNC-4, PHOTO-5 |
-| `list_rabbit_photos(rabbit_id, range?)` | Gallery: the rabbit's photos with the entry each belongs to, ordered by entry date | PHOTO-3 |
+| `list_rabbit_photos(rabbit_id, range?)` | Gallery: the rabbit's photos with the entry each belongs to — profile photo first, then entry photos ordered by entry date (D2.10) | PHOTO-3 |
 | `remove_photo(photo_ref)` | Remove a photo from its owner; a save | PHOTO-1, PHOTO-4 |
 | `set_rabbit_profile_photo(rabbit_id, photo_ref)` | Set the profile photo; the rabbit record itself is P1's | PHOTO-2 |
 | *(type extension, not a new command)* | The P1 dashboard list row gains the derived health-flag fields; `architect` reconciles the row type with P1 rather than adding a second dashboard command | DASH-4 |
@@ -196,7 +232,7 @@ P0's `household:changed` and `service:status-changed` are reused unchanged; no P
 | `PhotoOwner` | `{ kind: rabbit_profile \| weight_entry \| health_entry, id }` | PHOTO-1, PHOTO-2 |
 | `PhotoSource` | `{ kind: photo_library \| file, handle }` | platform-mediated selection (D2.7) |
 | `PhotoAvailability` | `available_local \| fetched \| unavailable_offline \| missing` | drives the SYNC-4 placeholder decision |
-| `RabbitPhoto` | `{ photo_ref, source: PhotoOwner, entry_timestamp? }` | gallery ordering by entry date (PHOTO-3) |
+| `RabbitPhoto` | `{ photo_ref, source: PhotoOwner, entry_timestamp? }` | gallery ordering: profile photo first, then entry photos by entry date (PHOTO-3, D2.10) |
 | `DashboardHealthFlag` | `{ has_recent_severe_health: bool, latest_severe_at? }` | DASH-4 severe clause; reconciled into P1's dashboard row |
 
 P0's `CommandError`, `SaveCause` and `Instant` are reused unchanged; P1's `RabbitId`, `WeightEntry` and
@@ -241,10 +277,10 @@ the `data-integrity` requirement `A health tag catalog belongs to exactly one ho
 | # | Risk | Mitigation in this change |
 |---|---|---|
 | R1 | **Photo content is the largest consumer of the household owner's storage allowance** (HS-12, P3), so photo saves are where allowance failures will actually appear. | No photo-specific failure is invented: an upload failure maps onto P0's `SaveCause` (`allowance_exceeded`), which is guaranteed reachable by contract — D0.12 makes distinct allowance reporting a hard selection criterion for the shared service (P0 task 1.1), so the cause is not an unresolved observability question. The residual risk here is only that photo uploads are the surface where it will most often be hit. |
-| R2 | **The SYNC-4 guarantee depends on a cache nobody has bounded.** "Available locally after first display" is stated, but retention and eviction are unspecified. | Stated as open question Q1 before task 2.12 and task 3.4 land; the spec deliberately promises only what the local copy holds. |
+| R2 | **The SYNC-4 guarantee depends on a cache nobody has bounded.** | Settled by D2.9: the local copy of a displayed photo is kept locally and indefinitely, is not size-bounded and is never evicted, so the promise in SYNC-4 is unconditional and the placeholder is reachable only for a never-displayed photo. The spec asserts exactly that split and no retention duration. |
 | R3 | **Orphaned photo after a partial save.** Content uploaded but the entry save refused (or the reverse) leaves a photo with no owner or an owner with a missing photo. | The entry save carries its photos as one operation (D2.1); `architect` (task 1.1) reuses P0's settled idempotent-request model (D0.14 — every state-changing command carries a client-generated `request_id` deduplicated by the service, so a retry is idempotent by construction) and no task may create an orphan path. |
 | R4 | **Two members each establish the tag catalog**, producing duplicate categories and violating DM-2/SYNC-1. | Establishment is idempotent on the canonical category within the household (D2.4) and is tested with a concurrent case; no device-local catalog exists. |
-| R5 | **The 7-day severe window is not reproducible** if "last 7 days" is read as calendar days while tests use instants. | Recorded as open question Q3; tests use instants relative to the stored entry timestamp until it is decided. |
+| R5 | **The 7-day severe window is not reproducible** if "last 7 days" is read as calendar days while tests use instants. | Settled by D2.11: the window is a rolling 7 × 24 hours measured back from the present instant and is timezone-independent, so tests assert it against stored instants with instants stated relative to the entry's stored timestamp and to the present instant, and no device calendar is involved. |
 | R6 | **Interleaved history re-downloads what P1 already loaded** (NFR-7). | The history read resolves from the already-loaded household collection (D2.6); read-path optimisation itself stays P6. |
 | R7 | **Archived read-only (DM-4 / RAB-8) is surfaced in three P2 places** — health detail, history views, gallery — and could drift. | One shared archived gate (D2.8) plus a scenario in each of the three capabilities. |
 | R8 | **Photo-source access widens capability/CSP/entitlements on two platforms.** | `tauri-security` (task 1.3) declares the least-privilege permission and scope for iOS and macOS; `apple-native` owns the picker bridges; specs stay platform-neutral except where behaviour genuinely differs. |

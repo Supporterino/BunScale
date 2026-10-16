@@ -90,8 +90,9 @@ tests at Rust, component and E2E level.
   `tauri-security`.
 - **Dependencies added:** a platform photo-source bridge for iOS (PHPicker / PhotosUI) and macOS
   (Photos library / file source), justified in `design.md` and required to support both platforms.
-- **Risk carried forward:** the local photo copy and the SYNC-4 offline guarantee (retention is an
-  open question), and tag-catalog duplication if two members establish the catalog independently.
+- **Risk carried forward:** the local photo copy and the SYNC-4 offline guarantee (retention settled by
+  design D2.9: kept locally and indefinitely, never evicted), and tag-catalog duplication if two members
+  establish the catalog independently.
 - **Not in this change:** weight entries and the weight-drop dashboard flag (P1), invitations, member
   management and household deletion (P3), export and reminders (P4), medications and their badge (P5),
   read-path performance tuning (P6), and any migration or import of existing data (D4).

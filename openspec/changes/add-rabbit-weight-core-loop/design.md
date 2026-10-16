@@ -59,7 +59,10 @@ be able to disagree with the threshold it was computed from. A derived alert can
 The threshold is a field of the rabbit (RAB-1/RAB-5, default 5%) so it is shared with the household
 like any other profile field, and a member's threshold edit reaches everyone through the ordinary
 change event. The dashboard flag (DASH-4 weight part) is the same derivation surfaced as a row
-indicator, so the dashboard flag and the entry flag can never disagree.
+indicator, so the dashboard flag and the entry flag can never disagree. The derivation is over the
+current entry set rather than a snapshot taken when an entry was saved, so an edit or a deletion also
+re-evaluates the alerts of the surrounding entries (D1.13) — a recomputation is a re-read, never a
+repair pass over stored entries.
 
 ### D1.4 — Range selection is a read-side concern; the two ranges are independent (WT-6)
 
@@ -141,6 +144,37 @@ photo library is PHOTO-2 (`add-health-and-photo-history`, P2) and brings its own
 change with it. Consequence: **P1 requires no capability, CSP, scope or entitlement change**, and
 therefore has no `tauri-security` task; the first photo-library access in the reimplementation happens
 in P2, through `tauri-security`, and not here.
+
+### D1.12 — A tied timestamp resolves to the earlier-created entry (WT-7)
+
+WT-7 compares an entry against "the previous entry", and WT-1 lets a person set a timestamp, including
+one in the past, so two entries sharing a timestamp are reachable through entirely ordinary use (two
+readings logged for the same moment, or two entries back-dated to the same day). The alert basis is
+therefore ordered by **timestamp, and where two entries share a timestamp the earlier-created entry is
+the previous entry** for the later one. The rule depends only on stored data and is deterministic, so
+the entry flag (WT-7) and the dashboard flag (DASH-4) cannot disagree and the same data produces the
+same alert on every device; no entry is left without a basis because of a tie.
+
+### D1.13 — The drop alert is a pure derivation over the current entry set (WT-7; confirms D1.3)
+
+The alert is recomputed from the entries as they currently stand, never fixed at the moment an entry
+was saved. Editing or deleting an entry therefore re-evaluates the alerts of the entries around it:
+after a deletion the entry that follows is compared against the entry that now precedes it, so its
+drop — and the flag derived from it — can change although that entry was never itself edited, and the
+dashboard flag (DASH-4) reflects the new derivation for the same reason. This is the reading D1.3
+depends on, and it means WT-5's edit and delete are alert-affecting operations rather than value
+corrections only. Consequences: a recomputation is a re-read of the current entry set and never a
+repair pass over stored entries, and no entry carries an alert snapshot that could go stale.
+
+### D1.14 — A rabbit's sex and neuter/spay status have fixed value sets (RAB-1)
+
+`sex` is `male`, `female` or `unknown`; `neuter_status` is `intact`, `neutered`, `spayed` or `unknown`.
+The distinction between `neutered` and `spayed` is clinically meaningful, so the two are not collapsed
+into a single "fixed" value, and a free-text field — which would accept a misspelt or invented status
+— is not an option either. `unknown` is permitted for both, consistent with RAB-1 already permitting an
+unknown date of birth: a person is not forced to invent a value they do not have. The sets are frozen
+with the contract in task 1.1 and carried in the shared-types table below; the creation and edit forms
+offer exactly these options (task 4.3).
 
 ## State and boundaries
 
@@ -229,7 +263,7 @@ later optimises).
 | `WeightEntrySummary` | `{ id, value_grams, timestamp, has_weight_drop_alert }` | trend points and history rows |
 | `WeightRange` | `days_7 \| days_30 \| days_90 \| all` | WT-6; the same enum serves both independent ranges |
 | `WeightTrend` | `{ range, points: [WeightEntrySummary], drop_threshold_percent }` | the threshold travels with the series so the alert is derivable and consistent |
-| `Sex`, `NeuterStatus` | enumerations | the source requirements do not enumerate their values (see `questions.md` Q3); `architect` records the value set with the contract |
+| `Sex`, `NeuterStatus` | `Sex` = `male` \| `female` \| `unknown`; `NeuterStatus` = `intact` \| `neutered` \| `spayed` \| `unknown` | fixed value sets (D1.14); `unknown` is permitted in both, as an unknown date of birth is |
 | reuse | `CommandError`, `SaveCause`, `Instant`, `WeightUnit`, `HouseholdId` | from P0, unchanged |
 
 ## Traceability: user stories → scenarios
@@ -274,6 +308,12 @@ later optimises).
 | US-QUAL-08 | NFR-9 | product-quality: all four scenarios |
 | US-QUAL-09 | DM-1, DM-4 | data-integrity: "Every stored weight is in grams", "A weight entry carries no unit of its own", "Restoring returns the rabbit with its history intact", "The archive is retrievable and its data is retained by default" |
 
+Scenarios added from settled decisions rather than from a story: "Entries sharing a timestamp are
+ordered by creation", "Deleting an entry re-derives the following entry's alert" and "Editing an entry
+re-derives the alerts around it" (WT-7, D1.12/D1.13, named by task 5.5); "A neutered and a spayed
+rabbit are recorded distinctly" and "Sex and neuter status may each be recorded as unknown" (RAB-1,
+D1.14, named by task 5.1).
+
 Stories with no P1 scenario: **none** among the requirements this change owns. Clauses deliberately
 left to other phases: RAB-8's export and photo-gallery availability (EXP-1 … EXP-4 in P4, PHOTO-3 in
 P2), RAB-1's photo selection (PHOTO-2 in P2) and DM-4's health/medication scenarios (P2 and P5).
@@ -287,7 +327,7 @@ P2), RAB-1's photo selection (PHOTO-2 in P2) and DM-4's health/medication scenar
 | R3 | **Archived immutability leaks.** Hiding controls is not enforcement; a stale route or a direct command could still write to an archived rabbit. | The refusal lives at the write boundary as well as in the UI (D1.5) and is tested through the command path, not only through the screen. |
 | R4 | **Overlapping capability files collide at archive.** `dashboard`, `data-integrity` and `weight-tracking` are each modified by several phases (and P0 owns the generic NFR-10 text). | Cross-phase requirements use the exact names fixed in `proposal.md`; DM-1/DM-4 and WT-3 are scoped and reference the P0 requirements instead of restating them; the review task checks the delta for exactly the 30 IDs. |
 | R5 | **The chart gains a baseline band again.** A healthy-range band is visually obvious "polish" and easy to reintroduce while building the chart. | D1.7 records the exclusion; the delta contains no requirement for it, the contract carries no baseline field, and review checks for it explicitly. |
-| R6 | **Back-dated and edited timestamps reorder the list.** WT-1 allows a past timestamp and WT-5 allows edits, so "most recent weigh-in" (DASH-3) is not simply creation order. | Sort on the entry timestamp, not on creation order; the derivation re-runs on every invalidation from `weight:changed`. Which entry counts as "the previous entry" when two entries share a timestamp is an open item (`questions.md` Q1). |
+| R6 | **Back-dated and edited timestamps reorder the list.** WT-1 allows a past timestamp and WT-5 allows edits, so "most recent weigh-in" (DASH-3) is not simply creation order. | Sort on the entry timestamp, not on creation order; the derivation re-runs on every invalidation from `weight:changed` and on every read. Which entry counts as "the previous entry" when two entries share a timestamp is settled: timestamp order, with the earlier-created entry as the previous one on a tie (D1.12). |
 | R7 | **Permanent deletion is narrower than the source requirement.** RAB-10 in `docs/BunScale-Reimplementation-Requirements.md` permits permanent deletion with no precondition on the rabbit's state, which would allow an irreversible action straight from an active profile, while US-RAB-10's only case is an archived rabbit. | **Settled, recorded here so it is not reopened:** permanent deletion is available only for an archived rabbit; an active rabbit presents no delete affordance and the operation is refused, so the irreversible action sits behind the recoverable step of archiving (D1.8, task 2.7, task 4.5). This is an intentional **narrowing** of the source RAB-10, not a misreading — do not "restore" the unqualified reading. |
 | R8 | **Photo references without a picker.** P1 carries a photo reference whose selection arrives in P2, so the field is never populated in P1's own flows. | Accepted as a deliberate cross-phase split (D1.11): the thumbnail and placeholder behaviour (RAB-1, DASH-1) are testable with a supplied reference, and P2 supplies the picker. No photo-library capability is opened in P1. |
 | R9 | **Range state drifting between the two ranges.** A shared range store would silently couple the chart and the history sub-view and violate WT-6. | Ranges are separate typed search parameters, one per view (D1.4); the independence scenario is asserted as a component and as an E2E case. |

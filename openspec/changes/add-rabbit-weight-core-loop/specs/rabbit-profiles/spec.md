@@ -9,11 +9,15 @@ Stories: US-RAB-01 … US-RAB-10, US-DASH-09 (the add-first-rabbit entry part of
 
 **RAB-1.** A rabbit profile SHALL record the rabbit's name, an optional photo, an optional breed,
 an optional date of birth that can be explicitly marked unknown, a sex, a neuter/spay status, and an
-optional adoption date. Fields the person does not supply SHALL be recorded as absent rather than
-filled with invented values, and a profile SHALL be savable without them. Where a profile carries a
-photo, that photo SHALL be presented as the rabbit's thumbnail wherever the rabbit is presented;
-where it does not, a placeholder SHALL be presented instead. (Choosing a photo from the device's
-photo library is PHOTO-2, owned by `add-health-and-photo-history`, P2; it is not implemented here.)
+optional adoption date. The sex SHALL be recorded as one of `male`, `female` or `unknown`, and the
+neuter/spay status SHALL be recorded as one of `intact`, `neutered`, `spayed` or `unknown`: a neutered
+rabbit and a spayed rabbit SHALL be recorded distinctly rather than as one "fixed" value, and `unknown`
+SHALL be permitted for both, as an unknown date of birth is. Fields the person does not supply SHALL
+be recorded as absent rather than filled with invented values, and a profile SHALL be savable without
+them. Where a profile carries a photo, that photo SHALL be presented as the rabbit's thumbnail wherever
+the rabbit is presented; where it does not, a placeholder SHALL be presented instead. (Choosing a photo
+from the device's photo library is PHOTO-2, owned by `add-health-and-photo-history`, P2; it is not
+implemented here.)
 
 #### Scenario: A profile is created with the supplied identifying details
 
@@ -32,6 +36,18 @@ photo library is PHOTO-2, owned by `add-health-and-photo-history`, P2; it is not
 - **WHEN** a person marks a rabbit's date of birth as unknown
 - **THEN** the profile is saved without a birth date
 - **AND** the profile presents the date of birth as unknown rather than as absent or as a placeholder date
+
+#### Scenario: A neutered and a spayed rabbit are recorded distinctly
+
+- **WHEN** one rabbit profile is created with the neuter status `neutered` and another with the neuter status `spayed`
+- **THEN** each profile records its own value
+- **AND** the two statuses are not recorded as the same value
+
+#### Scenario: Sex and neuter status may each be recorded as unknown
+
+- **WHEN** a person creates a rabbit profile with the sex `unknown` and the neuter status `unknown`
+- **THEN** the profile is saved
+- **AND** it records those values rather than an invented sex or neuter status
 
 #### Scenario: A profile photo is presented as the rabbit's thumbnail
 

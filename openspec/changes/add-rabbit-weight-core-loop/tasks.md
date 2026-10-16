@@ -18,14 +18,18 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   restore/delete, weight entry create/list/get/update/delete, the dashboard read, `Rabbit`,
   `RabbitSummary`, `DashboardRow`, `WeightEntry`, `WeightEntrySummary`, `WeightRange`,
   `WeightTrend`, `Sex`, `NeuterStatus`, plus typed stubs returning a `not implemented` error. Reuse
-  P0's `CommandError`, `SaveCause`, `Instant`, `WeightUnit` and `HouseholdId` unchanged. Decide and
-  record whether the entry-side unit conversion happens in `api.ts` or in the weight commands. Freeze
-  the names for this phase. (RAB-1 … RAB-10, WT-1 … WT-8, DASH-1 … DASH-9, DM-1)
+  P0's `CommandError`, `SaveCause`, `Instant`, `WeightUnit` and `HouseholdId` unchanged. Declare the
+  fixed value sets with the types: `Sex` = `male | female | unknown`, `NeuterStatus` =
+  `intact | neutered | spayed | unknown` (D1.14). Decide and record whether the entry-side unit
+  conversion happens in `api.ts` or in the weight commands. Freeze the names for this phase.
+  (RAB-1 … RAB-10, WT-1 … WT-8, DASH-1 … DASH-9, DM-1)
 - [ ] 1.2 [architect] Record the P1 decisions in `design.md`: the derived (never stored) drop alert
   with the threshold travelling with the trend series (D1.3), range selection as route state with two
-  independent ranges (D1.4), archived immutability enforced at the write boundary (D1.5), and the
-  enumeration value set for `Sex` and `NeuterStatus` — the source requirements do not enumerate it,
-  so it is decided and recorded here rather than left implicit. (WT-6, WT-7, DM-4)
+  independent ranges (D1.4), archived immutability enforced at the write boundary (D1.5), the alert
+  ordering — timestamp order with the earlier-created entry as the previous entry on a tie (D1.12) —
+  the alert as a pure derivation over the current entry set that an edit or a deletion re-evaluates
+  (D1.13), and the fixed `Sex` and `NeuterStatus` value sets (`male | female | unknown`;
+  `intact | neutered | spayed | unknown`, D1.14). (RAB-1, WT-6, WT-7, DM-4)
 - [ ] 1.3 [architect] Confirm in `design.md` that P1 opens no new capability, CSP, scope or
   entitlement — the rabbit photo reference is carried and rendered but selecting a photo is PHOTO-2
   in P2 — and state that no shared-service dependency is added beyond P0's selected mechanism.
@@ -62,13 +66,17 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   P0's failure surface, and mark a value above the plausibility bound as requiring confirmation
   (WT-4).
 - [ ] 2.11 [rust-backend] Implement editing and deleting a past weight entry, shared with all
-  members; refuse both for an archived rabbit (WT-5, DM-4).
+  members; both re-derive the alerts of the entries around the change, so after a deletion the
+  following entry is compared against the entry that now precedes it (D1.13); refuse both for an
+  archived rabbit (WT-5, WT-7, DM-4).
 - [ ] 2.12 [rust-backend] Implement the weight trend and history read: a `WeightRange` window of
   7/30/90/all returning the entries inside it, the rabbit's threshold alongside, and the two ranges
   served independently so one query cannot influence the other (WT-6).
-- [ ] 2.13 [rust-backend] Implement the drop-alert derivation: per entry, compare against the previous
-  entry and flag when the drop exceeds the rabbit's threshold (default 5%); derive on read so a
-  threshold change is reflected without rewriting stored entries (WT-7).
+- [ ] 2.13 [rust-backend] Implement the drop-alert derivation: order a rabbit's entries by timestamp
+  and take the earlier-created entry as the previous entry when two share a timestamp (D1.12); flag
+  an entry when its drop against that previous entry exceeds the rabbit's threshold (default 5%);
+  derive on read over the current entry set so a threshold change, an edit or a deletion re-evaluates
+  the entries around it without rewriting stored entries (D1.13, WT-7).
 - [ ] 2.14 [rust-backend] Implement the dashboard read model: non-archived rabbits with name,
   thumbnail reference, last-weighed timestamp or never-weighed indication, sorted by most recent
   weigh-in with never-weighed rabbits last, and the derived weight-drop flag per row (DASH-1, DASH-2,
@@ -108,8 +116,9 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 4.2 [frontend-ui] Build the dashboard empty state prompting the person to add their first
   rabbit, with the add control present from it (DASH-8, RAB-4).
 - [ ] 4.3 [frontend-ui] Build the rabbit-creation form reachable from the dashboard at all times:
-  name, optional photo, breed, date of birth with an "unknown" option, sex, neuter status and
-  adoption date, with inline blank-name rejection (RAB-1, RAB-2, RAB-4).
+  name, optional photo, breed, date of birth with an "unknown" option, sex offered as exactly
+  `male`/`female`/`unknown`, neuter status offered as exactly `intact`/`neutered`/`spayed`/`unknown`
+  (D1.14) and adoption date, with inline blank-name rejection (RAB-1, RAB-2, RAB-4).
 - [ ] 4.4 [frontend-ui] Build the rabbit profile detail with a directly visible edit control and the
   pre-filled edit form covering every field including the weight-drop threshold (RAB-5).
 - [ ] 4.5 [frontend-ui] Build the archive control, the archived-rabbit list entry point, and the
@@ -149,8 +158,9 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 
 - [ ] 5.1 [test-engineer] Rust tests for rabbit profiles — covers "A profile is created with the
   supplied identifying details", "Optional fields may be left unset", "Date of birth may be marked
-  unknown" (RAB-1), "An empty name is rejected", "A whitespace-only name is treated as blank" (RAB-2)
-  and "Additional rabbits are created without restriction" (RAB-3).
+  unknown", "A neutered and a spayed rabbit are recorded distinctly", "Sex and neuter status may each
+  be recorded as unknown" (RAB-1), "An empty name is rejected", "A whitespace-only name is treated as
+  blank" (RAB-2) and "Additional rabbits are created without restriction" (RAB-3).
 - [ ] 5.2 [test-engineer] Rust tests for profile editing and rabbit lifecycle — covers "A saved edit
   including the threshold is shared with every member" (RAB-5), "Archiving removes the rabbit from
   the active list" (RAB-6), "Restoring returns the rabbit to the active list", "Restoration leaves the
@@ -168,8 +178,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   outlier is saved" (WT-4) and the WT-5 edit and delete sharing.
 - [ ] 5.5 [test-engineer] Rust tests for the drop alert — covers "A drop exceeding the threshold is
   flagged", "A drop within the threshold is not flagged", "Raising the threshold clears an existing
-  flag", "Lowering the threshold raises a flag" (WT-7), asserting that no stored entry is rewritten
-  when the threshold changes.
+  flag", "Lowering the threshold raises a flag", "Entries sharing a timestamp are ordered by creation",
+  "Deleting an entry re-derives the following entry's alert", "Editing an entry re-derives the alerts
+  around it" (WT-7), asserting that no stored entry is rewritten when the threshold changes and that
+  the dashboard flag (DASH-4) is derived from the same result.
 - [ ] 5.6 [test-engineer] Rust tests for the dashboard read model — covers "Both active rabbits are
   listed with their details", "An archived rabbit is not listed" (DASH-1), "A rabbit with no entries
   is marked as never weighed" (DASH-2) and "The most recently weighed rabbit sorts first", "A

@@ -20,8 +20,13 @@ the person selects, as a formatted **PDF** readable by a vet. The export SHALL p
 entries, the health entries and the medication courses that the selected range covers. Medication
 export SHALL include **finished as well as active courses**, and each course SHALL be presented
 with its **full dose history** — the timestamp, amount and giver of every dose recorded for it —
-so that no dose of a presented course is hidden by the range selection. Export SHALL remain
-available for an archived rabbit. An export that cannot be produced SHALL present no file.
+so that no dose of a presented course is hidden by the range selection. The range control SHALL open
+on **everything the rabbit has** by default, and SHALL offer the weight chart's 7-day, 30-day,
+90-day and all-history presets alongside the rabbit's full span. The selected range SHALL decide
+**which entries and which medication courses are presented**, and a course that is presented SHALL
+report **every** dose recorded for it, so that a presented course's "full" dose history is not
+narrowed by the range. Export SHALL remain available for an archived rabbit. An export that cannot be
+produced SHALL present no file.
 
 #### Scenario: A selected range produces a formatted PDF covering weight, health and medications
 
@@ -29,11 +34,19 @@ available for an archived rabbit. An export that cannot be produced SHALL presen
 - **THEN** a formatted PDF is produced covering that rabbit's weight entries, health entries and medication courses
 - **AND** the PDF is presented for the person to review before it is handed over
 
-#### Scenario: The selected range determines which entries are presented
+#### Scenario: The selected range determines which entries and courses are presented
 
 - **WHEN** a range is selected that excludes some of the rabbit's entries
 - **THEN** entries outside the selected range are not presented
 - **AND** entries inside the selected range are presented
+- **AND** a medication course whose history the range does not cover is not presented
+
+#### Scenario: The range control opens on everything the rabbit has
+
+- **WHEN** the export range control is opened for a rabbit
+- **THEN** the range opens on everything the rabbit has, from its earliest history to its latest
+- **AND** the weight chart's 7-day, 30-day, 90-day and all-history presets are offered alongside the
+  rabbit's full span
 
 #### Scenario: Finished courses are presented alongside active ones
 
@@ -46,6 +59,7 @@ available for an archived rabbit. An export that cannot be produced SHALL presen
 - **WHEN** a course in the PDF has recorded doses
 - **THEN** every dose recorded for that course is presented with its timestamp, its amount and the giver
 - **AND** no dose of a presented course is omitted because it falls outside the selected range
+- **AND** a presented course reports every dose it has, so its dose history is not narrowed by the range
 
 #### Scenario: Export remains available for an archived rabbit
 
@@ -66,13 +80,23 @@ rather than as a formatted PDF. Medications and doses SHALL be written to **dedi
 for medications and one for doses — separate from each other and from the files holding the
 rabbit's weight and health entries. The medication file SHALL carry each course's fields, including
 its schedule and its active or finished state; the dose file SHALL carry every dose's timestamp,
-amount and giver. Values SHALL be exported as they are stored, without presentation formatting.
+amount and giver. Values SHALL be exported as the **canonical stored values** — the grams, amounts
+and units exactly as they were recorded — without presentation formatting and without conversion to
+the person's display unit. The formatted PDF (EXP-1) is unaffected: it presents values in the
+person's display unit, as any screen would.
 
 #### Scenario: A range produces raw CSV files for the entries
 
 - **WHEN** a rabbit has weight and health entries and a range is selected for raw export
 - **THEN** the entries in that range are written to CSV files
-- **AND** the values are presented as stored rather than in a display format
+- **AND** the values are the ones recorded — the grams, amounts and units as stored — rather than a
+  display format or a value converted to the person's display unit
+
+#### Scenario: The raw files carry stored values while the PDF is formatted
+
+- **WHEN** the same rabbit's history is exported both as raw files and as a formatted PDF
+- **THEN** the raw files carry the amounts, units and grams exactly as they were recorded
+- **AND** the PDF presents those values in the person's display unit, as any screen would
 
 #### Scenario: Medications and doses are written to dedicated files
 

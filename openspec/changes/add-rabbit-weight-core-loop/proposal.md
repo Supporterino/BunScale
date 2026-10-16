@@ -134,4 +134,5 @@ because D0.12 makes distinct allowance reporting a hard selection criterion for 
 task 1.1); the bounds are D0.13's named constants — a 15 s save attempt, a 5 s reachability probe and
 "offline" only after 3 consecutive failures; and every state-changing command carries a
 client-generated `request_id` deduplicated by the service (D0.14), so a retry is idempotent by
-construction. This change's own open items are recorded in `questions.md`.
+construction. This change's own open items are recorded in `questions.md`; none remain open in P1 —
+this change's former Q1–Q3 are settled as D1.12 … D1.14.

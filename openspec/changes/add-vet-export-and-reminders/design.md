@@ -16,7 +16,7 @@ Export is the fourth: it *reads* the household record and produces files locally
 central design question is not "what data do we store" but **where the boundary between
 device-local configuration, household data and produced files runs**, and how the product stays
 honest about two device states it does not control (notification authorization, and whether the
-platform grants it background execution at all — D4.3/D4.7).
+platform grants it background execution at all — D4.3/D4.7/D4.15).
 
 Platforms: iOS (primary) and macOS (Phase 1) — baselines 390×844 first, 1280×800 second. Android,
 Windows and Linux are later, so everything stays `cfg`-clean.
@@ -36,7 +36,7 @@ are configurations of it:
 | Target | a rabbit, or the household | a medication (P5's entity) |
 | Schedule | user-defined recurring day(s) + time | derived from the medication's P5 schedule for every type that schedules doses, for as long as the medication is active — re-derived if it is finished and then becomes active again (D4.2) |
 | Follow-up default | off | **on** (MED-10) |
-| Actions | open the product at the target | record the dose as given (opens P5's pre-filled confirmation, MED-8) or snooze |
+| Actions | open the product at the target | record the dose as given (opens P5's pre-filled confirmation, MED-8) or snooze (a fixed 10-minute deferral, repeatable, never satisfying the slot — D4.10) |
 
 Everything else — creation, edit, enable/disable, delete, persistence, scheduling, delivery,
 cancellation, the follow-up decision, per-device/per-person scoping — is shared code with one
@@ -79,8 +79,9 @@ the same underlying question, answered once.
 
 **A background mode IS requested.** This **reverses an earlier decision of this change**: the first
 draft of this document asked for no background mode and accepted the resulting limitation instead, and
-`questions.md` Q6 recorded whether that acceptance was final. It is not final — the product owner has
-settled it (Q6 is closed by this decision), so the product asks for background execution precisely so
+the background-mode question formerly recorded in `questions.md` recorded whether that acceptance was
+final. It is not final — the product owner has settled it (that question is answered and closed, and
+`questions.md` now records no open question), so the product asks for background execution precisely so
 it can reconcile and cancel pending follow-ups **while it is suspended**. The two rejected alternatives
 are recorded here so they are not reintroduced: accepting the limitation with no background mode at
 all, and raising follow-ups opportunistically only when the product happens to be running.
@@ -172,9 +173,9 @@ task and the `Info.plist`/entitlement configuration for HS-11 and implements the
 that runs a window handler (`tauri-security` task 1.3; `apple-native` tasks 1.6–1.7, unit-tested at 1.8,
 manually verified at 5.15). This change extends that one seam: the same declaration and the same
 registration gain the reconciliation entry point of D4.3 and nothing else. `tauri-security` therefore
-adds **no** second background mode, **no** second entitlement, **no** second usage-description string
-and **no** plugin beyond P3's; task 1.13 confirms the extension and task 6.1 reviews the diff for a
-second background subsystem or a second reconciliation path. That is why Q6 is closed by consuming P3
+adds **no** second background mode, **no** second entitlement and **no** plugin beyond P3's; task 1.13
+confirms the extension and task 6.1 reviews the diff for a
+second background subsystem or a second reconciliation path. That is why the background-mode question is closed by consuming P3
 rather than by declaring new platform work.
 
 Two things stay deliberately absent. Nothing keeps the product running continuously: there is no
@@ -193,9 +194,9 @@ The summary is computed from the **same weight series the chart renders** — la
 display unit, and the trend direction derived from the same values — and exposed as the chart's
 accessible label. There is no second query, no stored summary and no second source of chart data, so
 the summary cannot disagree with what is on screen; it is recomputed when the series changes
-(NFR-4's "no second data source" scenario). The definition of "trend direction" and the no-value
-wording are recorded in `questions.md`; the requirement itself only says the summary exists and does
-not over-claim.
+(NFR-4's "no second data source" scenario). The definition of "trend direction" and the no-value and
+one-entry wording are recorded as **D4.14**; the requirement itself says the summary exists, that the
+trend is direction-only, and that it never invents a direction it cannot support.
 
 ### D4.7 — Device states the product must not pretend about
 
@@ -203,8 +204,13 @@ Three device states can make a reminder silently useless, and all are surfaced r
 
 - **Notification authorization.** A device that has not granted it cannot raise reminders. The
   product presents the authorization state where reminders are configured and does not present a
-  configured reminder as if it will certainly fire. This is the same honesty stance P0 fixed for
-  service status (NFR-6's requirement belongs to P3; the stance is reused, not restated).
+  configured reminder as if it will certainly fire, and the configuration stays usable (D4.15). This
+  is the same honesty stance P0 fixed for service status (NFR-6's requirement belongs to P3; the
+  stance is reused, not restated) — **extended from the service to notifications**, stated in the
+  requirement rather than only here. The authorization itself is **P3's** one surface, observed
+  through `get_notification_authorization()` and requested through
+  `request_notification_authorization()` as the one `NotificationAuthorization` state, consumed and
+  not re-declared (D4.15).
 - **Background execution.** The product asks for it (D4.3/D4.5), but iOS decides whether and when a
   granted window actually runs, and may never run one. Reconciliation therefore happens when it
   happens, and the product presents no follow-up as guaranteed to reflect evidence recorded
@@ -229,6 +235,87 @@ check of its own. A failure to produce or hand over the files is reported throug
 cause-carrying error surface (NFR-8 names export explicitly) and presents no file, so a failed export
 can never look like a successful one.
 
+### D4.10 — Snooze defers by a fixed 10 minutes, may repeat, and never satisfies the slot
+
+**Settled by the product owner** (former `questions.md` Q1). A snooze defers the occurrence by a
+**fixed 10 minutes** and may be snoozed **repeatedly**; it records nothing and **never satisfies the
+slot**. MED-9's rule that a snooze is not a dose is therefore preserved in full, and a snooze that
+runs past the slot's dose window leaves the slot **missed**, so MED-10's missed-dose follow-up still
+applies to it. The occurrence state set already carries `snoozed` and `missed` (D4.1), so this is a
+rule about transitions, not a new state: `pending → fired → snoozed → fired … → missed` when the
+snooze crosses the window, and never `satisfied` without a recorded dose. The delay is a named
+constant, so a test can assert it; the weigh kind has no snooze action today and is untouched.
+
+### D4.11 — The export range opens on everything the rabbit has
+
+**Settled by the product owner** (former Q2). The range control opens on **everything the rabbit
+has** — from its earliest history to its latest — and offers the weight chart's **7-day, 30-day,
+90-day and all-history** presets (WT-6, P1) alongside the rabbit's full span. The span comes from
+`get_export_span(rabbit_id)`; the presets are the chart's own set rather than an independent one, so
+the product has one vocabulary of ranges. This is the default, not a cap: the person can still narrow
+the range, and R6's "a large range must not freeze the interface" is handled by D4.4's off-main-thread
+generation and the working state rather than by a smaller default.
+
+### D4.12 — The range selects entries and courses; a presented course reports every dose (confirmed)
+
+**Confirmed by the product owner** (former Q3) as the reading this delta already took, so it is
+recorded as a decision rather than an assumption. The selected range decides **which entries and
+which courses are presented**; a course that is presented reports **every dose it has**. "Full" is
+therefore not narrowed by the range: a vet reading "Baytril, 12 doses" is never handed a dose list
+that silently omits the out-of-range ones. The alternative reading — "full within the range" — is
+rejected, because a silently shortened dose history is a worse defect than a longer list.
+
+### D4.13 — Raw files carry the canonical stored values; the PDF stays formatted (confirmed)
+
+**Confirmed by the product owner** (former Q4). The raw CSV carries the **canonical stored values** —
+grams, amounts and units exactly as recorded — with **no presentation formatting** and no conversion
+to the person's display unit. The **PDF stays formatted** in the person's display unit, as any screen
+would, because it is a document a vet reads rather than a data interchange format. The display-unit
+boundary (SET-4, P0) therefore applies to the presentation boundary the PDF is, and deliberately not
+to the raw path, which is what makes the two formats complementary rather than duplicates.
+
+### D4.14 — Trend direction is latest-versus-previous, direction only, and never invented
+
+**Settled by the product owner** (former Q5). The accessible summary's trend compares the **latest
+entry with the previous one** and states **direction only**, claiming **no magnitude** — so no
+percentage, no rate and no threshold appear in the wording. With **one** entry, the summary reports
+that value and says there is **no trend yet**; with **none**, it says there is nothing to summarise
+using NFR-5's **"never weighed"** vocabulary established for the no-value case. A direction is never
+invented where the data cannot support one. The question behind this decision offered "a comparison
+with the range's first entry" and "a threshold" as alternatives; both are rejected — the first would
+claim a trend from two points that do not describe one, and the second would need a magnitude the
+product does not own.
+
+### D4.15 — Notification authorization is presented honestly; the configuration stays usable
+
+**Settled by the product owner** (former Q6). When the device's notification authorization is denied,
+not yet determined or **revoked**, the product presents that state honestly and keeps the reminder
+configuration **usable**: a reminder can still be configured, edited, enabled, disabled and deleted,
+but it is never presented as one that will fire. The state it presents is P3's `NotificationAuthorization`
+— `unknown` (not yet observed), `not_determined`, `granted` or `denied` — so a state that has not yet
+been observed is never presented as a granted or a denied one. This is the same honesty stance P0 fixed
+for service status (NFR-6 is P3's requirement; the stance is reused, not restated), now **extended from
+the service to notifications** — the requirement states this rather than leaving it here, so it is
+testable. The rejected alternative is refusing to save a reminder that cannot fire, which would make
+the configuration hostage to a state the person can change at any time.
+
+**This change declares no authorization surface of its own.** The notification authorization — the
+permission and the request/observation entry points, introduced by `add-household-sharing-hardening`
+for its visible background-delivery notifications (its `tauri-security` task 1.3 declaration; HS-11's
+background delivery, D-H6) — is **P3's**. It is a runtime authorization request on both iOS and macOS,
+so it carries **no `Info.plist` usage-description string and no entitlement** (P3's D-H14): none is
+declared here and none is invented. P3's names are used here unchanged, because they are the same fact
+on the same platform: `request_notification_authorization()` asks, `get_notification_authorization()`
+observes, and `NotificationAuthorization`
+(`{ state: unknown | not_determined | granted | denied, observed_at }`) is the one state both phases
+present. This change **consumes** that one authorization, so there is one permission, one
+authorization state and one observation path across both phases, and no reminder-named authorization
+command or type of its own; task 1.8 declares no second permission, no second usage description and no
+entitlement, and task 6.1 reviews for exactly that. Scheduling and cancelling local notifications,
+registering the record and snooze actions and delivering an action taken while the product is not open
+are this change's own bridge (tasks 1.9/1.10) — that is delivery of this phase's
+notifications, not a second authorization.
+
 ## State and boundaries
 
 ```
@@ -244,7 +331,8 @@ Rust (src-tauri/)                                  Frontend (src/)
   src-tauri/src/settings/     language preference beside P0's display unit (D4.8)
 
   src-tauri/src/platform/     cfg-gated: file location + standard sharing options;
-                              notification authorization, scheduling and actions;
+                              notification authorization (P3's: request_notification_authorization() /
+                              get_notification_authorization()), scheduling and actions;
                               the background execution window that P3 declares and
                               registers, extended with the reminder reconciliation
                               entry point (iOS / macOS; future targets add a bridge)
@@ -274,6 +362,12 @@ Rules held here:
 - **One background mechanism, P3's.** The background execution window used for reminder
   reconciliation (D4.3) is the declaration, the plugin and the registration P3 establishes for HS-11,
   extended with one reconciliation entry point — never a second background subsystem (D4.5, R12).
+- **One notification authorization, P3's.** The notification permission and the authorization state
+  are P3's single surface — `request_notification_authorization()` and
+  `get_notification_authorization()` over the one `NotificationAuthorization` state — consumed here and
+  never re-declared; no second permission, no second usage description and no entitlement is declared
+  here, because P3's authorization is a runtime request requiring neither (D-H14); this change adds
+  only the scheduling, cancellation and action delivery of its own notifications (D4.15, R12).
 
 ## IPC contract — to be defined by architect
 
@@ -294,13 +388,13 @@ context; events named `<area>:changed` or `<area>:<verb>`; opaque ids as strings
 | `create_medication_reminder(medication_id, follow_up_enabled)` | Occurrences derived from the medication's P5 schedule; follow-up defaults to enabled | MED-9, MED-10 |
 | `update_reminder(reminder_id, …)` | Change schedule, target, follow-up or enabled state; re-schedules | REM-1, MED-10 |
 | `delete_reminder(reminder_id)` | Remove a reminder and its pending occurrences | REM-1, REM-2 |
-| `get_reminder_authorization()` | This device's notification authorization state, freshly observed | D4.7 |
-| `request_reminder_authorization()` | Ask the device for it; the outcome is reported honestly | D4.7 |
-| `snooze_reminder(reminder_id, occurrence_at)` | Defer an occurrence without recording anything; the slot stays unsatisfied | MED-9 |
+| `get_notification_authorization()` | **Consumed from P3** (`add-household-sharing-hardening`, D-H14), not declared here: this device's notification authorization state, freshly observed through P3's one observation path and presented honestly (D4.15) | D4.7, D4.15 |
+| `request_notification_authorization()` | **Consumed from P3**, not declared here: ask for notification authorization through P3's one request path (no second permission, no second usage description and no entitlement declared here — P3's authorization is a runtime request needing neither, D-H14); the outcome is reported honestly | D4.7, D4.15 |
+| `snooze_reminder(reminder_id, occurrence_at)` | Defer an occurrence by a fixed 10 minutes (repeatable) without recording anything; the slot stays unsatisfied, and a snooze past the window leaves it missed | MED-9, D4.10 |
 | `resolve_reminder_slot(reminder_id, occurrence_at)` | Mark an occurrence satisfied after P5's confirmation recorded the dose | MED-9 |
 | `reconcile_reminders()` | Reconcile occurrences against loaded data on launch, on foreground return and inside P3's background execution window; cancel follow-ups whose evidence exists | REM-3, MED-10, D4.3 |
 | `export_rabbit_history(rabbit_id, range, format)` | Produce the export; `format = pdf \| csv`; returns the produced artifacts (one for `pdf`, several for `csv`) | EXP-1, EXP-2, EXP-4 |
-| `get_export_span(rabbit_id)` | The earliest and latest instants the rabbit has history for, so the range control can default sensibly | EXP-1 (see `questions.md` Q2) |
+| `get_export_span(rabbit_id)` | The earliest and latest instants the rabbit has history for, so the range control defaults to everything the rabbit has | EXP-1 (D4.11) |
 | `present_export_sharing(export_ids)` | Hand the produced files to the device's standard sharing options | EXP-3 |
 | `get_language_preference()` / `set_language_preference(preference)` | The per-device language preference; setting it does not change the running session | SET-3 |
 
@@ -315,7 +409,7 @@ choosing the id keeps the file location an implementation detail, which D4.4 pre
 |---|---|---|
 | `reminders:changed` | `{ kind: created \| updated \| deleted \| reconciled, reminder_id? }` | Invalidate the device's reminder list after any change, including a reconciliation |
 | `reminder:action` | `{ reminder_id, occurrence_at, action: record \| snooze }` | Delivered when the person acts on a raised reminder, so the frontend can open P5's pre-filled confirmation (`record`) or confirm the deferral (`snooze`) |
-| `reminder:notification-authorization-changed` | `{ state }` | Keep the authorization surface truthful when it changes while the product runs |
+| `reminder:notification-authorization-changed` | `{ state }` — the `state` member of P3's `NotificationAuthorization` | Keep the authorization surface truthful when it changes while the product runs |
 | `export:state-changed` | `{ export_id, state: generating \| ready \| failed }` | Drive the working state and the produced-file list |
 
 Events are additive to P0's `household:changed` and `service:status-changed`, which are unchanged.
@@ -335,7 +429,7 @@ background-delivered change does (P3 D-H6).
 | `ReminderSchedule` | `{ kind: recurring_days, weekdays, time_of_day }` | the weigh kind's user-defined schedule; a medication reminder derives its occurrences from P5's `Schedule` instead of carrying one (D4.2) |
 | `ReminderConfig` | `{ id, kind, target, schedule?, medication_id?, created_by_member_id, follow_up_enabled, enabled, authorization? }` | one shape for both kinds (D4.1) |
 | `ReminderOccurrence` | `{ reminder_id, due_at: Instant, state: pending \| fired \| snoozed \| satisfied \| missed }` | the unit the mechanism schedules and reconciles (D4.1) |
-| `ReminderAuthorization` | `{ state: unknown \| not_determined \| granted \| denied, observed_at }` | D4.7; honest rather than assumed |
+| `NotificationAuthorization` | `{ state: unknown \| not_determined \| granted \| denied, observed_at }` | **Consumed from P3**, not declared here (D-H14); this change presents the state honestly rather than assuming it. `unknown` is "not yet observed" — the state a status starts in — and is distinct from `not_determined`, an observed outcome (the person has not been asked); D4.7/D4.15 |
 | `ReminderAction` | `record \| snooze` | MED-9's two offered actions |
 | `ExportFormat` | `pdf \| csv` | EXP-1, EXP-2 |
 | `ExportRange` | `{ from: Instant, to: Instant }` | the selectable range (EXP-1) |
@@ -346,7 +440,10 @@ background-delivered change does (P3 D-H6).
 
 Reused, not redefined: P0's `CommandError`, `SaveCause`, `Instant`, `MemberId`, `HouseholdId`;
 P1's `RabbitId` and weight-entry types; **P5's `MedicationId`, `DoseId`, `Medication`, `Schedule`
-and `Dose`** — this change consumes P5's model and adds no parallel medication or schedule type.
+and `Dose`** — this change consumes P5's model and adds no parallel medication or schedule type; and
+**P3's `NotificationAuthorization` with its `get_notification_authorization()` and
+`request_notification_authorization()` commands** — consumed as they are, with no reminder-named
+authorization command or type declared here (D4.15).
 
 ## Traceability: user stories → scenarios
 
@@ -357,21 +454,21 @@ and `Dose`** — this change consumes P5's model and adds no parallel medication
 | US-REM-02 | REM-1 | reminders: "A household-wide reminder covers the household rather than one rabbit" |
 | US-REM-03 | REM-2 | reminders: "Only the creating person's device is reminded", "Another member is never notified by a reminder they did not create", "A second member configures an independent reminder", "One person's reminder change leaves another member's reminder untouched", "A reminder does not follow the person to another device" |
 | US-REM-04 | REM-3 | reminders: all seven follow-up scenarios, including the `[ios]`/`[macos]` reconciliation scenarios |
-| US-MED-17 | MED-9 | medication-tracking: "A reminder is raised for each upcoming slot of an active medication", "Upcoming slots are derived for every schedule type that schedules doses", "The reminder offers recording the dose as given and snoozing", "Snoozing records no dose and leaves the slot unsatisfied" |
+| US-MED-17 | MED-9 | medication-tracking: "A reminder is raised for each upcoming slot of an active medication", "Upcoming slots are derived for every schedule type that schedules doses", "The reminder offers recording the dose as given and snoozing", "Snoozing records no dose and leaves the slot unsatisfied", "A snooze may be repeated without satisfying the slot", "A snooze that runs past the dose window leaves the slot missed" (D4.10), "A reminder states honestly that notifications are not authorized", "Revoking authorization leaves the reminder configuration usable" (D4.15) |
 | US-MED-18 | MED-9 | medication-tracking: "Only the device that configured the reminder is reminded" |
 | US-MED-19 | MED-9 | medication-tracking: "Recording from the reminder opens the pre-filled confirmation", "The confirmed dose satisfies the slot" |
 | US-MED-20 | MED-10 | medication-tracking: all seven MED-10 scenarios, including the `[ios]`/`[macos]` reconciliation scenarios |
 | US-MED-21 | MED-11 | medication-tracking: all three MED-11 scenarios |
-| US-EXP-01 | EXP-1 | export: "A selected range produces a formatted PDF covering weight, health and medications", "The selected range determines which entries are presented" |
+| US-EXP-01 | EXP-1 | export: "A selected range produces a formatted PDF covering weight, health and medications", "The selected range determines which entries and courses are presented", "The range control opens on everything the rabbit has" (D4.11) |
 | US-EXP-02 | EXP-1 | export: "Finished courses are presented alongside active ones", "Each medication is presented with its full dose history" |
-| US-EXP-03 | EXP-2 | export: "A range produces raw delimited files for the entries" |
+| US-EXP-03 | EXP-2 | export: "A range produces raw CSV files for the entries", "The raw files carry stored values while the PDF is formatted" (D4.13) |
 | US-EXP-04 | EXP-2 | export: "Medications and doses are written to dedicated files", "The dose file carries timestamp, amount and giver for every dose", "Raw files cover finished courses as well as active ones" |
 | US-EXP-05 | EXP-3 | export: all four sharing scenarios |
 | US-EXP-06 | EXP-4 | export: all six schedule-type scenarios |
 | US-SET-04 | SET-3 (override) + NFR-5 (coverage) | settings-profile: "The chosen language is stored on the device and used on the next launch", "System follows the device's language"; product-quality: "The whole product is presented in German when German is the product language" |
 | US-SET-05 | SET-3 | settings-profile: "A language change applies on the next launch, not in the running session", "The person is told the change applies on the next launch" |
 | US-QUAL-01 | NFR-4 | product-quality: the two text-size scenarios (`[mobile]`, `[desktop]`) |
-| US-QUAL-02 | NFR-4 | product-quality: "The weight chart exposes a summary of its latest value and trend direction", "The chart summary is read when the chart receives focus" |
+| US-QUAL-02 | NFR-4 | product-quality: "The weight chart exposes a summary of its latest value and trend direction", "A chart with a single entry reports no trend yet", "A chart with no values summarises that instead of a value", "The chart summary is read when the chart receives focus" |
 | US-QUAL-03 | NFR-5 | product-quality: "The whole product is presented in German when German is the product language", "System-supplied labels are localized", "Metric units are the default" |
 | RAB-8 (export clause, P1) | EXP-1 | export: "Export remains available for an archived rabbit" |
 | NFR-8 (P0, export named) | referenced | export: "An export that cannot be produced presents no file" — the *cause-specific message* is P0's requirement, referenced and not restated |
@@ -397,18 +494,18 @@ tagged in NFR-4.
 
 | # | Risk | Mitigation in this change |
 |---|---|---|
-| R1 | **Reminders silently never fire** because notification authorization was denied. The person trusts a reminder that cannot be raised. | D4.7: the authorization state is a first-class, freshly observed value, presented where reminders are configured; task 5.13 asserts the surface, and no surface presents a configured reminder as guaranteed. |
+| R1 | **Reminders silently never fire** because notification authorization was denied or later revoked. The person trusts a configured reminder that cannot be raised. | **Q6 is settled (D4.15)**: the authorization is **P3's** one surface — `get_notification_authorization()` observing the one `NotificationAuthorization` state, `request_notification_authorization()` asking for it — observed freshly and presented where reminders are configured, and the configuration stays usable while no reminder is presented as one that will fire — the honesty P0 fixed for service status extended from the service to notifications. The requirement and its scenarios state it (MED-9: "A reminder states honestly that notifications are not authorized", "Revoking authorization leaves the reminder configuration usable"), task 5.13 asserts the surface and tasks 3.2/4.1 implement it; no surface presents a configured reminder as guaranteed. This narrows the risk to a person who ignores a state the product shows plainly; it is not eliminated, because the product does not control the granted state. |
 | R2 | **A second reminder subsystem reappears (IMP-5)** — a medication-specific scheduler, store or follow-up loop, because medication slots are the harder case. | D4.1/D4.2 make kind the only difference; the delta states one mechanism as its own requirement; task 6.1 reviews specifically for a second persistence shape or a second follow-up path. |
 | R3 | **A follow-up is raised for a window that was satisfied elsewhere, or is missed entirely.** The requested background mode (D4.3) **narrows** this gap but does not close it: iOS decides whether and when a granted background execution window actually runs and may never run one, so a follow-up already scheduled can fall due before any reconciliation, and a device that is never granted a window never reconciles while suspended. | The cancellation path is defined once and asserted — schedule-ahead plus reconciliation from three triggers (tasks 2.9/2.16, 3.9) — and covered by 5.4/5.6 plus the background reconciliation tests (5.22) and the manual simulator step (5.24); the residual gap is stated in D4.3 and D4.7 and **carried here in this register** rather than papered over, and no surface presents a follow-up as guaranteed (task 4.1's honesty requirement, D4.7). |
 | R4 | **Reminders leak into shared data**, so one member's reminder notifies another (REM-2) or survives a household switch. | Reminders are device-local by construction and the delta asserts it (mechanism scenario "it is not part of the data any household member loads"); task 6.1 checks no household write carries a reminder. |
 | R5 | **The generated document is wrong where it matters** — German umlauts corrupted, a course omitted, a dose history silently truncated. | D4.4 records the font/encoding requirement; tasks 5.9–5.11 assert content, among them a German-tagged export (5.11), and 5.19 takes the export through the sharing handoff end to end. |
-| R6 | **A large range freezes the interface or exhausts memory.** | Generation runs off the main thread with a working state (D4.4); task 4.5 gives the UI that state, and the default range is a question (Q2) rather than an unbounded "all time" guess. |
+| R6 | **A large range freezes the interface or exhausts memory.** | Generation runs off the main thread with a working state (D4.4); task 4.5 gives the UI that state, and the default range is settled (D4.11: everything the rabbit has, offered with the chart's 7d/30d/90d/all presets) rather than an unbounded "all time" guess — the working state, not a smaller default, is what keeps a large range usable. |
 | R7 | **The export leaves the device without the person choosing a destination** — a silent upload dressed up as a share. | EXP-3 states the files are handed to the device's standard sharing options and sent nowhere the person did not choose; the design forbids the product from having an upload path at all; task 6.1 checks no outbound call exists on the export path. |
 | R8 | **The P4/P5 ordering is misread as duplication** — MED-9 … MED-11 specified twice, or the medication model restated here. | `proposal.md` explains the swap and the relocation; the `medication-tracking` delta header states P5's ownership and that it is ADDED-only; task 6.2 checks no P5 requirement is restated, modified or removed and that no `## MODIFIED Requirements` section exists anywhere in this change. |
 | R9 | **Localization is claimed complete but is partial.** NFR-5 is a completion gate over every phase archived before this one (P0 … P3, P5). | Task 3.7 completes the tables across all those surfaces and task 5.16 asserts that neither language falls back to the other or to a key, so a missing string fails a test rather than shipping; task 4.9 checks German layout at both viewports. |
 | R10 | **The accessible chart summary duplicates chart data or drifts from it.** | D4.6 derives it from the same series with no second query; task 5.16 asserts the summary follows the series with no additional data request. |
 | R11 | **Archive order.** Landing this change before P5 would leave `medication-tracking` holding reminder requirements for an entity that does not exist. | Stated in `proposal.md` (archive order P0 → P1 → P2 → P3 → P5 → P4 → P6). |
-| R12 | **A second background subsystem or entitlement appears "for reminders"** instead of consuming P3's mechanism — a second background mode, a second plugin, a second registration, a second usage description or a second reconciliation path. | D4.5 states that the background mechanism is P3's and names what may be extended (the window handler entry point) and what may not (mode, entitlement, plugin, registration, reconciliation path); task 1.13 declares the extension and adds nothing new; task 2.16 reuses the one reconciliation implementation; task 6.1 checks the diff for a second background subsystem, a second entitlement and a second follow-up path. |
+| R12 | **A second background subsystem or entitlement appears "for reminders"** instead of consuming P3's mechanism — a second background mode, a second plugin, a second registration or a second reconciliation path; or a **second notification authorization** appears instead of consuming P3's one surface. | D4.5 states that the background mechanism is P3's and names what may be extended (the window handler entry point) and what may not (mode, entitlement, plugin, registration, reconciliation path); D4.15 states that the notification authorization, its permission and its two commands over the one `NotificationAuthorization` state (`get_notification_authorization()` / `request_notification_authorization()`) are P3's single surface — a runtime authorization request carrying no usage-description string and no entitlement (P3's D-H14) — and that no reminder-named authorization command or type is declared here; task 1.13 declares the background extension and adds nothing new, task 1.8 declares no second notification permission, usage description or entitlement, task 2.16 reuses the one reconciliation implementation; task 6.1 checks the diff for a second background subsystem, a second entitlement, a second notification authorization and a second follow-up path. |
 | R13 | **A medication returned to active stays silent.** Finishing a course cancels its occurrences, and MED-13 lets a finished course's end date be corrected so the course becomes active again; if the cancellation is treated as one-way, or occurrences are derived from a remembered `finished` state, the medication raises nothing at the slots it is scheduled for while every surface shows it as active. | MED-9 scopes the cancellation to **as long as the course remains finished** and requires the occurrences to be scheduled again on return to active; D4.2 derives occurrences from the medication's **current** status on every evaluation with no stored `finished` flag; task 5.5 covers "A course returned to active resumes its upcoming reminders" alongside the finished-course scenarios, and task 6.2 checks MED-13 is referenced rather than restated here. |
 
 ## Verification
@@ -419,10 +516,16 @@ tagged in NFR-4.
   `src/bindings.ts`), `git diff --exit-code src/routeTree.gen.ts` after a build,
   `bun run typecheck`, `bun run lint`, `bun run test`, `bun run test:e2e`.
 - Every requirement in this change has at least one scenario named by a test task in `tasks.md`.
+- The six settled decisions are testable: the snooze delay, repeatability and the missed slot (task
+  5.8, D4.10); the default range and its presets (tasks 5.9/5.14, D4.11); the range-versus-doses reading
+  (task 5.9, D4.12); the canonical raw values against the formatted PDF (task 5.11, D4.13); the trend
+  definition and the one/zero-entry wording (tasks 5.16/5.21, D4.14); and the authorization surface
+  consumed from P3 (`NotificationAuthorization`, `get_notification_authorization()` /
+  `request_notification_authorization()`, task 5.13, D4.15).
 - EXP-4 has an explicit test covering **all four** schedule types, with and without recorded doses
   (task 5.10).
 - The accessible chart summary has a screen-reader scenario that is **tested**, not only
-  implemented (task 5.21), including the no-value case.
+  implemented (task 5.21), including the no-value case and the single-entry no-trend case (D4.14).
 - The background path has no automated native coverage at phase 1 (`testing-strategy`: native
   lifecycle behaviour is not drivable by `tauri-driver` on iOS/macOS). It is covered by Rust-level
   tests of the reconciliation entry point and the follow-up scenarios it decides (task 5.22) plus a
@@ -431,4 +534,6 @@ tagged in NFR-4.
 - Cross-check at review: the delta contains exactly EXP-1 … EXP-4, REM-1 … REM-3, the unified
   mechanism requirement, MED-9 … MED-11, SET-3, NFR-4 and NFR-5 — ADDED only, with no
   `## MODIFIED Requirements` section, no P5 requirement restated and no requirement from another
-  phase restated.
+  phase restated; and **no second notification authorization or permission appears anywhere** — the
+  notification authorization consumed here is P3's single surface, a runtime request that carries no
+  usage-description string and no entitlement (D4.15).

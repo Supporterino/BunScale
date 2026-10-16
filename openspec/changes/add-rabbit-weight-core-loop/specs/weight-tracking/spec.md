@@ -152,10 +152,16 @@ independent of the trend's, so that changing one SHALL NOT change the other.
 ### Requirement: A weight drop beyond the threshold raises an alert and flags the rabbit
 
 **WT-7.** A weight entry SHALL be flagged when the drop it represents against the previous entry
-exceeds the rabbit's configurable threshold, whose default SHALL be 5%. The flag SHALL be recomputed
-whenever the rabbit's threshold changes, so that it appears when the threshold is lowered below an
-existing drop and disappears when the threshold is raised above it. A rabbit carrying a flagged
-entry SHALL also be flagged on the dashboard (DASH-4).
+exceeds the rabbit's configurable threshold, whose default SHALL be 5%. The entries SHALL be ordered
+by their timestamp to determine each entry's previous entry, and where two entries share a timestamp
+the earlier-created entry SHALL be the previous entry for the later one, so that the same data yields
+the same flag on every device. The flag SHALL be a derivation over the current entry set and SHALL NOT
+be fixed when the entry is saved: the flag SHALL be recomputed whenever the rabbit's threshold
+changes, so that it appears when the threshold is lowered below an existing drop and disappears when
+the threshold is raised above it, and editing or deleting an entry SHALL re-evaluate the flags of the
+entries around it — in particular, the entry that follows a deleted entry SHALL afterwards be compared
+against the entry that now precedes it. A rabbit carrying a flagged entry SHALL also be flagged on the
+dashboard (DASH-4), and that flag SHALL reflect the same derivation.
 
 #### Scenario: A drop exceeding the threshold is flagged
 
@@ -176,6 +182,24 @@ entry SHALL also be flagged on the dashboard (DASH-4).
 
 - **WHEN** a drop of 2.5% carries no warning at a threshold of 5% and the rabbit's threshold is lowered to 2%
 - **THEN** the warning is presented for that entry
+
+#### Scenario: Entries sharing a timestamp are ordered by creation
+
+- **WHEN** two weight entries of a rabbit carry the same timestamp and the later-created one is otherwise lower
+- **THEN** the earlier-created entry is the previous entry for the later-created one
+- **AND** the drop of the later-created entry is measured against it
+
+#### Scenario: Deleting an entry re-derives the following entry's alert
+
+- **WHEN** a rabbit has three entries in timestamp order and the middle one is deleted
+- **THEN** the remaining later entry is compared against the entry that now precedes it
+- **AND** its flag is presented according to that comparison
+
+#### Scenario: Editing an entry re-derives the alerts around it
+
+- **WHEN** the value of a past weight entry is edited and saved
+- **THEN** the flag of the edited entry itself is re-derived
+- **AND** the flag of the entry that follows it is re-derived
 
 #### Scenario: A flagged rabbit is flagged on the dashboard
 

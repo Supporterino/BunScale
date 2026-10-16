@@ -33,7 +33,8 @@ Three requirements in this phase close the historical failures directly:
   before any participant refresh, with a localized "You"-style label and a fallback chain, and a failed
   refresh keeps the locally known members instead of blanking the list;
 - **changes actually reach the others** (HS-11, SYNC-6, SYNC-7): propagation without a manual refresh,
-  live updates for a household created or joined mid-session, background delivery, and recovery of the
+  live updates for a household created or joined mid-session, background delivery that is visible — a
+  local notification naming the household and carrying no health content — and recovery of the
   household when the product is set up again on the same account.
 
 The remaining requirements close the destructive and accounting edges of sharing: the six-member cap
@@ -61,9 +62,11 @@ the sharing mechanism.
 
 Supporting work: extending the P0 IPC contract with the invitation lifecycle, member-list resolution,
 owner-gated deletion, live-update subscription and the bounded-time enforcement point; the native
-surfaces this phase cannot avoid (the standard sharing options for an invitation and background
-delivery of shared-data changes) on both iOS and macOS; the capability, entitlement, background-mode
-and notification-permission changes those need; the frontend data layer for invitations, members,
+surfaces this phase cannot avoid (the standard sharing options for an invitation, background
+delivery of shared-data changes and the visible notification naming the household) on both iOS and
+macOS; the capability, entitlement, background-mode and notification-authorization changes those need
+(the authorization is a runtime request; see `design.md` D-H14); the frontend data layer for
+invitations, members,
 deletion and status; the P3 screens (invite, joining, member list, household row with its delete
 control, status indicator); and tests at unit, component and E2E level, including end-to-end runs with
 two identities sharing one household.
@@ -82,9 +85,10 @@ two identities sharing one household.
 - **D3 — one unified reminder mechanism.** Not touched here; reminders belong to
   `add-vet-export-and-reminders`.
 - **D6 — technology-agnostic specs.** The concrete shared service was selected by P0's `architect`;
-  this phase extends that contract and names no vendor. Where HS-12's attribution depends on how far the
-  mechanism reports the owner's allowance, the open point is recorded rather than guessed (see
-  `design.md` D-H7 and `questions.md` Q4).
+  this phase extends that contract and names no vendor. HS-12's attribution is settled rather than
+  guessed: the mechanism must attribute a non-owner's contribution to the household **owner's** allowance
+  end to end and expose the household's owner-attributed usage, and that is a hard selection criterion for
+  the mechanism (see `design.md` D-H16).
 
 ### HS-13 — accepted risk, not a requirement
 
@@ -111,9 +115,14 @@ change, not a deferred task of this one.
   `src/features/households/` (delete flow) and `src/features/sync/` (status rules), new/updated routes
   (invite, joining, member list, household row, status indicator), and regenerated `src/bindings.ts`
   (never hand-edited).
-- **Security surface:** background modes/`BackgroundTasks`, notification permission strings and the
-  related entitlements, plus any scope needed to present an invitation link — **`tauri-security` only**,
-  least-privilege, keeping iOS and macOS configurations in step.
+- **Security surface:** background modes/`BackgroundTasks` and the notification authorization this phase
+  introduces, plus any scope needed to present an invitation link — **`tauri-security` only**,
+  least-privilege, keeping iOS and macOS configurations in step. The authorization is a runtime request on
+  both platforms: no `Info.plist` usage-description string exists for notifications and none is invented,
+  and no entitlement is added for local notifications (`design.md`, D-H14); the one authorization surface —
+  `request_notification_authorization()`, `get_notification_authorization()` and the
+  `NotificationAuthorization` state — is consumed by `add-vet-export-and-reminders`, not declared a second
+  time.
 - **Dependencies added:** none beyond what P0 justified; if the share sheet or background delivery needs
   a dependency, it must be justified in one line in `design.md` and must support both iOS and macOS.
 - **Risk carried forward:** sharing correctness (R1, IMP-2) is the reason this phase exists and is
@@ -121,9 +130,10 @@ change, not a deferred task of this one.
 - **Depends on P0:** reporting the owner's storage allowance distinctly is settled, not open — P0's
   design (D0.12) requires an exhausted owner allowance to be reportable as its **own** condition,
   distinct from a generic write error, and makes that a **hard selection criterion** for the mechanism in
-  task 1.1, so `SaveCause.allowance_exceeded` is reachable by contract. What this change still asks is
-  the separate, downstream attribution question — whether a **non-owner's** contribution is charged to
-  the owner's allowance end to end, and how that is observed — recorded as `questions.md` Q4. The
+  task 1.1, so `SaveCause.allowance_exceeded` is reachable by contract. The separate, downstream
+  attribution question is settled too: a non-owner's contribution must be charged to the owner's allowance
+  end to end and be observable, and that is this phase's own hard selection criterion for the mechanism
+  (`design.md` D-H16), so a mechanism that cannot is rejected rather than mapped after the fact. The
   concrete bounded times — a 15 s attempt bound and a 5 s reachability-probe bound — and the
   consecutive-failure count for "offline" (3) are settled too: they are settled by P0's design (D0.13)
   and consumed here as configuration, not re-derived (`design.md` D-H12). Retry is likewise settled: every state-changing command carries a client-generated

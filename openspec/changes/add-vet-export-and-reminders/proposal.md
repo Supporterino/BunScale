@@ -94,8 +94,9 @@ surfaces), and tests at unit, component, screen-reader and E2E level.
 - **A deliberate reversal on background execution.** This change first decided to request **no**
   background mode and to accept the resulting limitation on follow-up evaluation. That is reversed:
   the product now asks for background execution so it can reconcile and cancel pending follow-ups
-  while suspended, and `questions.md` Q6 — which recorded the open question behind the earlier
-  decision — is **answered and closed**. It is not a second background subsystem (see Impact and
+  while suspended, and the background-mode question formerly recorded in `questions.md` — the open
+  question behind the earlier decision — is **answered and closed** (recorded in `design.md`
+  D4.3/D4.5). It is not a second background subsystem (see Impact and
   `design.md` D4.3/D4.5): it consumes and extends the mechanism `add-household-sharing-hardening`
   (P3) establishes for HS-11.
 
@@ -113,14 +114,22 @@ surfaces), and tests at unit, component, screen-reader and E2E level.
   language control in `src/features/settings/`, the accessible chart summary and screen-reader
   labels in the chart and control components, the completed German and English string tables,
   and regenerated `src/bindings.ts` (never hand-edited).
-- **Security surface:** notification authorization and the reminder actions, writing the exported
-  files to a device-local location, and the background-execution declaration consumed from P3,
-  change `src-tauri/capabilities/`, scopes, `Info.plist` background modes and possibly
-  entitlements — via `tauri-security` only. No CSP widening is expected, because no remote content
-  is loaded. A background mode **is** requested (see `design.md`, D4.3/D4.5) so that pending
-  follow-ups can be reconciled while the product is suspended — but it is the declaration, plugin
-  and registration P3 already establishes for HS-11, extended with one reconciliation entry point:
-  this change adds no second mode, no second entitlement and no second plugin.
+- **Security surface:** the reminder actions, writing the exported files to a device-local location,
+  and the background-execution declaration consumed from P3, change `src-tauri/capabilities/`, scopes,
+  `Info.plist` background modes and possibly entitlements — via `tauri-security` only. The
+  **notification authorization is P3's single surface**: the one notification permission it
+  introduces for its visible background-delivery notifications, observed through its
+  `get_notification_authorization()` and requested through its `request_notification_authorization()`,
+  over the one `NotificationAuthorization` state — **consumed unchanged**, not re-declared. It is a
+  runtime authorization request on both iOS and macOS, so it carries **no `Info.plist`
+  usage-description string and no entitlement** (P3's D-H14): none is declared here and none is
+  invented, so this change declares **no second permission, no second usage description and no
+  entitlement** (`design.md`, D4.15). No CSP widening is expected, because no remote content is
+  loaded. A background
+  mode **is** requested (see `design.md`, D4.3/D4.5) so that pending follow-ups can be reconciled while
+  the product is suspended — but it is the declaration, plugin and registration P3 already establishes
+  for HS-11, extended with one reconciliation entry point: this change adds no second mode, no second
+  entitlement and no second plugin.
 - **Dependencies added:** one document-generation dependency with a one-line justification in
   `design.md`, plus the native notification and sharing bridges. Any dependency must support
   both iOS and macOS (project hard rule 6). The background mechanism adds **no** dependency: it is
@@ -128,7 +137,8 @@ surfaces), and tests at unit, component, screen-reader and E2E level.
 - **Data written:** nothing new into the household's shared collection. Reminders and the
   language preference stay on the device; export reads and produces files locally. This is a
   property the review checks.
-- **Risk carried forward:** reminder delivery depends on the device's authorization state, on
+- **Risk carried forward:** reminder delivery depends on the device's authorization state — the one
+  `NotificationAuthorization` state P3 exposes — on
   whether the platform grants background execution at all, and on when it chooses to run it (iOS),
   so honesty about all of this is a first-class concern (see `design.md`, D4.3/D4.7 and risks
   R1/R3). Background execution **narrows** the gap between "a follow-up should fire" and "it
@@ -153,7 +163,7 @@ surfaces), and tests at unit, component, screen-reader and E2E level.
 | P0 | `add-shared-household-foundation` | the read path (already-loaded data) that export reads through, the cause-carrying failure surface export failures are reported with, the household collection boundary that keeps reminders and the language preference out of shared data, the per-device preference storage and the i18n scaffold |
 | P1 | `add-rabbit-weight-core-loop` | rabbit identity and the weight history export covers, the weight trend series the accessible chart summary is derived from, the archived state whose export action RAB-8 keeps available |
 | P2 | `add-health-and-photo-history` | the health entry model and the interleaved history the export presents |
-| P3 | `add-household-sharing-hardening` | the member identity a reminder's creating person resolves to, the shared/device-local split restated there, and **the background-delivery mechanism of HS-11 — its background-mode/backing-task declaration and entitlement, its native plugin and registration, and its Rust handoff — which this change consumes and extends (one reconciliation entry point) rather than re-declaring, so that reminder follow-ups can be reconciled while the product is suspended (D4.3/D4.5)** |
+| P3 | `add-household-sharing-hardening` | the member identity a reminder's creating person resolves to, the shared/device-local split restated there, **the notification authorization surface it introduces for its visible background-delivery notifications — the one notification permission, requested at runtime with no `Info.plist` usage-description string and no entitlement on either platform (D-H14), its `get_notification_authorization()` / `request_notification_authorization()` commands and its `NotificationAuthorization` state, consumed here as the single authorization and presented honestly (D4.15; no second permission, no second usage description, no entitlement, and no reminder-named authorization command or type)**, and **the background-delivery mechanism of HS-11 — its background-mode/backing-task declaration and entitlement, its native plugin and registration, and its Rust handoff — which this change consumes and extends (one reconciliation entry point) rather than re-declaring, so that reminder follow-ups can be reconciled while the product is suspended (D4.3/D4.5)** |
 | **P5** | **`add-medication-tracking`** | **the medication and `Schedule` model, the human-readable schedule summary (MED-4) export reuses, the record-a-dose flow and its pre-filled confirmation (MED-5, MED-8) that MED-9's "record as given" action opens, and the active/finished lifecycle (MED-2) that decides which medications raise reminders — including a finished course's return to active when its end date is corrected (MED-13), after which its reminder occurrences are scheduled again** |
 
 | Phase | change-id | Depends on P4 for |
@@ -164,8 +174,8 @@ surfaces), and tests at unit, component, screen-reader and E2E level.
 MUST run strictly in order **P0 → P1 → P2 → P3 → P5 → P4 → P6**. Archiving out of order leaves
 `openspec/specs/` with deltas applied against text that does not yet exist — in this case, most
 visibly, a `medication-tracking` capability holding MED-9 … MED-11 while the medication entity
-they are reminders *for* is missing. This is recorded as an open coordination item in
-`questions.md`. The order is also what makes the background work in D4.3 possible as specified:
+they are reminders *for* is missing. This is recorded here and carried as risk R11 in `design.md`
+rather than left implicit. The order is also what makes the background work in D4.3 possible as specified:
 **P3's** background-mode declaration, native plugin, registration and Rust handoff are archived
 before this change consumes and extends them, so this change extends a mechanism that already exists
 rather than declaring a second one.
@@ -176,4 +186,6 @@ exhaustion is reported as its own condition, distinct from a generic write error
 (15 s save attempt, 5 s reachability probe) and the offline threshold (3 consecutive failures) are named
 constants; and every state-changing command carries a client-generated `request_id` the service
 deduplicates on, so a retry is idempotent by construction. Every other change's open items remain
-theirs. This change's own open items are `questions.md` Q1 … Q6.
+theirs. This change's own questions are all settled too: the former `questions.md` Q1 … Q6 are recorded
+as design decisions **D4.10 … D4.15**, so **this change has no open questions** and no task is blocked
+on one.

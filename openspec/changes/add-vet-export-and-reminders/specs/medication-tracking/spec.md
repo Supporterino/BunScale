@@ -56,6 +56,15 @@ for **as long as the course remains finished**, while its recorded doses SHALL r
 Conversely, when a finished course is returned to **active** by correcting its end date (MED-13),
 its reminder occurrences SHALL be scheduled again for its upcoming slots, so that an active
 medication raises reminders again at the slots its schedule defines.
+A **snooze** SHALL defer the occurrence by a fixed **10 minutes** and MAY be repeated; a snooze
+SHALL NOT record a dose and SHALL NOT satisfy the slot, and an occurrence whose snooze runs past the
+slot's dose window SHALL leave that slot **missed**, so that MED-10's missed-dose follow-up still
+applies to it.
+Where the device's notification **authorization** is not granted — denied, not yet determined or
+revoked — the product SHALL present that state honestly, SHALL keep the reminder configuration
+usable, and SHALL NOT present a configured reminder as one that will fire. This is the same honesty
+the product applies to service status, **extended from the service to notifications**: the state is
+shown rather than assumed, and the configuration is never silently left looking as though it works.
 
 #### Scenario: A reminder is raised for each upcoming slot of an active medication
 
@@ -117,8 +126,37 @@ medication raises reminders again at the slots its schedule defines.
 
 - **WHEN** the person chooses to snooze a medication reminder
 - **THEN** no dose is recorded
+- **AND** the occurrence is deferred by the fixed 10 minutes
 - **AND** the slot remains unsatisfied rather than being reported as given
 - **AND** the reminder is raised again rather than being silently dropped
+
+#### Scenario: A snooze may be repeated without satisfying the slot
+
+- **WHEN** the person snoozes a medication reminder and snoozes it again when it is raised
+- **THEN** each snooze defers the occurrence by a further 10 minutes
+- **AND** no dose is recorded on either occasion
+- **AND** the slot remains unsatisfied
+
+#### Scenario: A snooze that runs past the dose window leaves the slot missed
+
+- **WHEN** a medication slot is snoozed and the deferral extends past that slot's dose window
+- **THEN** the slot is left missed rather than satisfied
+- **AND** the missed-dose follow-up still applies to that slot (MED-10)
+
+#### Scenario: A reminder states honestly that notifications are not authorized
+
+- **WHEN** the device's notification authorization is denied or has not been granted and reminders
+  are configured on that device
+- **THEN** the product presents that state where reminders are configured
+- **AND** it does not present a configured reminder as one that will fire
+- **AND** the reminder configuration remains usable
+
+#### Scenario: Revoking authorization leaves the reminder configuration usable
+
+- **WHEN** the device's notification authorization is revoked while reminders are configured
+- **THEN** the product presents the new state honestly and stops presenting the reminders as ones that
+  will fire
+- **AND** the reminder configuration remains intact and can still be edited, disabled and deleted
 
 #### Scenario: Only the device that configured the reminder is reminded
 

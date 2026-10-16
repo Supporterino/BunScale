@@ -19,8 +19,9 @@ Photo-source tasks state their platform explicitly: **iOS**, **macOS**, or **bot
   (design R3, D0.14).
 - [ ] 1.2 [architect] Record in `design.md` (and `docs/adr/` if a mechanism-level choice is made) the
   photo storage/local-copy boundary, the offline availability decision that drives the SYNC-4
-  placeholder, the lazy idempotent tag-catalog establishment, the derived (never stored) dashboard
-  health flag, and the 7-day window definition once Q3 is answered.
+  placeholder, the lazy idempotent tag-catalog establishment, and the derived (never stored) dashboard
+  health flag, taking the settled rules D2.9 (local photo retention), D2.10 (gallery ordering) and D2.11
+  (the rolling severe-health window) as given.
 - [ ] 1.3 [tauri-security] Declare the capability, CSP, scope, entitlement and permission-string
   changes that photo-source access needs on **both** iOS (photo-library permission) and macOS
   (photo-source scope); keep them least-privilege, add no permission the phase does not use, and keep
@@ -48,21 +49,25 @@ Photo-source tasks state their platform explicitly: **iOS**, **macOS**, or **bot
   entries and health entries ordered by timestamp for the combined view, and the health-only narrowing
   by tag, severity and date range, resolved from the already-loaded collection (HL-3, DASH-7).
 - [ ] 2.7 [rust-backend] Implement the derived dashboard health flag: a rabbit is flagged when a
-  Severe health entry falls within the last 7 days, and the flag recomputes away when it is edited to a
-  lower severity, deleted, or ages out; nothing is persisted onto the rabbit (DASH-4 severe clause).
+  health entry of severity Severe has a timestamp within 7 × 24 hours before the present instant — a
+  rolling window measured back from the present instant, independent of the device timezone and of any
+  calendar day boundary — and the flag recomputes away when the entry is edited to a lower severity,
+  deleted, or no longer falls inside that window; nothing is persisted onto the rabbit (DASH-4 severe
+  clause, D2.11).
 - [ ] 2.8 [rust-backend] Implement photo attachment to a health entry and to a weight entry as part of
   the entry save: upload gated on reachability, content saved into the household collection, removal
   also a save, failures mapped to P0's `SaveCause` with no new cause (PHOTO-1).
 - [ ] 2.9 [rust-backend] Implement the rabbit profile photo: settable, stored with the household
   collection, and exposed for a rabbit's thumbnail everywhere the rabbit is presented (PHOTO-2).
-- [ ] 2.10 [rust-backend] Implement the per-rabbit gallery read: the rabbit's entry photos and its
-  profile photo, with entry photos ordered by entry date, available for an archived rabbit
-  (PHOTO-3).
+- [ ] 2.10 [rust-backend] Implement the per-rabbit gallery read: the rabbit's profile photo first, then
+  its entry photos ordered by entry date after it, available for an archived rabbit (PHOTO-3, D2.10).
 - [ ] 2.11 [rust-backend] Ensure a photo attached to an entry or a rabbit is part of the household's
   shared collection so every member resolves the same photo, with exactly one copy per photo (PHOTO-4).
 - [ ] 2.12 [rust-backend] Implement the photo local-copy boundary: keep the local copy of a displayed
-  photo, resolve a held photo while unreachable, and report an explicit unavailable-offline state when
-  it is not held — with no write queued and no success reported for an unmade change (SYNC-4).
+  photo locally and indefinitely — not size-bounded and never evicted, until the household or the photo
+  itself is removed — resolve a held photo while unreachable, and report the explicit unavailable-offline
+  state only for a photo that was never displayed, with no write queued and no success reported for an
+  unmade change (SYNC-4, D2.9).
 
 ## 3. Frontend logic
 
@@ -77,8 +82,9 @@ Photo-source tasks state their platform explicitly: **iOS**, **macOS**, or **bot
   `list_rabbit_history` (HL-4, HL-3, DASH-7).
 - [ ] 3.4 [frontend-logic] Implement the photo pipeline: attach/detach during an entry save, the
   profile-photo mutation, the gallery query, and the availability state that distinguishes a locally
-  held photo from an unavailable-offline one for the SYNC-4 placeholder (PHOTO-1, PHOTO-2, PHOTO-3,
-  SYNC-4).
+  held photo — kept locally and indefinitely once displayed, never evicted (D2.9) — from the
+  unavailable-offline state, which is reachable only for a never-displayed photo (PHOTO-1, PHOTO-2,
+  PHOTO-3, SYNC-4).
 - [ ] 3.5 [frontend-logic] Extend the dashboard row data with the derived health flag from the P1
   dashboard query, so the dashboard renders one warning flag per rabbit without a second list request
   (DASH-4 severe clause).
@@ -112,8 +118,9 @@ Photo-source tasks state their platform explicitly: **iOS**, **macOS**, or **bot
 - [ ] 4.8 [frontend-ui] Build the rabbit profile-photo control and the shared thumbnail presentation
   with its non-photo placeholder, used by the rabbit list and the rabbit dashboard (PHOTO-2);
   screenshots both viewports.
-- [ ] 4.9 [frontend-ui] Build the per-rabbit gallery ordered by entry date, reachable from an archived
-  rabbit's timeline (PHOTO-3); screenshots both viewports.
+- [ ] 4.9 [frontend-ui] Build the per-rabbit gallery with the profile photo first and the entry photos
+  after it ordered by entry date, reachable from an archived rabbit's timeline (PHOTO-3, D2.10);
+  screenshots both viewports.
 - [ ] 4.10 [frontend-ui] Render the derived severe-health flag on the dashboard row as the same warning
   flag the weight-drop clause uses, clearing when no recent Severe entry remains (DASH-4 severe
   clause); screenshots both viewports.
@@ -146,18 +153,25 @@ Photo-source tasks state their platform explicitly: **iOS**, **macOS**, or **bot
 - [ ] 5.7 [test-engineer] Rust tests for the dashboard health flag — covers "A Severe health entry
   within the last 7 days flags the rabbit", "A Severe health entry older than 7 days does not flag the
   rabbit", "A Mild or Moderate entry does not flag the rabbit" and "The flag clears when no recent
-  Severe entry remains" (DASH-4 severe clause).
-- [ ] 5.8 [test-engineer] Rust tests for photo attachment and sharing — covers "Photos are attached to
-  a health entry", "Photos are attached to a weight entry", "An entry is savable without photos",
-  "Several photos can be attached to one entry" (PHOTO-1), "A profile photo appears as the rabbit's
-  thumbnail across the product", "A rabbit without a profile photo shows a placeholder", "Replacing a
-  profile photo changes the thumbnail" (PHOTO-2), "The gallery shows the rabbit's photos", "Entry photos
-  are ordered by entry date", "The gallery remains available for an archived rabbit" (PHOTO-3) and "A
-  photo attached by one member is seen by another", "Members see the same profile photo" (PHOTO-4).
+  Severe entry remains" (DASH-4 severe clause), asserting the rolling window of 7 × 24 hours measured
+  back from the present instant with instants stated relative to the present instant and to the stored
+  entry timestamp, and with no device calendar or timezone involved (D2.11).
+- [ ] 5.8 [test-engineer] Rust tests for photo attachment, ordering and sharing — covers "Photos are
+  attached to a health entry", "Photos are attached to a weight entry", "An entry is savable without
+  photos", "Several photos can be attached to one entry" (PHOTO-1), "A profile photo appears as the
+  rabbit's thumbnail across the product", "A rabbit without a profile photo shows a placeholder",
+  "Replacing a profile photo changes the thumbnail" (PHOTO-2), "The gallery shows the rabbit's photos",
+  "Entry photos are ordered by entry date" — asserting the profile photo is first, before every entry
+  photo, and that the entry photos follow it by entry date (D2.10) — "The gallery remains available for
+  an archived rabbit" (PHOTO-3), and "A photo attached by one member is seen by another", "Members see
+  the same profile photo" (PHOTO-4).
 - [ ] 5.9 [test-engineer] Rust tests for the photo local copy — covers "A photo that was displayed once
   is shown again offline", "A never-displayed photo shows a cannot-load placeholder offline" and "An
-  entry whose photos cannot load is not presented as having no photos" (SYNC-4), asserting no write is
-  queued and no save is reported as succeeded while unreachable.
+  entry whose photos cannot load is not presented as having no photos" (SYNC-4), asserting exactly the
+  split between a photo that was displayed once (kept locally and indefinitely, never evicted, with no
+  retention duration asserted) and a photo that was never displayed (the only case that reaches the
+  placeholder), and asserting no write is queued and no save is reported as succeeded while unreachable
+  (D2.9).
 - [ ] 5.10 [test-engineer] Component tests for the health form, filters and history — covers "A
   structured health entry is created with tags and a severity" (HL-1), "A note-only entry is accepted"
   (HL-2), the five HL-4 filtering scenarios, and "The full history interleaves weight and health
@@ -176,8 +190,10 @@ Photo-source tasks state their platform explicitly: **iOS**, **macOS**, or **bot
   dashboard row is flagged; covers the `[mobile]` flow of HL-1/HL-4/HL-7/PHOTO-5 and the DASH-4 severe
   clause.
 - [ ] 5.14 [test-engineer] E2E at 1280×800: the same health detail with pager navigation by the visible
-  next/previous control, the gallery ordered by entry date, and the profile thumbnail on the dashboard;
-  covers "The pager is operable without a swipe gesture" (PHOTO-5), PHOTO-2 and PHOTO-3.
+  next/previous control, the gallery with the profile photo first and the entry photos after it by entry
+  date, and the profile thumbnail on the dashboard; covers "The pager is operable without a swipe
+  gesture" (PHOTO-5), "A profile photo appears as the rabbit's thumbnail across the product" (PHOTO-2)
+  and "Entry photos are ordered by entry date" (PHOTO-3).
 - [ ] 5.15 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
   `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` with no diff,
   `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
