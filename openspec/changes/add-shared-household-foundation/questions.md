@@ -1,9 +1,18 @@
 # Questions — add-shared-household-foundation (P0)
 
-**No open questions remain.** The former Q1–Q9 were settled by the product owner; each is recorded as
-a decision in `design.md` (D0.12 … D0.20) and reflected in the tasks and scenarios that consume it.
-No task in this change is blocked on an answer, and settled decisions (D1–D6) were never reopened
-here.
+**Settled before implementation:** Q1–Q9 were answered by the product owner and recorded as decisions
+in `design.md` (D0.12 … D0.20); they are tabulated below and were never reopened.
+
+**Raised during implementation and resolved the same day (2026-10-16):** Q10–Q12, by the product
+owner. The decisions the loop follows are in "Resolutions" below; the evidence each was raised on is
+kept in "History".
+
+**Current open items:** Q13 (an open item for `tauri-security` in task 0.6) and Q14 (a defect whose
+decision is taken and implemented, with obligations carried into task 0.10). Both record deviations
+from task 0.1's generator pass rather than hiding them.
+
+New ambiguity discovered while implementing is appended here as a new question, per project hard
+rule 7.
 
 | Former question | Topic | Decision |
 |---|---|---|
@@ -17,122 +26,142 @@ here.
 | Q8 | the app mark is generated after the design tokens exist | `design.md` D0.19 |
 | Q9 | `ios init` keeps its documented position, with a fallback | `design.md` D0.20 |
 
-New ambiguity discovered while implementing is appended here as a new question, per project hard
-rule 7; nothing has been added since Q9.
-
 ## Resolutions (2026-10-16, product owner)
 
-**Q10 — decided: fix the harness configuration first, then delegate.** Task work stays paused until
-the project-defined subagents can execute their allowlisted commands; task 0.1 stays unchecked.
+### Q10 — decided: fix the harness configuration first, then delegate
 
-Diagnostic the orchestrator added after the refusal, because it narrows the fix sharply: the built-in
-`general` subagent — the one agent with **no** `permissions` block — *can* run shell (`openspec list`
-succeeded in its session, with the graphify plugin notice and the change list returned), while
-`architect` and `rust-backend` are refused **every** command. So child sessions are not
-shell-restricted by the harness; the refusal comes from the project's own agent files. Every one of
-the eleven `.opencode/agents/*.md` files opens its `permissions` array with
+Task work was paused until the project-defined subagents could execute their allowlisted commands.
+The product owner then granted the orchestrator `edit` on `.opencode/agents/*.md` (so the allow lists
+could be repaired) plus `bun install *`, `rustup *`, `xcodebuild *`, `xcrun *` and `SETUP.md`.
 
-```
-- action: edit
-  resource: "*"
-  effect: deny
-- action: shell
-  resource: "*"
-  effect: deny
-```
+**Verified outcome:** specialist sessions now run their allowlisted commands. `cargo install
+tauri-cli --help` and then the full `cargo tauri init …` invocation both ran in an `architect`
+session, and `cargo --version` / `pwd` were still correctly refused there — so the allow list is
+enforced again, last-match-wins, exactly as the V2 documentation describes.
 
-and then lists specific `allow` entries. Ordering is **ruled out** as the cause: `rust-backend.md`
-allows `cargo *` *after* that deny and `cargo --version` was still refused in its session, while the
-identical array shape resolves correctly in the orchestrator's primary session (`cargo *`,
-`openspec *`, `bun run *` and the `git` verbs run; `ls`, `pwd` and piped commands are refused). The
-specific `shell` allow entries are simply not being applied for subagent sessions. Candidate fixes
-for the config owner, to be verified empirically before 0.1 is re-delegated: express the agent
-permission blocks in the object/map form current OpenCode expects rather than the array-of-rules
-form; or remove the blanket `resource: "*"` shell deny from the subagent files and keep only explicit
-allows and denies; or file it upstream against subagent permission application. Verification probe:
-`architect` must be able to run `cargo tauri --version` and `apple-native` must be able to run
-`xcrun --show-sdk-path` in their own sessions.
+**One lasting finding, recorded in `.opencode/agents/architect.md`:** `cargo tauri …` needs a `tauri *`
+rule *in addition to* `cargo tauri *`. With only `cargo tauri *` present, `cargo tauri --version` was
+refused while `cargo tauri init --help` and `cargo tauri init --ci` ran; adding `tauri *` made the
+full `tauri init` invocation with all its flags run. The scanner's exact form is undocumented, so the
+rule stands on that observation. The orchestrator's own session reaches the same commands through
+`cargo *` and did not need the extra rule.
 
-**Q11 — decided: create `SETUP.md` now.** Root `SETUP.md` documents the macOS setup TOOL-1's scenario
-and task 0.1's precondition refer to: Xcode with a simulator runtime, the `aarch64-apple-ios` rustup
-target, bun, and the one-off local `cargo install tauri-cli --version "^2" --locked` bootstrap.
+### Q11 — decided: create `SETUP.md` now — done
 
-**Done** — created at the repository root and committed with the resolutions (first commit of
-2026-10-16 in this change). It was written through the built-in `general` agent, the only session with
-write access to a root path, since no project agent's edit allowlist owns a root-level file and the
-orchestrator may edit only `tasks.md` and `questions.md`. The document carries the iOS-target check
-(`rustup target list --installed`), the `rustup target add aarch64-apple-ios` step, the
-`bun install` step and the `definition-of-done` gate list. It points the deployment-target question at
-D0.16 rather than naming a version. The ownership gap it exposed is **not** closed: future edits to
-root documentation still have no owner, and the config change should name one.
+Root `SETUP.md` documents the macOS setup TOOL-1's scenario and task 0.1's precondition refer to:
+Xcode with a simulator runtime, the `aarch64-apple-ios` rustup target, bun, and the one-off local
+`cargo install tauri-cli --version "^2" --locked` bootstrap. It was created through the built-in
+`general` agent — the only session with write access to a root path, since no project agent's edit
+allow list owns a root-level file — and committed with these resolutions. It carries the iOS-target
+check (`rustup target list --installed`), the `rustup target add aarch64-apple-ios` step, the
+`bun install` step and the `definition-of-done` gate list, and points the deployment-target question at
+D0.16 rather than naming a version. The ownership gap it exposed is **closed** by the same grant:
+`SETUP.md` is now in the orchestrator's edit allow list.
 
-**Q12 — decided: extend the orchestrator's allowlist**, and close the two specialist gaps the same
-way. Answers to "who runs the gate's non-gate commands":
+### Q12 — decided: extend the orchestrator's allow list, and close the specialist gaps the same way
 
-| Command family | Needed by | Allowlist entry required |
+| Command family | Needed by | Status |
 |---|---|---|
-| `bun install` | tasks 0.13–0.19 (materialise `node_modules` from the hand-written exact pins) and every `bun run typecheck\|lint\|test\|test:e2e` after them | `.opencode/agents/frontend-logic.md` (has `bun run *` and `bun add *`, which cannot install a hand-written manifest) **and** `.opencode/agents/orchestrator.md` (the gate) |
-| `rustup` | task 0.1's precondition, the `aarch64-apple-ios` target check, `apple-native`'s task 0.7 | `.opencode/agents/orchestrator.md`; `apple-native.md` if it is to record the installed target list itself |
-| `xcodebuild`, `xcrun` | task 0.7 (measure the deployment floor from the installed SDKs); re-verified by the orchestrator during the gate | already allowed for `apple-native.md`; add to `.opencode/agents/orchestrator.md` if the orchestrator is to verify the floor independently |
+| `bun install` | tasks 0.13–0.19 (materialise `node_modules` from the hand-written exact pins) and every `bun run typecheck\|lint\|test\|test:e2e` after them | granted for the orchestrator; **`frontend-logic` still needs its own entry** — check before task 0.13 |
+| `rustup` | task 0.1's precondition, the `aarch64-apple-ios` target check, `apple-native`'s task 0.7 | granted for the orchestrator; add for `apple-native` only if it records the installed target list itself |
+| `xcodebuild`, `xcrun` | task 0.7 (measure the deployment floor from the installed SDKs); re-verified by the orchestrator during the gate | already allowed for `apple-native`; granted for the orchestrator for gate verification |
 
-Task 0.7 stays owned by `apple-native`, whose file already allows `xcodebuild *` and `xcrun *`; the
-orchestrator entries are for gate verification only. None of these entries takes effect until the
-Q10 refusal is fixed, so Q10 is the gating change.
+Task 0.7 stays owned by `apple-native`. `rustup target list --installed` on this machine reports
+`aarch64-apple-ios` and `aarch64-apple-ios-sim`, and Xcode 27.1 is installed, so task 0.1's real
+preconditions hold.
 
-## Q10 — Specialists cannot execute shell commands in this harness (2026-10-16, orchestrator)
+## Open items
 
-**Blocking for:** task 0.1 and every later task whose deliverable is produced by running a command
-rather than by editing a file — the generator pass (0.1), the SDK/deployment-floor measurement (0.7),
-regenerating bindings (0.16) and the icon set (0.22), the iOS compile check and every gate run
-(0.26, 5.18, 6.x), and the manual boot on the simulator (0.27).
+### Q13 — `cargo tauri capability new` cannot run headless, and its artefact already exists (open for task 0.6)
 
-**Observed evidence.** Task 0.1 was delegated to `architect` and completed with no command executed:
-every `shell` call in a subagent session is refused at the tool layer with
-`{"error":{"type":"permission.rejected","message":"Permission denied: shell"}}`. This is not an
-allowlist miss: the same refusal was returned for `cargo install tauri-cli --version "^2" --locked`,
-which `.opencode/agents/architect.md` explicitly allows, and a second probe in a `rust-backend`
-session refused both `cargo --version` and `openspec list`, which that agent's own allowlist permits.
-File edits in subagent sessions do work (the `architect` session successfully edited `design.md`),
-and the orchestrator's session does enforce its own allowlist (`cargo *`, `bun run *`, `openspec *`,
-`graphify *`, `git status|diff|add|commit|log|rev-parse *` all run; anything else is refused).
+Task 0.1 step 4 ran and failed: `Error failed to prompt input: IO error: not a terminal`, exit 1,
+nothing generated. Two facts behind it:
 
-**Consequence.** D0.11's premise that "`architect` is granted shell access for
-`cargo install tauri-cli *` and `cargo tauri *` for exactly this task" does not hold in this
-environment, so task 0.1 cannot be completed by its owner as written. Either the harness/config is
-fixed so specialist sessions may execute their allowlisted commands, or every command-running step
-of every task is executed by the orchestrator while the owning specialist supplies the file edits —
-which is a delegation model change, not a task-level deviation.
+- the command was invoked exactly as the task text gives it — `cargo tauri capability new`, with no
+  identifier — and fell back to an interactive prompt, which fails without a TTY. The installed CLI does
+  accept `[IDENTIFIER]`, `--description`, `--windows`, `--permission` and `-o` (verified with `--help`),
+  so the command is runnable headless when given an identifier; this change simply defines none to give
+  it;
+- `cargo tauri init` (step 2) had already written `src-tauri/capabilities/default.json` (identifier
+  `default`, `permissions: ["core:default"]`, `windows: ["main"]`) — precisely the file D0.11's
+  hand-owned table assigns to task 0.6 to harden.
 
-**Awaiting a product-owner/configuration decision.** No task output has been faked; `src-tauri/` does
-not exist and task 0.1 remains unchecked. The `architect` session recorded the non-execution in
-`design.md` (D0.11) rather than an invented observed-output note.
+**Resolution taken:** step 4 is recorded in `design.md` (D0.11, "Generator pass — observed output") as
+satisfied by generator output, and no second capability file was invented. **Open item:** whether 0.6
+wants an additional capability file at all is a least-privilege question for `tauri-security` in task
+0.6 ("one capability per window"), not a naming choice for the bootstrap. Harness note: an unargued
+`capability new` needs a TTY, so an agent session must always pass an explicit identifier if the step is
+ever re-run. Task 0.6's text has been corrected accordingly (`tasks.md`).
 
-## Q11 — `SETUP.md` does not exist (2026-10-16, orchestrator)
+### Q14 — the generator's logging plugin broke the iOS compile check; the decision is taken and implemented
+
+`cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios` failed on the baseline as
+generated (reproduced independently by the orchestrator):
+
+```
+error[E0425]: cannot find function `mach_task_self` in crate `libc`
+  --> num_threads-0.1.7/src/apple.rs:34:31
+error: could not compile `num_threads` (lib) due to 1 previous error
+```
+
+Root cause, read from the resolved sources rather than inferred: the generator's `Cargo.toml` carried
+`tauri-plugin-log = "2"` (resolved to 2.10.1), which depends on `time` with the `local-offset` feature;
+that feature pulls `num_threads` (declared for `cfg(target_family = "unix")`, so iOS is included), and
+`num_threads 0.1.7` calls `libc::mach_task_self()`, which `libc 0.2.190` defines only under
+`#[cfg(target_os = "macos")]`. The host build passed solely because that gate is open on macOS.
+
+**Decision taken (project rule 6, recorded in `design.md` D0.8 and D0.11):** drop `tauri-plugin-log`
+from the generated crate and its debug-only registration from `src/lib.rs`, as a refinement of the
+generated baseline. No requirement in this change asks for logging and the generated
+`capabilities/default.json` grants only `core:default`, so the plugin was not even reachable from the
+frontend. Pinning around it was rejected: that keeps an unrequested plugin and adds pins or a patch for
+no product benefit. No replacement dependency was added.
+
+**Implemented and verified:** the removal is in task 0.1's own commit; both `cargo check` commands
+(host and `aarch64-apple-ios`) pass on the committed tree, so TOOL-1's "[ios] The iOS target compiles"
+scenario is met. Two obligations carry forward:
+
+1. **Task 0.10** must not reintroduce `tauri-plugin-log` (or any dependency that enables
+   `time/local-offset`) when it imposes the exact pins — `time` itself stays in the graph via `cookie`,
+   `plist`, `serde_with` and `tauri-build`, and only the `local-offset` feature was the problem. The
+   plugin's removal also orphaned the generated `log = "0.4"` dependency; the same rule-6 argument
+   applied to it, so it was dropped in the same commit — no `log::` reference remained anywhere in
+   `src-tauri/src/`, and the `log` crate itself stays in the graph only as a transitive dependency of
+   other crates.
+2. **Review expectation:** the record of this deviation lives in `design.md` D0.8/D0.11 and here; the
+   generator's own artefact list is otherwise unchanged.
+
+## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
+
+### Q10 — Specialists could not execute shell commands in this harness
+
+Task 0.1 was delegated to `architect` and completed with no command executed: every `shell` call in a
+subagent session was refused at the tool layer with
+`{"error":{"type":"permission.rejected","message":"Permission denied: shell"}}`. It was not an
+allow-list miss: the same refusal came back for `cargo install tauri-cli --version "^2" --locked`,
+which `.opencode/agents/architect.md` explicitly allows, and a second probe in a `rust-backend` session
+refused both `cargo --version` and `openspec list`, which that agent's own allow list permits.
+
+The orchestrator's diagnostic narrowed it: the built-in `general` subagent — the one agent with **no**
+`permissions` block — *could* run shell (`openspec list` succeeded in its session), while every
+project-defined subagent was refused **every** command, even though file edits in subagent sessions did
+work (the `architect` session successfully edited `design.md`). The orchestrator's own primary session
+enforced its allow list throughout (`cargo *`, `bun run *`, `openspec *`, `graphify *` and the `git`
+verbs ran; `ls`, `pwd` and piped commands were refused). Ordering was ruled out as the cause:
+`rust-backend.md` allowed `cargo *` after the blanket deny and `cargo --version` was still refused
+there. Resolved as above; no task output was ever faked.
+
+### Q11 — `SETUP.md` did not exist
 
 TOOL-1's scenario ("A fresh checkout passes the gate [macos]") says the repository is "prepared per
-`SETUP.md`", and task 0.1 lists "the `aarch64-apple-ios` rustup target (`SETUP.md`)" as a
-precondition. The repository has **no `SETUP.md`**: the root holds `AGENTS.md`, `opencode.jsonc`,
-`openspec/`, `docs/` and `graphify-out/` only.
+`SETUP.md`", and task 0.1 lists "the `aarch64-apple-ios` rustup target (`SETUP.md`)" as a precondition,
+while the root held `AGENTS.md`, `opencode.jsonc`, `openspec/`, `docs/` and `graphify-out/` only.
+Resolved as above; task 0.1's real precondition was checked directly instead (Xcode 27.1 present,
+`aarch64-apple-ios` installed).
 
-Neither the precondition nor the scenario can currently be read from a document, and no agent's edit
-allowlist owns a root-level `SETUP.md`. Open item: should the documented macOS setup (Xcode, the
-`aarch64-apple-ios` rustup target, bun) be written as `SETUP.md`, and by whom? Task 0.1's real
-precondition — Xcode plus the iOS rustup target being installed — is unaffected by the missing file
-and is checked directly instead.
+### Q12 — Orchestrator gate-command permissions were incomplete
 
-## Q12 — Orchestrator gate-command permissions are incomplete (2026-10-16, orchestrator)
-
-The `definition-of-done` gate and section 0 need three command families that no agent in this
-repository is permitted to run:
-
-| Needed by | Command | Permitted for |
-|---|---|---|
-| tasks 0.13–0.19 and every `bun run typecheck\|lint\|test\|test:e2e` after them | `bun install` | nobody (`bun run *` only, which cannot install) |
-| task 0.7 (measure the deployment floor from the installed SDKs) | `xcodebuild`, `xcrun`, `rustup` | nobody |
-| task 0.1 precondition and the iOS compile check | `rustup target list` / `rustup target add aarch64-apple-ios` | nobody |
-
-The orchestrator can run `cargo check --target aarch64-apple-ios` once a crate exists, which is
-enough to *detect* a missing iOS target but not to install it. Task 0.7 as currently scoped cannot be
-executed by any agent. Awaiting a decision: extend the orchestrator's (and/or `apple-native`'s)
-allowlist, or accept a shell-capable human step for these commands.
-
+No agent was permitted to run `bun install` (required before any `bun run typecheck|lint|test|test:e2e`
+can pass), `xcodebuild`/`xcrun` (task 0.7's deployment-floor measurement) or `rustup` (the iOS target
+precondition). Resolved as above; the orchestrator can now run all of them, which is also how the two
+`cargo check` results recorded in Q14 were reproduced independently.

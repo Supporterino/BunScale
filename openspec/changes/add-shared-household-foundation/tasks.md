@@ -4,7 +4,15 @@ One task = one commit = one owner. Format: `- [ ] <n>.<m> [agent] <imperative>`.
 Order: section 0 (workspace scaffold, the prerequisite for everything below:
 architect → tauri-security → apple-native → release-ci → rust-backend / frontend-logic →
 frontend-ui → tests), then contract → backend → frontend-logic → frontend-ui → tests → review.
-Tick a task only after the `definition-of-done` gate passes for it.
+Tick a task only after the `definition-of-done` gate passes for it. In section 0 the gate is applied
+incrementally, because the workspace the gate runs against is what this section creates: a task is
+ticked when every gate command that is runnable at that point passes, and a gate command whose
+precondition is a later section-0 deliverable belongs to that task (the bun commands from 0.13 onwards,
+the two drift checks from 0.16, `cargo fmt --check` and the clippy-clean requirement in 0.12, the E2E
+suite in 0.17). Concretely, task 0.1 is ticked on: `cargo check` for the macOS host **and** for
+`aarch64-apple-ios` both pass; `cargo clippy --all-targets -- -D warnings` and `cargo test` pass;
+`cargo fmt --check` is red on the generator's own 2-space style and is task 0.12's stated deliverable;
+the bun-family and drift-check commands have no `package.json` to run against yet.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -45,7 +53,7 @@ Platforms: iOS (primary) and macOS, in step, `cfg`-clean for later platforms. Re
 enabler set `TOOL-1 … TOOL-8` in `specs/project-toolchain/spec.md` (no source-document ID; see that
 file's header).
 
-- [ ] 0.1 [architect] Bootstrap the workspace with the official Tauri v2 CLI and commit the
+- [x] 0.1 [architect] Bootstrap the workspace with the official Tauri v2 CLI and commit the
   generated baseline as one commit (message marks it as generated output). Preconditions, all
   satisfied before this task starts: macOS with Xcode, the `aarch64-apple-ios` rustup target
   (`SETUP.md`), and network access for the CLI install. Then: `cargo install tauri-cli --version
@@ -60,8 +68,10 @@ file's header).
   which sets them to the values settled in `design.md` D0.15. Then `cargo tauri ios init` (the iOS
   target; it keeps its documented position per D0.20 — if it fails because no frontend dist exists
   yet, it moves after task 0.14 within this same pass under this same owner and the correction is
-  reported as a blocker rather than worked around), and `cargo tauri capability new` (the capability
-  file task 0.6 then hardens). The `cargo tauri icon` step is deliberately NOT part of this pass, so
+  reported as a blocker rather than worked around), and `cargo tauri capability new` (Q13: it generated
+  nothing in this environment — it needs an identifier and this change defines none to give it; the
+  capability file task 0.6 hardens is the generated `src-tauri/capabilities/default.json` from
+  `tauri init`). The `cargo tauri icon` step is deliberately NOT part of this pass, so
   this commit ships Tauri's default iconset as a temporary placeholder; task 0.22 replaces it inside
   section 0 from the design-system tokens (D0.19), before anything is released. Record the
   generator-owned versus hand-owned artefact split in `design.md` (D0.11). `cargo check` passes on
@@ -101,8 +111,10 @@ file's header).
 
 - [ ] 0.6 [tauri-security] Harden the generated default capability and the generated CSP: least
   privilege, no permission the scaffold does not use, one capability per window, no `unsafe-eval`,
-  and the iOS and macOS configurations in step. The capability file is the one task 0.1 created with
-  `cargo tauri capability new` and the CSP is the one `tauri init` wrote into `tauri.conf.json`;
+  and the iOS and macOS configurations in step. The capability file is the generated
+  `src-tauri/capabilities/default.json` that `tauri init` wrote (Q13: `cargo tauri capability new`
+  generated nothing in this environment) and the CSP is the one `tauri init` wrote into
+  `tauri.conf.json`;
   both are treated as defaults to narrow, not as a set to extend. Justify any widening in one line
   in `design.md`. Both platforms (TOOL-1).
 
@@ -122,7 +134,9 @@ file's header).
   init`): a usage string only for a capability that is actually present, only the entitlements the
   scaffold actually uses, and the minimum iOS and macOS deployment targets **measured and recorded by
   task 0.7** (D0.16) — consume that recorded floor, never a chosen version — so the two platforms stay
-  in step. Both platforms (TOOL-2).
+  in step. Apply the floor through `tauri.conf.json` (`bundle.iOS.minimumSystemVersion`) and regenerate
+  the iOS target with `cargo tauri ios init` — never by hand-editing anything under
+  `src-tauri/gen/apple/` (D0.11). Both platforms (TOOL-2).
 
 - [ ] 0.9 [release-ci] Add `.github/workflows/ci.yml` on `macos-latest` running exactly the
   `definition-of-done` gate — Rust fmt, clippy, tests, the iOS target compile check,
@@ -138,7 +152,10 @@ file's header).
   versions), `build.rs`, `src/main.rs` and `src/lib.rs` as task 0.1 generated them, wired to the ipc
   module and the builder, `cfg`-clean so later platforms stay possible, and honouring the deployment
   floor recorded by task 0.7 (D0.16). `cargo check` passes for the macOS host and for
-  `aarch64-apple-ios`. Both platforms (TOOL-1, TOOL-8).
+  `aarch64-apple-ios`. The generator's `tauri-plugin-log` and its debug registration were already
+  removed in task 0.1 (Q14, D0.8), together with the `log = "0.4"` dependency their removal orphaned:
+  do not reintroduce either, or anything that enables `time/local-offset`. Both platforms (TOOL-1,
+  TOOL-8).
 
 - [ ] 0.11 [rust-backend] Add the headless bindings export entry point (the bin or integration test
   chosen in D0.9) so `bun run gen:bindings` can export `src/bindings.ts` from the empty command and

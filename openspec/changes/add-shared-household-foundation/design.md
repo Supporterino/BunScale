@@ -109,7 +109,31 @@ identity is settled (D0.15); the minimum iOS and macOS deployment targets are **
 installed SDKs** (D0.16) rather than chosen. Rule 6's one-line justification per dependency lives in
 `proposal.md`, together with the confirmation that each dependency is usable on both iOS and macOS.
 Section 0 adds **no Tauri plugin**, so there is no plugin whose platform support must be confirmed;
-the scaffold's own pinnings are platform-neutral crates and dev-only JavaScript tooling.
+the scaffold's own pinnings are platform-neutral crates and dev-only JavaScript tooling. The one
+plugin the generator's template does add is removed again inside section 0 — see the recorded
+refinement below.
+
+**Recorded refinement (project rule 6): the generator's logging plugin is removed.** `tauri init`'s
+template writes `tauri-plugin-log = "2"` into the generated `src-tauri/Cargo.toml` and registers it
+debug-only in `src/lib.rs`, but no requirement in this change asks for logging, and its
+`time` (`local-offset`) → `num_threads` → `libc::mach_task_self()` chain (that symbol is gated to
+`target_os = "macos"`) is exactly what fails `cargo check --target aarch64-apple-ios` — the failure
+found by task 0.1's own step 6 and breakdown recorded in D0.11 — leaving TOOL-1's
+"[ios] The iOS target compiles" scenario unmet. `tauri-plugin-log` and its registration are therefore
+removed as a refinement of the generated baseline (D0.11, "baseline, then refine"), landed inside
+**task 0.1's own baseline commit** with `rust-backend` as the implementing specialist — it is not
+deferred to task 0.10, whose artefacts (`Cargo.toml`, `lib.rs`) the removal happens to touch. The
+verification runs on that committed tree: `cargo check --manifest-path src-tauri/Cargo.toml` and
+`cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios` both pass (the
+orchestrator reproduced both), so TOOL-1's "[ios] The iOS target compiles" scenario is met by task 0.1
+itself. **No replacement dependency is added**, and nothing was reachable through the plugin in any
+case, since the generated `capabilities/default.json` grants only `core:default`. **The now-unused
+`log = "0.4"` dependency goes with it, in the same task-0.1 commit and under the same rule-6 argument**
+("no requirement in this change asks for logging"): its only consumer was the removed plugin's `setup`
+closure, and no `log::` reference remains anywhere in `src-tauri/src/`. Task 0.10 therefore inherits
+only a **forward obligation on the reconciled crate**: it MUST NOT reintroduce `tauri-plugin-log`, nor
+anything that switches on `time/local-offset` (`time` itself stays in the graph without that feature,
+via `cookie`, `plist`, `serde_with` and `tauri-build`).
 
 Two structural notes for the orchestrator. First, ownership of the root tooling files the scaffold
 creates is settled: `frontend-logic`'s edit allowlist covers exactly these paths (`package.json`,
@@ -209,7 +233,8 @@ regenerated with the CLI, never hand-edited; a hand-owned artefact is ours once 
 | `src-tauri/tauri.conf.json` | hand-owned: 0.5 sets the identity, 0.6 narrows the CSP |
 | `src-tauri/capabilities/*.json` | hand-owned: 0.6 hardens the generated default capability |
 | the iOS target's Xcode project under `src-tauri/gen/apple/` | generator-owned: re-run `cargo tauri ios init` rather than hand-editing the project file |
-| the iOS target's `Info.plist` and entitlements files under `src-tauri/gen/apple/` | hand-owned once generated: 0.8 sets usage strings, entitlements and the deployment targets measured by 0.7 |
+| `src-tauri/gen/apple/project.yml`, `src-tauri/gen/apple/Podfile` | **generator-owned:** both are rendered by `cargo tauri ios init` and both carry deployment floors (`project.yml` `deploymentTarget.iOS: 15.0`; `Podfile` `platform :ios, '15.0'` and `:osx, '11.0'`); regenerate with `cargo tauri ios init`, never hand-edit. The iOS floor is read from `tauri.conf.json` → `bundle.iOS.minimumSystemVersion` and baked into `project.yml`/`pbxproj` at `ios init` time (the generated config sets no such key yet, so today's values are the CLI defaults), so 0.8 applies the floor 0.7 measured by setting that key and regenerating — not by hand-editing anything under `src-tauri/gen/apple/` |
+| the iOS target's `Info.plist` and entitlements files under `src-tauri/gen/apple/` | hand-owned once generated: 0.8 sets the usage strings and the entitlements the scaffold actually uses; no deployment target lives in these files |
 | `src-tauri/icons/**` | **hand-owned:** generated once from our own source mark by `frontend-ui` in 0.22 (`bun run tauri icon`, D0.19); Tauri's default iconset from 0.1 is a temporary placeholder replaced there, and the icons are regenerated with that same command thereafter |
 | `@tauri-apps/cli` as a dev dependency | hand-owned: 0.13 pins it exactly so local runs and CI use the pinned CLI instead of the global `cargo install` |
 
@@ -221,23 +246,84 @@ risk of it needing one is settled by D0.20: if `cargo tauri ios init` fails for 
 dist, it moves to after the frontend task (0.14) **within the same generator pass, under the same
 owner**, and the correction is reported as a blocker rather than worked around.
 
-##### Generator pass — not executed (task 0.1 blocked)
+##### Generator pass — observed output (task 0.1)
 
-The pass above did **not** run. Attempting step 1 was refused by the tool layer, not by the CLI:
+The pass ran on 2026-10-16 with **`tauri-cli` 2.12.3** (`cargo tauri --version` prints `tauri-cli
+2.12.3`). Every flag in the table above was accepted as written: `cargo tauri init --help` on the
+installed CLI lists `-D/--frontend-dist`, `-P/--dev-url`, `--before-dev-command` and
+`--before-build-command`, so there is no corrected invocation to record.
 
-| Step | Command | Outcome |
-|---|---|---|
-| 1 | `cargo install tauri-cli --version "^2" --locked` | not executed — `Permission denied: shell` |
+| Step | Command as run | Exit | Observed output |
+|---|---|---|---|
+| 1 | `cargo install tauri-cli --version "^2" --locked` | 0 | `cargo-tauri` 2.12.3. One warning, in the CLI's own lockfile rather than ours: `zip v8.0.0` is yanked in the registry. |
+| 2 | `cargo tauri init --ci -D ../dist -P http://localhost:1420 --before-dev-command "bun run dev" --before-build-command "bun run build"` | 0 | `src-tauri/` only, nothing at the repository root: `Cargo.toml`, `Cargo.lock`, `build.rs`, `tauri.conf.json`, `capabilities/default.json`, `icons/` (16 files — the CLI template's full iconset), `src/main.rs`, `src/lib.rs`, `.gitignore`, `gen/schemas/`. No frontend, as expected. |
+| 3 | `cargo tauri ios init` | 0 | `src-tauri/gen/apple/`: `app.xcodeproj`, `app_iOS/` (holding `Info.plist` and `app_iOS.entitlements`), `Sources/app/`, `Assets.xcassets/`, `assets/`, `Externals/`, `Podfile`, `project.yml`, `LaunchScreen.storyboard`, `ExportOptions.plist`, `.gitignore`. Preflight found `xcodegen`, `idevicesyslog` and `pod`. |
+| 4 | `cargo tauri capability new` | 1 | **nothing generated** — `Error failed to prompt input: IO error: not a terminal`. |
+| 5 | `cargo check --manifest-path src-tauri/Cargo.toml` | 0 | passes. |
+| 6 | `cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios` | 101 | **fails** (below). |
+| 7 | `cargo tauri --version` | 0 | `tauri-cli 2.12.3`. |
 
-The same refusal was returned for read-only probes (`pwd`, `cargo --version`) in the repository root,
-so no command in the pass was reachable and no artefact was produced: `src-tauri/` does not exist,
-there is no `tauri.conf.json`, no capability file and no `src-tauri/gen/apple/`. Nothing below is
-observed, so the "observed output" record owed by this task is still outstanding.
+**`ios init` was not deferred.** It ran in its documented position, before any frontend exists, and
+succeeded, so the D0.20 fallback is *not used* and nothing from the pass is missing on that account.
+`cargo tauri icon` was not run, as decided (D0.19).
 
-Consequences to schedule, not to infer: the whole generator pass (table above) still has to run under
-`architect` in a session with shell access; `ios init` is therefore **not** yet known to succeed or
-fail for want of a frontend dist, so the D0.20 fallback is unused rather than decided. Delete this
-subsection when the pass runs and replace it with its observed output.
+**Step 4 needs a decision, not a workaround.** `capability new` takes its identifier either as a CLI
+argument or as an interactive prompt; with no TTY it refuses, and this change defines no identifier, so
+none was invented. Its stated purpose is already met by generator output: step 2 wrote
+`src-tauri/capabilities/default.json` (identifier `default`, `permissions: ["core:default"]`,
+`windows: ["main"]`), the file the hand-owned table above already assigns to 0.6. The open item is
+therefore *whether a second capability file is wanted at all*, which is a least-privilege question for
+`tauri-security` (task 0.6) rather than a naming choice for the bootstrap.
+
+**Step 6 fails, and the cause is the generator's own plugin choice.** The host check passes; the iOS
+check does not:
+
+```
+error[E0425]: cannot find function `mach_task_self` in crate `libc`
+  --> num_threads-0.1.7/src/apple.rs:34:31
+error: could not compile `num_threads` (lib) due to 1 previous error
+```
+
+The chain, read from the resolved sources rather than inferred: the generator's `Cargo.toml` carries
+`tauri-plugin-log = "2"` (resolved to 2.10.1), which depends on `time` with the **`local-offset`**
+feature; `time 0.3.55`'s `local-offset` feature pulls in `num_threads` (declared for
+`cfg(target_family = "unix")`, so iOS is included), and `num_threads 0.1.7` calls
+`libc::mach_task_self()`, which `libc 0.2.190` defines under `#[cfg(target_os = "macos")]` and
+annotates "Prohibited on iOS/tvOS/watchOS/visionOS". The host build passes only because that gate is
+open there.
+
+This contradicts D0.8's "Section 0 adds **no Tauri plugin**, so there is no plugin whose platform
+support must be confirmed": the generated baseline *does* add one, and that plugin is what fails
+TOOL-1/TOOL-2 on iOS. **Decided (rule 6): the plugin goes.** `tauri-plugin-log` is dropped from the
+generated `Cargo.toml` and its debug-only `setup` registration from `src/lib.rs` — a recorded
+refinement of the generated baseline in the "baseline, then refine" model above, justified in D0.8 and
+applied inside **task 0.1's own baseline commit**, by `rust-backend` as the implementing specialist;
+`Cargo.toml` and `lib.rs` are task 0.10's artefacts, but the removal is not task 0.10's work. Step 6's
+iOS failure is therefore already repaired on the committed tree: re-running
+`cargo check --manifest-path src-tauri/Cargo.toml` and
+`cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios` both pass (the
+orchestrator reproduced both), which meets TOOL-1's "[ios] The iOS target compiles" scenario.
+Pinning around it was rejected: that keeps an unrequested plugin and adds pins or a patch for no
+product benefit. No replacement dependency is added, and the failing chain goes with the plugin. The
+now-unused `log = "0.4"` dependency the generated `Cargo.toml` still carries is dropped in the same
+task-0.1 commit, for the same rule-6 reason as the plugin: its only consumer was the removed plugin's
+`setup` closure and nothing in `src-tauri/src/` references `log::` any more. Task 0.10 therefore
+inherits only a **forward obligation**: it MUST NOT reintroduce `tauri-plugin-log` or anything that
+switches on `time/local-offset` (`time` itself remains in the graph via `cookie`, `plist`,
+`serde_with` and `tauri-build`).
+
+**Placeholder identity observed**, i.e. the `--ci` defaults this task deliberately did not override and
+0.5/D0.15 replaces: `productName` `Tauri App`, identifier `com.tauri.dev`, window title `Tauri`, crate
+`app` with library `app_lib`. The frontend contract values landed as passed — `frontendDist` `../dist`,
+`devUrl` `http://localhost:1420`, `beforeDevCommand` `bun run dev`, `beforeBuildCommand`
+`bun run build` — and are what 0.13/0.14 must match. Step 5 also produced the generator's
+`src-tauri/Cargo.lock`; the **committed** lockfile holds **408** `[[package]]` entries, each resolved
+to one **exact** version — a lockfile records resolved versions, never ranges. That is the post-removal
+figure: dropping the logging plugin (above) took **seven** entries out of the generator's lockfile
+(`android_log-sys`, `android_logger`, `env_filter`, `fern`, `num_threads`, `tauri-plugin`,
+`tauri-plugin-log`), so the pre-removal figure was **415**, not the 414 an earlier measurement of this
+pass recorded. The caret ranges it resolved from live in the generated
+`src-tauri/Cargo.toml`, and that is the file D0.8 says 0.2/0.10 replaces with exact pins.
 
 ### D0.12 — An exhausted allowance must be reportable as its own condition (Q1)
 
@@ -517,6 +603,14 @@ artefact (TOOL-1, TOOL-2) drawn from the design system (TOOL-6).
   `cargo test`, `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` (no diff),
   `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
   `bun run test`, `bun run test:e2e`.
+- Section 0 applies that gate incrementally, as the preamble in `tasks.md` states: a section-0 task is
+  ticked when every gate command *runnable at that point* passes, and a gate command whose precondition
+  is a later section-0 deliverable belongs to that task (the bun-family commands arrive with 0.13, the
+  two drift checks with 0.16, the E2E suite with 0.17). Task 0.12 restores `cargo fmt --check` and the
+  clippy-clean requirement — the generator's own 2-space style is red until then — and 0.26 re-runs the
+  complete gate fresh. That incremental carve-out **expires at 0.12 and must not extend past it**: from
+  0.12 on, every gate command that already exists is run in full against the tree, and a command that is
+  still absent is owned by the task that first makes it runnable rather than deferred further.
 - Every requirement above has at least one scenario named by a test task in `tasks.md`.
 - Scaffold: TOOL-1 is evidenced by 0.26 (the full gate run fresh and recorded), TOOL-2 by 0.27
   (manual simulator and macOS boot, recorded under "Manual verification"), TOOL-3 and TOOL-4 by 0.24
@@ -524,7 +618,15 @@ artefact (TOOL-1, TOOL-2) drawn from the design system (TOOL-6).
   — see the scaffold traceability table above. The deployment floor is measured by 0.7 and applied by
   0.8; the product's own app mark replaces the generator's placeholder in 0.22.
 - Decisions: D0.12 … D0.20 record the settled answers to the former `questions.md` Q1–Q9, and every
-  task that consumes one is unblocked; `questions.md` carries no open question.
+  task that consumes one is unblocked, but `questions.md` **no longer carries "no open question"**:
+  Q13 is open for `tauri-security` in task 0.6 (whether a second capability file is wanted at all)
+  and Q14 is the iOS-compile failure caused by the generator's logging plugin, whose decision is
+  recorded in D0.8/D0.11 here and applied inside task 0.1's own baseline commit by `rust-backend` as
+  the implementing specialist, not deferred to task 0.10; the plugin's now-unused `log = "0.4"`
+  dependency is dropped in that same commit under the same rule-6 reason (no requirement in this
+  change asks for logging, and its only consumer was the removed plugin's `setup` closure). Both check
+  commands pass on the committed tree, and task 0.10 inherits only the forward obligation not to
+  reintroduce `tauri-plugin-log` or `time/local-offset`.
 - Cross-check at review: the delta contains exactly HS-1…HS-4, SYNC-1/2/3/5, SET-1/2/4,
   NFR-1/2/3/8/10, DM-3 and DM-6 across the five product capabilities, **plus exactly TOOL-1…TOOL-8
   in `project-toolchain`** — no more, no less. The `TOOL-` set is the section-0 enabler and is in

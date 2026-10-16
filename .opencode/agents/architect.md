@@ -54,6 +54,14 @@ permissions:
   - action: shell
     resource: "cargo tauri *"
     effect: allow
+  # Required by task 0.1: `cargo tauri ...` needs this rule in addition to `cargo tauri *`.
+  # Verified by probe 2026-10-16: with only `cargo tauri *` present, `cargo tauri --version`
+  # was refused, while `cargo tauri init --help` and `cargo tauri init --ci` ran; once `tauri *`
+  # was added, `cargo tauri --version` and the full `tauri init` invocation both ran. The exact
+  # scanner form is not documented, so this rule stands on that observation.
+  - action: shell
+    resource: "tauri *"
+    effect: allow
 ---
 You lock the interface between Rust and frontend so both sides can be built independently.
 
