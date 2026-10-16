@@ -221,6 +221,24 @@ risk of it needing one is settled by D0.20: if `cargo tauri ios init` fails for 
 dist, it moves to after the frontend task (0.14) **within the same generator pass, under the same
 owner**, and the correction is reported as a blocker rather than worked around.
 
+##### Generator pass — not executed (task 0.1 blocked)
+
+The pass above did **not** run. Attempting step 1 was refused by the tool layer, not by the CLI:
+
+| Step | Command | Outcome |
+|---|---|---|
+| 1 | `cargo install tauri-cli --version "^2" --locked` | not executed — `Permission denied: shell` |
+
+The same refusal was returned for read-only probes (`pwd`, `cargo --version`) in the repository root,
+so no command in the pass was reachable and no artefact was produced: `src-tauri/` does not exist,
+there is no `tauri.conf.json`, no capability file and no `src-tauri/gen/apple/`. Nothing below is
+observed, so the "observed output" record owed by this task is still outstanding.
+
+Consequences to schedule, not to infer: the whole generator pass (table above) still has to run under
+`architect` in a session with shell access; `ios init` is therefore **not** yet known to succeed or
+fail for want of a frontend dist, so the D0.20 fallback is unused rather than decided. Delete this
+subsection when the pass runs and replace it with its observed output.
+
 ### D0.12 — An exhausted allowance must be reportable as its own condition (Q1)
 
 SYNC-2's "storage allowance exceeded" cause is a **hard selection criterion** for the shared-service
