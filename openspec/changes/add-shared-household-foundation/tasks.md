@@ -103,13 +103,14 @@ file's header).
   export function, shaped so task 1.3 adds the P0 commands without changing the pipeline. Stubs
   only, no logic. `cargo check` passes (TOOL-3).
 
-- [ ] 0.5 [tauri-security] Set the app identity in the generated `src-tauri/tauri.conf.json` (the
+- [x] 0.5 [tauri-security] Set the app identity in the generated `src-tauri/tauri.conf.json` (the
   `--ci` defaults from task 0.1 are placeholders, not the product): product name **`BunScale`**,
   bundle identifier **`com.bunscale.app`**, display name `BunScale` with **no localized display
   name** (English only), and version, all as the single source of truth, iOS and macOS targets
-  configured, and no permission the scaffold does not use. These values are settled in `design.md`
-  D0.15 and MUST NOT be invented or made platform-specific; this task is not blocked. Both platforms
-  (TOOL-1, TOOL-2).
+  configured, the macOS window geometry brought to the **1280×800** desktop baseline (no other
+  section-0 task owns it, and iOS ignores the window block), and no permission the scaffold does not
+  use. These values are settled in `design.md` D0.15 and MUST NOT be invented or made
+  platform-specific; this task is not blocked. Both platforms (TOOL-1, TOOL-2).
 
 - [ ] 0.6 [tauri-security] Harden the generated default capability and the generated CSP: least
   privilege, no permission the scaffold does not use, one capability per window, no `unsafe-eval`,
@@ -117,7 +118,10 @@ file's header).
   `src-tauri/capabilities/default.json` that `tauri init` wrote (Q13: `cargo tauri capability new`
   generated nothing in this environment) and the CSP is the one `tauri init` wrote into
   `tauri.conf.json`;
-  both are treated as defaults to narrow, not as a set to extend. Justify any widening in one line
+  both are treated as defaults to narrow, not as a set to extend. The capability must also carry its
+  `platforms` key (`["iOS","macOS"]`), so it cannot apply to a platform this phase does not ship, and
+  its editor-only `$schema`, which points at the desktop schema, may be repointed while you are
+  there. Justify any widening in one line
   in `design.md`. Both platforms (TOOL-1).
 
 - [ ] 0.7 [apple-native] Determine the minimum iOS and macOS deployment targets **empirically from
@@ -138,7 +142,16 @@ file's header).
   task 0.7** (D0.16) — consume that recorded floor, never a chosen version — so the two platforms stay
   in step. Apply the floor through `tauri.conf.json` (`bundle.iOS.minimumSystemVersion`) and regenerate
   the iOS target with `cargo tauri ios init` — never by hand-editing anything under
-  `src-tauri/gen/apple/` (D0.11). Both platforms (TOOL-2).
+  `src-tauri/gen/apple/` (D0.11). Note how the generator actually behaves before relying on it:
+  `cargo tauri ios init` renders **write-once** templates — it skips files that already exist, so
+  re-running it against the task-0.1 project changes nothing — while `tauri ios dev` and
+  `tauri ios build` synchronise `PRODUCT_BUNDLE_IDENTIFIER` and `PRODUCT_NAME` into the Xcode project
+  from `tauri.conf.json` at build time. So when generated **files** must carry a value, recreate the
+  generated project instead of re-running init in place (remove `src-tauri/gen/apple/` and
+  initialise it again — the CLI's own documented repair, still regenerate-never-hand-edit): this task
+  does that for the measured floor and for task 0.5's identity, whose values the task-0.1 project
+  still holds as `com.tauri.dev` and `Tauri App`. Record which values are baked at init and which are
+  synchronised at build time. Both platforms (TOOL-2).
 
 - [ ] 0.9 [release-ci] Add `.github/workflows/ci.yml` on `macos-latest` running exactly the
   `definition-of-done` gate — Rust fmt, clippy, tests, the iOS target compile check,

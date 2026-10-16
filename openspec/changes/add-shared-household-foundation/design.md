@@ -540,8 +540,8 @@ regenerated with the CLI, never hand-edited; a hand-owned artefact is ours once 
 | `src-tauri/Cargo.toml`, `build.rs`, `src/main.rs`, `src/lib.rs` | hand-owned: 0.10 reconciles the pins and mounts `ipc` |
 | `src-tauri/tauri.conf.json` | hand-owned: 0.5 sets the identity, 0.6 narrows the CSP |
 | `src-tauri/capabilities/*.json` | hand-owned: 0.6 hardens the generated default capability |
-| the iOS target's Xcode project under `src-tauri/gen/apple/` | generator-owned: re-run `cargo tauri ios init` rather than hand-editing the project file |
-| `src-tauri/gen/apple/project.yml`, `src-tauri/gen/apple/Podfile` | **generator-owned:** both are rendered by `cargo tauri ios init` and both carry deployment floors (`project.yml` `deploymentTarget.iOS: 15.0`; `Podfile` `platform :ios, '15.0'` and `:osx, '11.0'`); regenerate with `cargo tauri ios init`, never hand-edit. The iOS floor is read from `tauri.conf.json` → `bundle.iOS.minimumSystemVersion` and baked into `project.yml`/`pbxproj` at `ios init` time (the generated config sets no such key yet, so today's values are the CLI defaults), so 0.8 applies the floor 0.7 measured by setting that key and regenerating — not by hand-editing anything under `src-tauri/gen/apple/` |
+| the iOS target's Xcode project under `src-tauri/gen/apple/` | generator-owned: recreate it with `cargo tauri ios init` (delete the target and initialise it again) rather than hand-editing the project file — the templates are write-once, so re-running init in place changes nothing (next row) |
+| `src-tauri/gen/apple/project.yml`, `src-tauri/gen/apple/Podfile` | **generator-owned:** both are rendered by `cargo tauri ios init` and both carry deployment floors (`project.yml` `deploymentTarget.iOS: 15.0`; `Podfile` `platform :ios, '15.0'` and `:osx, '11.0'`); regenerate with `cargo tauri ios init`, never hand-edit. Its templates are **write-once** (`if !path.exists() { create } else { Ok(None) }`, `src/mobile/ios/project.rs`) and `InitOptions` takes no force/overwrite flag, so re-running `ios init` against an existing `src-tauri/gen/apple/` writes nothing, and the values split into two classes. **Baked at init:** the iOS floor from `tauri.conf.json` → `bundle.iOS.minimumSystemVersion`, and the identity — `project.yml` carries `deploymentTarget.iOS: {{apple.ios-version}}`, `PRODUCT_BUNDLE_IDENTIFIER: {{app.identifier}}` and `PRODUCT_NAME: {{app.stylized-name}}`. Changing either therefore requires the generated project to be **recreated**, not init re-run in place: 0.8 deletes `src-tauri/gen/apple/` and initialises it again for the floor 0.7 measured (the generated config sets no such key yet, so today's values are the CLI defaults) and for 0.5's identity, which the task-0.1 project still holds as `com.tauri.dev`/`Tauri App`. **Synchronised at build time:** `synchronize_project_config` (`src/mobile/ios/mod.rs`, called from `ios/dev.rs` and `ios/build.rs`) writes `PRODUCT_BUNDLE_IDENTIFIER` from `app.identifier` and `PRODUCT_NAME` from `productName` into the generated `app.xcodeproj/project.pbxproj` on `tauri ios dev`/`tauri ios build`, so those two values take effect without regeneration. Nothing under `src-tauri/gen/apple/` is hand-edited in either class |
 | the iOS target's `Info.plist` and entitlements files under `src-tauri/gen/apple/` | hand-owned once generated: 0.8 sets the usage strings and the entitlements the scaffold actually uses; no deployment target lives in these files |
 | `src-tauri/icons/**` | **hand-owned:** generated once from our own source mark by `frontend-ui` in 0.22 (`bun run tauri icon`, D0.19); Tauri's default iconset from 0.1 is a temporary placeholder replaced there, and the icons are regenerated with that same command thereafter |
 | `@tauri-apps/cli` as a dev dependency | hand-owned: 0.13 pins it exactly so local runs and CI use the pinned CLI instead of the global `cargo install` |
@@ -621,9 +621,15 @@ inherits only a **forward obligation**: it MUST NOT reintroduce `tauri-plugin-lo
 switches on `time/local-offset` (`time` itself remains in the graph via `cookie`, `plist`,
 `serde_with` and `tauri-build`).
 
-**Placeholder identity observed**, i.e. the `--ci` defaults this task deliberately did not override and
-0.5/D0.15 replaces: `productName` `Tauri App`, identifier `com.tauri.dev`, window title `Tauri`, crate
-`app` with library `app_lib`. The frontend contract values landed as passed — `frontendDist` `../dist`,
+**Placeholder identity observed**, i.e. the `--ci` defaults this task deliberately did not override:
+`productName` `Tauri App`, identifier `com.tauri.dev`, window title `Tauri`, crate `app` with library
+`app_lib`. Task 0.5 (D0.15) replaced three of them — `productName` and the window title are now
+`BunScale`, the identifier `com.bunscale.app` — and the fourth is deliberately **kept as generated**,
+not an unfulfilled placeholder: the crate stays `app` with library `app_lib`, because the user-visible
+name comes from `productName` (and D0.15's display name), so the crate name is internal and renaming
+it would churn `src/main.rs` and the generated iOS project for no user-visible gain; a rename is its
+own task if it is ever wanted, not an obligation riding on 0.5. The frontend contract values landed as
+passed — `frontendDist` `../dist`,
 `devUrl` `http://localhost:1420`, `beforeDevCommand` `bun run dev`, `beforeBuildCommand`
 `bun run build` — and are what 0.13/0.14 must match. Step 5 also produced the generator's
 `src-tauri/Cargo.lock`; the **committed** lockfile holds **408** `[[package]]` entries, each resolved
@@ -633,6 +639,13 @@ figure: dropping the logging plugin (above) took **seven** entries out of the ge
 `tauri-plugin-log`), so the pre-removal figure was **415**, not the 414 an earlier measurement of this
 pass recorded. The caret ranges it resolved from live in the generated
 `src-tauri/Cargo.toml`, and that is the file D0.8 says 0.2/0.10 replaces with exact pins.
+
+**Recorded refinements to the generated `tauri.conf.json` (task 0.5), beyond the identity.** Both are
+refinements of generator output, not additions. `bundle.android.debugApplicationIdSuffix` (`.debug`)
+was **removed** — it configures a fourth platform this phase does not ship, and removing it takes
+nothing iOS or macOS needs, since a future Android task re-adds it under the generate-then-own model.
+The macOS window geometry was brought from the generator's **800×600** to the design's **1280×800**
+desktop baseline: the generator default no section-0 task owned.
 
 ### D0.12 — An exhausted allowance must be reportable as its own condition (Q1)
 
@@ -676,6 +689,15 @@ localized display name is shipped, even though NFR-5 (P4) covers German and Engl
 is the single source of truth in `tauri.conf.json` (task 0.5) and is consumed by the iOS target's
 usage strings (task 0.8). Neither task is blocked: there is no open question left on identity, and
 `release-signing` can treat the identifier as fixed from section 0 on.
+
+**The pinned CLI warns about the identifier, and the warning is accepted.** Every build path that
+calls `build::setup` (`tauri build`, `tauri ios build`, `tauri android build`) logs a `log::warn!` in
+the pinned `tauri-cli` 2.12.3 (`src/build.rs`): *"The bundle identifier `com.bunscale.app` set in
+`identifier` ends with `.app`. This is not recommended because it conflicts with the application
+bundle extension on macOS."* It is recorded rather than acted on: nothing fails, the value has been
+fixed from section 0 on, and re-settling it now would invalidate the App Store identity. The
+alternative — choosing a different identifier purely to silence the warning — was rejected for
+exactly that cost.
 
 ### D0.16 — Deployment targets are derived, not chosen (Q5)
 

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tauri App",
+  "productName": "BunScale",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.bunscale.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "Tauri",
-        "width": 800,
-        "height": 600,
+        "title": "BunScale",
+        "width": 1280,
+        "height": 800,
         "resizable": true,
         "fullscreen": false
       }
@@ -32,9 +32,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "android": {
-      "debugApplicationIdSuffix": ".debug"
-    }
+    ]
   }
 }
