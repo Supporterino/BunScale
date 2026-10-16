@@ -7,9 +7,10 @@ in `design.md` (D0.12 … D0.20); they are tabulated below and were never reopen
 owner. The decisions the loop follows are in "Resolutions" below; the evidence each was raised on is
 kept in "History".
 
-**Current open items:** Q13 (an open item for `tauri-security` in task 0.6) and Q14 (a defect whose
-decision is taken and implemented, with obligations carried into task 0.10). Both record deviations
-from task 0.1's generator pass rather than hiding them.
+**Current open items:** none. Q13 was resolved by the product owner on 2026-10-16 (harden the
+generated capability, no second file) and Q14's decision is implemented, with the obligations it
+carries recorded against task 0.10. Both record deviations from task 0.1's generator pass rather than
+hiding them.
 
 New ambiguity discovered while implementing is appended here as a new question, per project hard
 rule 7.
