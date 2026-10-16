@@ -106,12 +106,120 @@ the committed manifests; `tauri-specta` and `specta` are pinned to matching vers
 pinned release candidate is **accepted**, with the bump discipline recorded in D0.18 —
 `tauri-typed-ipc` is not evaluated first. The lint and format tool is **Biome** (D0.17); the app
 identity is settled (D0.15); the minimum iOS and macOS deployment targets are **derived from the
-installed SDKs** (D0.16) rather than chosen. Rule 6's one-line justification per dependency lives in
-`proposal.md`, together with the confirmation that each dependency is usable on both iOS and macOS.
-Section 0 adds **no Tauri plugin**, so there is no plugin whose platform support must be confirmed;
-the scaffold's own pinnings are platform-neutral crates and dev-only JavaScript tooling. The one
-plugin the generator's template does add is removed again inside section 0 — see the recorded
-refinement below.
+installed SDKs** (D0.16) rather than chosen. Rule 6's one-line justification per dependency is
+recorded in the pin tables below (TOOL-8 allows `proposal.md` **or** `design.md`; `proposal.md`
+keeps a coarser, partial capability-level table, and the complete per-dependency justification set
+is the one here), together with the confirmation that each dependency is usable on both iOS and
+macOS. Section 0 adds **no Tauri plugin**, so there is no plugin whose platform support must be
+confirmed; the scaffold's own pinnings are platform-neutral Rust crates plus JavaScript that is
+either runtime-neutral or host/CI dev tooling. The one plugin the generator's template does add
+is removed again inside section 0 — see the recorded refinement below.
+
+##### Exact pin set (task 0.2, TOOL-8)
+
+These pins are recorded in **exact-pin form**: Cargo `=x.y.z` for the crates, bare versions (no `^`,
+no `~`) for the npm packages. They **replace** the generator's caret ranges from task 0.1 in
+`src-tauri/Cargo.toml` — they do not sit beside them. That manifest is hand-owned (D0.11) and task
+0.10 is what writes the pins into it, so this record is 0.10's input rather than a parallel set of
+versions. `package.json` **does not exist yet**: tasks 0.13–0.19 create the frontend workspace from
+these pins (0.13 the manifest and its scripts, 0.18 Biome), so nothing in the npm table describes a
+file already committed. Every dependency carries its rule-6 one-line justification; entries marked
+**grouped** say so and are grouped only because they are the same kind of housekeeping dependency.
+
+| Crate | Pin | One-line justification (rule 6) |
+|---|---|---|
+| `tauri` | `=2.12.4` | The v2 runtime the whole app is built on; `max_stable_version`, and the version the generated crate already resolves. |
+| `tauri-build` | `=2.7.3` | The v2 build script that emits the `mobile`/`desktop` cfg gates and the Tauri config for both platforms. |
+| `serde` | `=1.0.229` | Derives the (de)serialisation of every IPC payload type and shared type. |
+| `serde_json` | `=1.0.154` | The JSON encoding Tauri IPC and the shared service's payloads use. |
+| `tauri-specta` | `=2.0.0-rc.25` | Generates the typed bindings from the Rust contract, which is what keeps `src/bindings.ts` generated rather than hand-written (TOOL-3, D0.9). |
+| `specta` | `=2.0.0-rc.25` | The type-introspection crate `tauri-specta` is built on; pinned equal to it by that crate's own exact requirement. |
+| `specta-typescript` | `=0.0.12` | The TypeScript exporter behind `tauri-specta`'s `typescript` feature; required transitively, pinned explicitly so the manifest is exact. |
+
+| Package | Pin | Role and one-line justification (rule 6) |
+|---|---|---|
+| `react` | `19.3.1` | Runtime. The UI runtime; React 19 is the version the whole peer set below accepts. |
+| `react-dom` | `19.3.1` | Runtime. The DOM renderer for that runtime, pinned to the same version as `react`. |
+| `@tauri-apps/api` | `2.12.4` | Runtime. The v2 client API the generated bindings call into; the only Tauri-specific runtime package here, while the other runtime packages ship platform-neutral JavaScript. |
+| `@tanstack/react-router` | `1.170.44` | Runtime. File-based routing: one route tree for all form factors, no forked routes per platform. |
+| `@tanstack/react-query` | `5.104.3` | Runtime. The query/cache layer the loaded-data read model (D0.2) needs. |
+| `typescript` | `7.0.2` | Dev. The typechecker `bun run typecheck` runs. |
+| `vite` | `8.3.4` | Dev. The bundler and dev server the Tauri CLI drives, and the host for the router plugin. |
+| `@vitejs/plugin-react` | `6.1.2` | Dev. React fast refresh for the dev server. |
+| `@tauri-apps/cli` | `2.12.3` | Dev. Pinned so local runs and CI use this CLI instead of task 0.1's one-off global `cargo install` (0.13), and so 0.22 can run `bun run tauri icon`. |
+| `@tanstack/router-plugin` | `1.168.46` | Dev. The Vite plugin that renders `src/routeTree.gen.ts` (TOOL-4). |
+| `@biomejs/biome` | `2.5.15` | Dev. The single lint **and** format tool (D0.17), behind `bun run lint`; no second linter and no Prettier. |
+| `vitest` | `5.0.5` | Dev. The unit/component runner (TOOL-5). |
+| `jsdom` | `30.1.3` | Dev. The DOM environment the vitest component layer runs in. |
+| `@testing-library/react` | `16.3.3` | Dev. Renders components for the component layer of the pyramid. |
+| `@testing-library/jest-dom` | `7.0.1` | Dev. The DOM matchers those component assertions use. |
+| `@testing-library/user-event` | `14.6.8` | Dev. Drives the pointer/touch and keyboard interaction the component tests assert on. |
+| `@testing-library/dom` | `10.4.2` | Dev. The peer `@testing-library/react` and `jest-dom` build on, pinned explicitly so the set stays exact. |
+| `@playwright/test` | `1.64.1` | Dev. The E2E layer, driving WebKit at both baselines (TOOL-5). |
+| `@types/react` / `@types/react-dom` / `@types/node` | `19.3.0` / `19.3.0` / `26.6.5` | **Grouped** dev type declarations: React, its renderer and Node, required by `bun run typecheck` over `src/` and the config files. |
+
+`@tanstack/react-router-devtools` is **not** in the set: nothing in this design or in
+`tanstack-router-conventions` calls for devtools.
+
+##### Compatibility constraints (from the published metadata, not inferred)
+
+- **`tauri-specta` ⇄ `specta` are a matched pair at `2.0.0-rc.25`, and that is enforced.** The
+  published `tauri-specta` metadata declares `specta = "=2.0.0-rc.25"` as a normal dependency — an
+  exact requirement, not a convention. The stable lines do **not** pair (`tauri-specta` 1.0.2 against
+  `specta` 1.0.5), which is why D0.18 accepts the `2.0.0-rc.x` line rather than waiting for stable.
+  `specta-typescript` 0.0.12 keeps the rc line too: `tauri-specta` declares it as an optional `^0.0.12`
+  behind its `typescript` feature, and `specta-typescript` 0.0.12 itself requires
+  `specta = "=2.0.0-rc.25"`.
+- **Tauri v2 alignment holds across the two ecosystems.** npm `@tauri-apps/api` 2.12.4 equals the
+  cargo `tauri` pin 2.12.4, and npm `@tauri-apps/cli` 2.12.3 equals the locally installed `tauri-cli`
+  2.12.3. Only the `3.0.0-alpha.x` `next` tags sit outside this line.
+- **Vite 8 is forced by the intersection, not preferred.** `@vitejs/plugin-react` 6.1.2 declares
+  `peerDependencies.vite: "^8.0.0"` (Vite 8 only), while `vitest` 5.0.5 accepts
+  `"^6.4.0 || ^7.0.0 || ^8.0.0"`; Vite 8 is the only version in both. Vitest majors do **not** track
+  Vite majors 1:1, so no lockstep should be read into `vitest` 5 beside `vite` 8.
+- **React 19 is accepted across the set.** `@tanstack/react-router` 1.170.44 peers
+  `react: ">=18.0.0 || >=19.0.0"`, `@tanstack/react-query` 5.104.3 peers `"^18 || ^19"`, and
+  `@testing-library/react` 16.3.3 peers `"^18.0.0 || ^19.0.0"`.
+- **TanStack router and its Vite plugin are *not* version-equal, and must not be read that way.**
+  `@tanstack/router-plugin` 1.168.46 declares `"@tanstack/react-router": "^1.170.44"` as an
+  **optional** peer, which `react-router` 1.170.44 satisfies; `@tanstack/react-router` 1.168.46 does
+  not exist, so pinning both at the plugin's number is impossible. The two numbers above are the
+  correct pair — this is the one pair in the set where "matching versions" would be wrong.
+- **Node runtime floors are satisfied locally.** `vitest` requires Node
+  `^22.12.0 || ^24.0.0 || >=26.0.0` and `jsdom` requires `^22.22.2 || ^24.15.0 || >=26.0.0`; the
+  machine runs **Node v24.18.1** and **bun 1.4.3**. bun does not enforce npm `engines`, so these
+  floors bind the Node install rather than bun.
+- **Rust version.** `tauri` and `tauri-build` declare `rust_version: "1.90"`; the local toolchain is
+  `cargo`/`rustc` **1.93.1**, so both are satisfied. The `2.0.0-rc.25` crates publish **no**
+  `rust_version`, so **no MSRV is claimed for them**.
+
+##### iOS and macOS support (TOOL-8, TOOL-1, TOOL-2)
+
+Confirmed for every dependency, and the reasoning is written down rather than asserted:
+`@tauri-apps/api` is the only Tauri-specific **runtime** package — the one bound to Tauri's
+native side while the app runs. The other runtime packages (`react`, `react-dom`,
+`@tanstack/react-router`, `@tanstack/react-query`) are pure JavaScript and ship
+platform-neutrally. Every **Dev.** npm package is host/CI tooling, and each one that carries a
+native binary publishes a darwin-arm64 variant — `@tauri-apps/cli` (`@tauri-apps/cli-darwin-arm64`),
+`@biomejs/biome` (`@biomejs/cli-darwin-arm64`), `typescript` 7 (a per-platform native compiler,
+`@typescript/typescript-darwin-arm64`, which the top-level `bin/tsc` Node shim loads), `vite`
+(transitively `rolldown` → `@rolldown/binding-darwin-arm64` and `lightningcss` →
+`lightningcss-darwin-arm64`) and `@playwright/test` (its WebKit is pulled explicitly by
+`playwright install`, with no postinstall script). The Rust crates are platform-neutral and are what
+produce the app binary itself. Nothing in the set is desktop-only, and nothing targets a platform
+this app does not ship.
+
+Local environment for the record: **macOS 27.0.1 on arm64**, **Xcode 27.1**, `rustc`/`cargo`
+**1.93.1**, `tauri-cli` **2.12.3**, the **`aarch64-apple-ios`** rustup target installed, **Node
+v24.18.1** and **bun 1.4.3**.
+
+##### Pin provenance
+
+Every version above was read on **2026-10-16** from the crates.io API
+(`https://crates.io/api/v1/crates/<name>` → `max_stable_version`, `max_version`, and the published
+dependency requirements) and from the npm registry (`https://registry.npmjs.org/<name>` →
+`dist-tags.latest`, `peerDependencies`, `peerDependenciesMeta`, `engines`, `optionalDependencies`),
+so a reviewer can re-verify each pin against the same endpoints rather than against this document.
 
 **Recorded refinement (project rule 6): the generator's logging plugin is removed.** `tauri init`'s
 template writes `tauri-plugin-log = "2"` into the generated `src-tauri/Cargo.toml` and registers it

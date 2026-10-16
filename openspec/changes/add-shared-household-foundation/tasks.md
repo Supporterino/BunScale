@@ -77,7 +77,7 @@ file's header).
   generator-owned versus hand-owned artefact split in `design.md` (D0.11). `cargo check` passes on
   the macOS host. Both platforms (TOOL-1, TOOL-2).
 
-- [ ] 0.2 [architect] Record the workspace scaffold baseline in `design.md` (D0.8): bun as package
+- [x] 0.2 [architect] Record the workspace scaffold baseline in `design.md` (D0.8): bun as package
   manager, React + TypeScript + Vite, TanStack Router + Query, Tauri v2, Rust in `src-tauri/`, and
   the exact pin set for `tauri-specta` + `specta` (matching versions, not ranges — the `2.0.0-rc.x`
   release candidate is accepted, D0.18), vitest, Testing Library, Playwright, **Biome** as the single

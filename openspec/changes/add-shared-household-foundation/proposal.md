@@ -128,12 +128,15 @@ states), and tests at unit, component and E2E level.
   `tauri-security` only.
 - **Dependency surface:** section 0 is the point where every dependency is introduced — the Tauri v2
   Rust crates plus `tauri-specta` + `specta` (pinned to matching exact versions, release candidate
-  accepted per D0.18), the frontend runtime (`@tauri-apps/api`, `@tauri-apps/cli`, TanStack Router +
-  Query), and dev-only tooling (vitest, Testing Library, Playwright WebKit, Biome). Biome is the one
-  lint and format tool (D0.17). The sharing mechanism's client
+  accepted per D0.18), the frontend runtime (`@tauri-apps/api`, `react`, `react-dom`, TanStack Router +
+  Query), and dev-only tooling (`@tauri-apps/cli`, vitest, Testing Library, Playwright WebKit, Biome).
+  Biome is the one lint and format tool (D0.17). The sharing mechanism's client
   library is added later, justified in `design.md`. **No Tauri plugin is added by section 0**, so
-  there is no plugin whose platform support needs confirming; the dependencies above are
-  platform-neutral and build for both iOS and macOS.
+  there is no plugin whose platform support needs confirming; everything pinned above is usable on
+  both Phase 1 platforms — the Rust crates are platform-neutral, only `@tauri-apps/api` is
+  Tauri-specific, and the other runtime packages ship platform-neutral JavaScript, while the native
+  binaries that do exist belong to host/CI tooling, which publishes a macOS/arm64 variant and never
+  ships in the app.
 - **Risk carried forward:** sharing correctness (IMP-2) is the primary risk of this phase and is
   the reason invitation/acceptance hardening is scheduled early (P3) rather than late; a broken or
   unpinned scaffold would block every other phase, which is why TOOL-1 makes the gate itself a
@@ -145,7 +148,8 @@ states), and tests at unit, component and E2E level.
 
 ### Dependency justifications (project rule 6)
 
-One line per new dependency; each was checked for iOS and macOS support.
+One line per dependency group; the complete per-dependency justification set is in `design.md`
+D0.8. Each was checked for iOS and macOS support.
 
 | Dependency | Justification | iOS + macOS |
 |---|---|---|
@@ -155,7 +159,7 @@ One line per new dependency; each was checked for iOS and macOS support.
 | `@tanstack/react-router`, `@tanstack/react-query` | One route tree for every form factor, plus the query/cache layer the read model needs. | Yes — browser-level JavaScript, no platform-specific code. |
 | `vitest`, `@testing-library/react` | The unit/component layer of the test pyramid prescribed by `testing-strategy`. | Yes — dev-only, runs in the host browser/jsdom. |
 | `playwright` (WebKit) | The E2E layer, driving the same WebKit engine the app uses, at both baselines. | Yes — dev-only; no `tauri-driver` (unsupported on iOS/macOS). |
-| `biome` (lint and format) | `bun run lint` is a gate command and must exist; Biome owns both linting and formatting, so no second linter and no Prettier are added (`design.md` D0.17). | Yes — dev-only, no native code. |
+| `biome` (lint and format) | `bun run lint` is a gate command and must exist; Biome owns both linting and formatting, so no second linter and no Prettier are added (`design.md` D0.17). | Yes — dev-only, but its package pulls an optional macOS/arm64 native binary (`@biomejs/cli-darwin-arm64`) that runs on the developer/CI host and never ships in the app bundle. |
 
 ## Dependencies
 
