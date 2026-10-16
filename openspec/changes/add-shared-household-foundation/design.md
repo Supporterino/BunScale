@@ -753,6 +753,126 @@ generator pass and under the same owner** (`architect`), and the correction is r
 rather than worked around. The artefact ownership recorded in D0.11 is unchanged by that move, and
 the ordering risk is closed by this decision instead of living in `questions.md`.
 
+### D0.21 — Task 0.6: an empty permission set and a strict CSP (Q13)
+
+**The empty permission set is the deliberate minimum, not an oversight — and this change is a
+narrowing only: no permission and no CSP source was widened.** Task 0.6 narrowed the generated
+`capabilities/default.json` from `permissions: ["core:default"]` to `permissions: []`. Section 0 ships
+no Tauri plugin (D0.8), no command and no event (D0.9), so nothing invokes a core or a plugin command:
+`core:default` bundles nine permission sets (menu, tray, window, webview, event, app, path, image,
+resources) and none of them has a consumer. The load-bearing fact is that **the app's own commands are
+ACL-exempt** — `tauri`'s deny path runs only for plugin commands, for an app that defines its own ACL
+manifest, or for non-local origins (`tauri-2.12.4/src/webview/mod.rs`,
+`tauri-2.12.4/src/ipc/authority.rs`), and this scaffold defines no app manifest — so an empty set
+cannot block the P0 commands task 1.3 adds. **That exemption rests on a condition a later task can
+break:** `has_app_manifest` is true only if `src-tauri/permissions/**` provides a manifest or
+`Attributes::app_manifest` sets one, and this crate has neither (`build.rs` is a bare
+`tauri_build::build()`). Introducing `src-tauri/permissions/**` therefore **flips every custom command
+to ACL-gated**, so any task that adds one must revisit the empty set **in the same change**. That is
+what makes `[]` the honest posture now rather than a guess, and it is why a later task must **not**
+"restore" `core:default` for safety. Nothing was widened, so rule 4 asks for no one-line justification
+of this decision; the deferrals below are what remains.
+
+**The capability is platform-scoped now, and stays the only one.** `"platforms": ["iOS","macOS"]`
+makes the capability inactive on any other target (`Capability::is_active`) and skipped by validation,
+so it cannot apply to a platform this phase does not ship; the consequence is stated positively and
+handed on: **a future shippable platform must add itself to this array in the change that ships it, or
+it gets no capability at all**, because `is_active(&target)` filters the file out rather than failing
+loudly. iOS and macOS are in step here: the CSP response header reaches WKWebView on both, so neither
+platform needs a policy of its own. `windows: ["main"]` is correct on both platforms because the single
+configured window carries no explicit label and `main` is Tauri's default. `identifier: "default"` is
+unchanged, no second capability file was created (Q13, D0.11), and the description now reads "The
+app's only window. Grants only the permissions its tasks need." — deliberately **de-timed**, because
+the previous wording asserted a fact that expires at task 1.3, and this file is hand-owned and copied
+verbatim into the generated capability manifest. The repointed `$schema` — the iOS schema instead of
+the desktop one — is **not a platform decision**: both generated schemas carry the same core permission
+identifiers (spot-checked: `core:menu:default` and `core:window:allow-set-skip-taskbar` appear in
+both), so the iOS pick is editor-only and equivalent to the macOS one.
+
+**The CSP is strict, and its widenings carry the rule-4 justification.** `app.security.csp` goes
+from `null` to `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self';
+font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none';
+frame-ancestors 'none'; form-action 'none'` — no `unsafe-eval` and no `'unsafe-inline'` in any
+directive. The policy is applied through the `tauri://` asset protocol (`AppManager::get_asset`), and
+Tauri appends `'self'` plus per-asset nonces/hashes **per response when the asset is served**, with the
+nonce token and the inline-script hashes produced at build time by `tauri-codegen`: that is why inline
+scripts in the built HTML keep working with no `'unsafe-inline'` in `script-src`, and why an
+`'unsafe-inline'` in `style-src` would be *defeated* by Tauri's nonce in the same directive rather than
+helping. Two source entries — `ipc:` and `http://ipc.localhost` — are therefore the whole record of what
+this policy permits beyond `'self'`, and the second bullet below is a decision, not a widening:
+
+- **`connect-src` is `ipc: http://ipc.localhost` and nothing else.** These are the endpoints of
+  Tauri's IPC fetch transport, and that transport is the **primary** one on both shipped platforms, not
+  a desktop-only path: `tauri-2.12.4/scripts/ipc-protocol.js` takes the fetch branch first
+  (`canUseCustomProtocol = osName !== 'android'`, then `fetch(convertFileSrc(cmd, 'ipc'))`), so on iOS
+  **and** macOS the custom-protocol fetch carries IPC and `connect-src` governs it; `postMessage` is
+  only the fallback taken when that fetch *rejects* ("IPC custom protocol failed, Tauri will now use
+  the postMessage interface instead"). The narrower option — omitting them — would therefore silently
+  **downgrade** IPC to the fallback rather than expose anything new, which makes this entry
+  load-bearing rather than belt-and-braces. `'self'` was **removed** from the directive as a
+  narrowing: the runtime issues no same-origin request at all (`ipc-protocol.js` is the only `fetch`
+  in `tauri-2.12.4/scripts/`, and there is no `WebSocket`, `EventSource` or `XMLHttpRequest`), so
+  `'self'` granted nothing while widening the directive — and it could never have been what kept IPC
+  alive anyway, because the IPC fetch targets `ipc://localhost/{cmd}`, a different scheme and host from
+  the document origin, while Tauri injects `'self'` and nonces only into `script-src`/`style-src`
+  (`manager/mod.rs` `replace_csp_nonce`) and never into `connect-src`. Recorded consequence: with
+  `'self'` gone from the directive, `connect-src` no longer falls back to `default-src 'self'`, so a
+  later same-origin `fetch`/`XHR`/`WebSocket` issued by the document is blocked and needs `'self'` added
+  back to `connect-src` in the change that introduces it. No external origin, no scheme-wide wildcard
+  and no `data:` source is allowed anywhere in the policy.
+- **No `devCsp` is set.** On iOS (dev proxy) and macOS (direct `devUrl` load) Tauri 2.12.4 does not
+  attach the configured CSP to dev content at all: in dev `csp()` falls back to the configured `csp`
+  (`dev_csp.clone().or_else(|| csp.clone())`), but the dev path never reaches `get_asset` — macOS dev
+  loads `build.devUrl` directly and the iOS dev path proxies to the dev server without adding the
+  header — so the key would be inert today; the dev policy must be authored by the task that creates
+  the Vite config, as `devCsp` only, never by weakening `csp`.
+
+**Neither the gate nor dev exercises this policy.** Because Tauri attaches no CSP in dev and no gate
+step runs `tauri build`, the policy's strictness must **not** be assumed safe from a green gate: the
+evidence is a **built** macOS artefact loaded and checked, and task 0.26 now carries that step. The
+following spellings are consequently load-bearing constraints on whoever edits the CSP next:
+
+- Keep `script-src` present **and** carrying `'self'`: wry rewrites that directive by naive string
+  replacement, so a missing directive behaves differently from a permissive one.
+- Do **not** introduce `script-src-attr` or `script-src-elem`: the same `.replace("script-src", …)`
+  corrupts them.
+- Leave `dangerousDisableAssetCspModification` at its default, or Tauri's nonce/hash injection stops.
+
+**Obligations this posture hands on**, each where the current strictness is next tested:
+
+- **0.13/0.19:** dev-only needs — the Vite HMR websocket and the React-fast-refresh inline preamble —
+  go in `devCsp`, never in `csp`. Recorded consequence: if a later task sets a `devCsp`, Fast Refresh's
+  inline preamble needs an explicit allowance **there**, not a relaxation of `csp`.
+- **0.19:** the first inline `style` attribute from the UI layer is fixed with
+  `style-src-attr 'unsafe-inline'` (the narrowest form, plus its own rule-4 line), **never** by putting
+  `'unsafe-inline'` into `style-src`, where Tauri's nonce in that directive defeats it.
+- **0.19:** the first sub-4 kB asset Vite inlines as a `data:` URI is a real widening and must be
+  justified then, in `img-src`/`font-src`.
+- **0.19:** self-hosted fonts, or any remote image origin, is a new source introduced by that change and
+  must be justified there.
+- **0.16 / asset protocol:** any task that enables `app.security.assetProtocol` or uses
+  `convertFileSrc` — the change that first serves an image — must add `asset:` and
+  `http://asset.localhost` to `img-src` (and `media-src` if it is used) in the same change.
+- **1.4:** the first commands widen this capability for whatever core or plugin APIs they actually
+  use; app commands need **no** entry (1.3 declares the core APIs the contract uses; 1.4 grants them).
+- **1.4 (owner) / 3.6 (first consumer):** the narrowest permissions the P0 event subscriptions require
+  are **`core:event:allow-listen`** and **`core:event:allow-unlisten`** (for the returned unlistener);
+  `core:event:default` is the set containing them, and it additionally grants `emit`/`emit-to`, so 1.4
+  grants the smallest thing that satisfies the contract. `plugin:event|*` is always ACL-checked, unlike
+  the app's own commands, and 3.6 is where `household:changed` and `service:status-changed` are first
+  subscribed to. Task 1.4 is the named owner of that entry in `tasks.md`. The same obligation covers
+  every other core module the frontend later imports: `path`, `window` and `app` are equally denied
+  today.
+- **1.4:** the shared service's origin is the read model's network surface (R5) and is owed a
+  `connect-src` entry there, with its own rule-4 line.
+- **`release-signing`:** the macOS App Sandbox entitlements set and the iOS `Info.plist` usage strings
+  are release-time artefacts, not scaffold ones — no entitlements file exists under `src-tauri/` and
+  none is referenced, and `src-tauri/Info.plist` deliberately does not exist yet, because nothing
+  calls a privacy-gated API and inventing a usage string would ship a permission granted for nothing.
+  Task 0.8 owns the iOS usage strings once a capability is actually present.
+
+No ADR number is taken: section 0 takes none (D0.8).
+
 ## State and boundaries
 
 ```
@@ -964,6 +1084,17 @@ artefact (TOOL-1, TOOL-2) drawn from the design system (TOOL-6).
   change asks for logging, and its only consumer was the removed plugin's `setup` closure). Both check
   commands pass on the committed tree, and task 0.10 inherits only the forward obligation not to
   reintroduce `tauri-plugin-log` or `time/local-offset`.
+- Task 0.6's posture (D0.21) is evidenced by a compile check rather than by a diff, and that evidence
+  is of two kinds: the config and the capability are evidenced as **valid** by the `cargo check` runs
+  (host and `aarch64-apple-ios`), the real check for both files because `build.rs` hands them to
+  `tauri-build`, and both runs exercise a capability whose `platforms` covers the target in hand; the
+  empty permission set is revisited only by the obligations D0.21 records, never by a "safety"
+  re-widening. The CSP's strictness is evidenced differently — it is exercised only by a **built** macOS
+  artefact, and task 0.26 now carries that step. The runnable gate status is stated, not implied:
+  `cargo clippy --all-targets -- -D warnings` **passes** and `cargo test` **passes** (0 tests — the
+  scaffold has none yet, and a config-only change cannot affect them), the two `cargo check` runs pass
+  (recorded above), and `cargo fmt --check` remains red on the generator's own 2-space style, which is
+  task 0.12's deliverable per the section-0 preamble.
 - Cross-check at review: the delta contains exactly HS-1…HS-4, SYNC-1/2/3/5, SET-1/2/4,
   NFR-1/2/3/8/10, DM-3 and DM-6 across the five product capabilities, **plus exactly TOOL-1…TOOL-8
   in `project-toolchain`** — no more, no less. The `TOOL-` set is the section-0 enabler and is in

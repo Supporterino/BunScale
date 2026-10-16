@@ -112,17 +112,16 @@ file's header).
   use. These values are settled in `design.md` D0.15 and MUST NOT be invented or made
   platform-specific; this task is not blocked. Both platforms (TOOL-1, TOOL-2).
 
-- [ ] 0.6 [tauri-security] Harden the generated default capability and the generated CSP: least
+- [x] 0.6 [tauri-security] Harden the generated default capability and the generated CSP: least
   privilege, no permission the scaffold does not use, one capability per window, no `unsafe-eval`,
   and the iOS and macOS configurations in step. The capability file is the generated
   `src-tauri/capabilities/default.json` that `tauri init` wrote (Q13: `cargo tauri capability new`
   generated nothing in this environment) and the CSP is the one `tauri init` wrote into
-  `tauri.conf.json`;
-  both are treated as defaults to narrow, not as a set to extend. The capability must also carry its
-  `platforms` key (`["iOS","macOS"]`), so it cannot apply to a platform this phase does not ship, and
-  its editor-only `$schema`, which points at the desktop schema, may be repointed while you are
-  there. Justify any widening in one line
-  in `design.md`. Both platforms (TOOL-1).
+  `tauri.conf.json`; both are treated as defaults to narrow, not as a set to extend. The capability
+  must also carry its `platforms` key (`["iOS","macOS"]`), so it cannot apply to a platform this
+  phase does not ship, and its editor-only `$schema`, which points at the desktop schema, may be
+  repointed while you are there. Justify any widening in one line in `design.md`. Both platforms
+  (TOOL-1).
 
 - [ ] 0.7 [apple-native] Determine the minimum iOS and macOS deployment targets **empirically from
   the installed Xcode and SDKs** and record the floor. Do not hand-pick a version and do not type one
@@ -269,7 +268,12 @@ file's header).
   (`cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo check --target aarch64-apple-ios`,
   `bun run gen:bindings` with no diff, the route-tree no-diff check, `bun run typecheck`,
   `bun run lint`, `bun run test`, `bun run test:e2e`) and record the results in the change; this is
-  the evidence that the workspace builds from a clean checkout. Both platforms (TOOL-1).
+  the evidence that the workspace builds from a clean checkout. It is also the only place the CSP can
+  actually be exercised: every other suite runs against the Vite dev server, where Tauri attaches no
+  CSP at all (D0.21), so load a **built** artefact here — `bun run tauri build`, then run the produced
+  macOS app — and confirm the shipped policy does not break the UI, recording what was loaded and what
+  was observed. iOS cannot evidence this (its dev path is the proxied dev server), which is exactly why
+  the built macOS load matters. Both platforms (TOOL-1).
 
 ### Manual verification
 
@@ -300,7 +304,14 @@ file's header).
   Freeze the names for this phase.
 - [ ] 1.4 [tauri-security] Declare the capability, CSP, scope and entitlement changes the chosen
   mechanism requires; keep them least-privilege, add no permission the phase does not use, and keep
-  the iOS and macOS configurations in step.
+  the iOS and macOS configurations in step. This task is also the **owner of the core permissions the
+  P0 contract needs**, because section 0 deliberately ends with a capability that grants nothing
+  (D0.21): `plugin:event|*` is always ACL-checked, and the P0 event subscriptions (consumer: task 3.6)
+  are the first thing that needs it, so grant the narrowest event permission that satisfies the
+  contract rather than restoring `core:default` — and the same for any other core module the frontend
+  imports (`path`, `window`, `app`). The app's own commands need no entry. If `src-tauri/permissions/`
+  or an app ACL manifest is ever introduced, say so here: that alone flips every custom command to
+  ACL-gated, which is the trap D0.21 records.
 
 ## 2. Backend (Rust)
 
