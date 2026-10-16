@@ -187,25 +187,37 @@ discard data, and the product SHALL NOT remove archived data through ageing or a
 - **WHEN** a rabbit with weight entries is archived
 - **THEN** every entry it had before archiving is still stored afterwards
 
-### Requirement: A rabbit and its data are permanently deletable on confirmation
+### Requirement: An archived rabbit and its data are permanently deletable on confirmation
 
-**RAB-10.** A rabbit and all data associated with it SHALL be permanently deletable after a
-confirmation that states the consequence. The deletion SHALL be irreversible and SHALL be part of
-the household's shared data for every member. Until the confirmation is given, nothing SHALL be
-deleted.
+**RAB-10.** A rabbit that is **archived** — and only an archived rabbit — and all data associated with
+it SHALL be permanently deletable after a confirmation that states the consequence. Permanent deletion
+SHALL NOT be offered for, or accepted for, an active rabbit: an active rabbit SHALL present no
+affordance for it, and such an attempt SHALL be refused. The deletion SHALL be irreversible and SHALL
+be part of the household's shared data for every member. Until the confirmation is given, nothing
+SHALL be deleted. (This deliberately **narrows** the source requirement RAB-10 in
+`docs/BunScale-Reimplementation-Requirements.md`, which permits permanent deletion without stating a
+precondition, while US-RAB-10's only case is an archived rabbit. Archival is the recoverable step that
+must precede an irreversible action; the narrowing is intentional and MUST NOT be relaxed back to the
+unqualified reading.)
 
 #### Scenario: Confirmed deletion removes the rabbit and its data
 
-- **WHEN** a person confirms permanent deletion of a rabbit
+- **WHEN** a person confirms permanent deletion of an archived rabbit
 - **THEN** the rabbit is no longer present in any rabbit list
 - **AND** its weight entries are no longer retrievable
 
+#### Scenario: An active rabbit cannot be permanently deleted
+
+- **WHEN** an active rabbit is presented, or permanent deletion of an active rabbit is attempted
+- **THEN** no control that permanently deletes it is available
+- **AND** the attempt is refused and the rabbit remains active
+
 #### Scenario: Without confirmation nothing is deleted
 
-- **WHEN** a person opens the deletion confirmation and does not confirm it
+- **WHEN** a person opens the deletion confirmation for an archived rabbit and does not confirm it
 - **THEN** the rabbit and its data remain unchanged
 
 #### Scenario: The deletion is shared with every member
 
-- **WHEN** a rabbit is permanently deleted
+- **WHEN** an archived rabbit is permanently deleted
 - **THEN** every member of the household resolves the household without that rabbit

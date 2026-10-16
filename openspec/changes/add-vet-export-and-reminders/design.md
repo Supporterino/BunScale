@@ -4,8 +4,10 @@
 
 This phase delivers after **P5** (see `proposal.md`): the medication and `Schedule` model, the
 human-readable schedule summary (MED-4) and the record-a-dose flow with its pre-filled
-confirmation (MED-5, MED-8) already exist when this change starts. MED-9 … MED-11 are specified
-here because decision **D3** makes reminders *one* mechanism, so medication reminders are
+confirmation (MED-5, MED-8) already exist when this change starts, and with them MED-13's
+correction path (referenced, not restated) — so a course can be finished and later be active again,
+and the reminder consequences of both directions are stated here rather than in P5. MED-9 … MED-11
+are specified here because decision **D3** makes reminders *one* mechanism, so medication reminders are
 configurations of the same mechanism as weigh reminders rather than a second subsystem (IMP-5).
 
 Three of the four things this phase adds are surfaces on the *device* rather than on the shared
@@ -13,8 +15,8 @@ household record: reminders, the language preference, and the notification autho
 Export is the fourth: it *reads* the household record and produces files locally. So the phase's
 central design question is not "what data do we store" but **where the boundary between
 device-local configuration, household data and produced files runs**, and how the product stays
-honest about two device states it does not control (notification authorization, the product not
-running).
+honest about two device states it does not control (notification authorization, and whether the
+platform grants it background execution at all — D4.3/D4.7).
 
 Platforms: iOS (primary) and macOS (Phase 1) — baselines 390×844 first, 1280×800 second. Android,
 Windows and Linux are later, so everything stays `cfg`-clean.
@@ -32,7 +34,7 @@ are configurations of it:
 | | Weigh reminder | Medication reminder |
 |---|---|---|
 | Target | a rabbit, or the household | a medication (P5's entity) |
-| Schedule | user-defined recurring day(s) + time | derived from the medication's P5 schedule for every type that schedules doses |
+| Schedule | user-defined recurring day(s) + time | derived from the medication's P5 schedule for every type that schedules doses, for as long as the medication is active — re-derived if it is finished and then becomes active again (D4.2) |
 | Follow-up default | off | **on** (MED-10) |
 | Actions | open the product at the target | record the dose as given (opens P5's pre-filled confirmation, MED-8) or snooze |
 
@@ -63,33 +65,70 @@ another device"). That is the documented product model (§5) and is accepted, no
 
 An occurrence is computed from the medication's schedule by the same rules P5 already implements
 for "what is due" (MED-3, MED-4), and the medication's *active* state (MED-2) decides whether any
-occurrence exists at all. This design adds no second schedule interpreter: if P5's summary says
-"every 3 days from 12 Oct at 09:00", the occurrences are exactly those instants. That is what makes
+occurrence exists at all. **That status is read, never remembered:** MED-13 keeps a finished
+course's end date correctable, and correcting it — to a future date, or away — makes the medication
+active again, so finishing a course cancels its occurrences for as long as it stays finished and
+its return to active schedules them again for its upcoming slots (MED-9). No stored `finished` flag
+and no one-way cancellation may leave an active medication silently reminder-less. This design adds
+no second schedule interpreter: if P5's summary says "every 3 days from 12 Oct at 09:00", the
+occurrences are exactly those instants. That is what makes
 EXP-4's "export succeeds for any schedule type" and MED-9's "slots derived for every schedule type"
 the same underlying question, answered once.
 
-### D4.3 — Follow-up evaluation: schedule ahead, cancel on evidence, reconcile on launch
+### D4.3 — Follow-up evaluation: schedule ahead, reconcile in a background window, cancel on evidence
 
-Neither platform will run product code on a schedule the person did not ask for, and this design
-deliberately does **not** request a background mode (see D4.5). The follow-up is therefore handled
-in two halves:
+**A background mode IS requested.** This **reverses an earlier decision of this change**: the first
+draft of this document asked for no background mode and accepted the resulting limitation instead, and
+`questions.md` Q6 recorded whether that acceptance was final. It is not final — the product owner has
+settled it (Q6 is closed by this decision), so the product asks for background execution precisely so
+it can reconcile and cancel pending follow-ups **while it is suspended**. The two rejected alternatives
+are recorded here so they are not reintroduced: accepting the limitation with no background mode at
+all, and raising follow-ups opportunistically only when the product happens to be running.
 
-1. **Schedule ahead.** When a reminder occurrence is scheduled, its follow-up is scheduled with it,
-   for the following day (weigh) or the kind's follow-up moment (medication). This is what makes the
-   follow-up possible at all when the product is not running.
-2. **Cancel on evidence, reconcile on launch/foreground.** Every launch and foreground return
-   reconciles outstanding occurrences against the locally kept copy of the household data (P0's
-   loaded-data read path): a weigh occurrence with a weight entry logged for its target after it
-   fired is marked `satisfied` and its follow-up cancelled; a medication occurrence with a dose
-   recorded for its slot is `satisfied` likewise. Cancellation is a local operation on the device's
-   own scheduled notifications, so it needs no connectivity.
+**It is not a second background subsystem.** `add-household-sharing-hardening` (P3) already specifies
+background delivery for HS-11 — "changes reach every member without the product being opened manually" —
+with its own platform story: the same background-mode/backing-task declaration and entitlement
+(`tauri-security` task 1.3), the same native plugin and its registration (`apple-native` tasks 1.6 and
+1.7, unit-tested at 1.8 and manually verified at 5.15), and the same Rust handoff into the sync layer
+(`rust-backend` task 2.10, design D-H6). P3 archives **before** this change, so this change **consumes
+and extends** that mechanism: **same entitlement, same native plugin, same platform story**. The
+extension is one seam — the window handler that P3's registration already runs also invokes this
+change's reconciliation — and it is deliberately not a second registration, a second mode, a second
+entitlement, a second plugin or a second reconciliation path (D4.5, R12). Tasks 1.13–1.15 add that
+extension; 2.9/2.16 and 3.9 add the reconciliation that runs inside it.
 
-Accepted limitation, recorded so it is not discovered later as a bug: a device that never runs the
-product again between the occurrence and the follow-up will not have the chance to cancel, so a
-follow-up can be raised for a target that was, in fact, weighed/dosed elsewhere — and conversely a
-follow-up evaluated only on launch cannot be raised if the device never runs again. The scenario
-"a weigh-in after the reminder suppresses the follow-up" is therefore asserted for the case where
-the device does run before the follow-up falls due, and `questions.md` records the residual gap.
+The follow-up is therefore handled in three parts:
+
+1. **Schedule ahead.** When a reminder occurrence is scheduled, its follow-up is scheduled with it, for
+   the following day (weigh) or the kind's follow-up moment (medication). This is what makes the
+   follow-up possible at all when the product is not running, and it is also what still raises the
+   follow-up when the platform grants no background execution at all: the follow-up sits on the
+   device's own notification scheduler, not on product code.
+2. **Reconcile in a background execution window.** When the platform grants the product a background
+   execution window, the product reconciles outstanding occurrences against the locally kept copy of
+   the household data (P0's loaded-data read path): a weigh occurrence with a weight entry logged for
+   its target after it fired is marked `satisfied` and its follow-up cancelled; a medication occurrence
+   with a dose recorded for its slot is `satisfied` likewise. Cancellation is a local operation on the
+   device's own scheduled notifications, so it needs no connectivity. This is the half the earlier,
+   no-background-mode design could not do while suspended, and it is the only thing *this change* uses
+   the window for; P3's own use of it is unchanged.
+3. **Cancel on evidence, reconcile on launch/foreground.** The **same** reconciliation runs on every
+   launch and foreground return — one implementation, three triggers, no second path.
+
+**The limit, stated plainly.** iOS decides whether and when a granted background execution window
+actually runs, and it may not run at all: the grant is an opportunity, not a schedule and not a
+guarantee. So this **narrows** the gap between "a follow-up should fire" and "it reliably fires" — a
+follow-up whose window was satisfied on another device is now cancelled without the person opening the
+product in most cases — but it does **not** close it. A device that is never granted a window, or that
+is not run again before the follow-up falls due, can still raise a follow-up for a window that was in
+fact satisfied elsewhere. That residual gap stays in the risk register (**R3**) and is stated in
+D4.7 rather than papered over; no surface presents a follow-up as guaranteed, and the requirement's
+scenario carries the qualifier *subject to the platform granting background execution*.
+
+**macOS is different, and is described differently.** macOS does not suspend the product the way iOS
+does: it keeps running, so reconciliation happens on the ordinary launch/foreground path and while it
+runs. On macOS the background window is a convenience, not the mechanism, and the delta says so instead
+of claiming for macOS what is really a claim about iOS.
 
 ### D4.4 — Document generation: Rust-side, then a native handoff
 
@@ -125,13 +164,28 @@ Consequences recorded now, because they are where this choice can go wrong:
   pure-Rust library — no system library to link, no runtime to embed — otherwise the iOS build
   breaks in exactly the way P0's R5 recorded for the sharing mechanism.
 
-### D4.5 — No background mode, no new always-on surface
+### D4.5 — One background mechanism, consumed from P3, and no second always-on surface
 
-Nothing in this phase requires the product to run in the background: occurrence scheduling is handed
-to the device's own notification scheduler, and reconciliation (D4.3) happens on launch and
-foreground return. Requesting a background mode would widen the security surface for a convenience
-the requirements do not ask for, so the `tauri-security` task explicitly adds none and records that
-no entitlement is required beyond notification authorization and the file location.
+The background execution this phase needs for reminder reconciliation (D4.3) is **P3's background
+mechanism, not a new one**. `add-household-sharing-hardening` declares the background mode, the backing
+task and the `Info.plist`/entitlement configuration for HS-11 and implements the native registration
+that runs a window handler (`tauri-security` task 1.3; `apple-native` tasks 1.6–1.7, unit-tested at 1.8,
+manually verified at 5.15). This change extends that one seam: the same declaration and the same
+registration gain the reconciliation entry point of D4.3 and nothing else. `tauri-security` therefore
+adds **no** second background mode, **no** second entitlement, **no** second usage-description string
+and **no** plugin beyond P3's; task 1.13 confirms the extension and task 6.1 reviews the diff for a
+second background subsystem or a second reconciliation path. That is why Q6 is closed by consuming P3
+rather than by declaring new platform work.
+
+Two things stay deliberately absent. Nothing keeps the product running continuously: there is no
+always-on surface, no polling loop and no long-lived background task, and the background window is
+used only to reconcile (D4.3). And no code path assumes a window will ever be granted — the
+schedule-ahead half of D4.3 stands whether or not one arrives, which is why the platform limit is a
+risk (R3) and not a premise.
+
+**Dependencies: none added.** No new dependency and no new plugin is introduced beyond what this change
+already names (the document-generation dependency of D4.4 and the notification and file-handoff
+bridges); the background mechanism is P3's, so project hard rule 6 needs no new justification here.
 
 ### D4.6 — The accessible chart summary is derived, never stored
 
@@ -145,13 +199,19 @@ not over-claim.
 
 ### D4.7 — Device states the product must not pretend about
 
-Two device states can make a reminder silently useless, and both are surfaced rather than assumed:
+Three device states can make a reminder silently useless, and all are surfaced rather than assumed:
 
 - **Notification authorization.** A device that has not granted it cannot raise reminders. The
   product presents the authorization state where reminders are configured and does not present a
   configured reminder as if it will certainly fire. This is the same honesty stance P0 fixed for
   service status (NFR-6's requirement belongs to P3; the stance is reused, not restated).
-- **The product not running.** Covered by D4.3's accepted limitation.
+- **Background execution.** The product asks for it (D4.3/D4.5), but iOS decides whether and when a
+  granted window actually runs, and may never run one. Reconciliation therefore happens when it
+  happens, and the product presents no follow-up as guaranteed to reflect evidence recorded
+  elsewhere — the same stance as the authorization state above. The residual gap is carried as R3.
+  macOS keeps the product running, so this state does not arise there in the same form.
+- **The product not running.** The schedule-ahead half of D4.3 covers what can be covered without the
+  product running, and D4.3's reconciliation covers the rest only while a window is granted.
 
 ### D4.8 — Language override: resolve once at launch, never mid-session
 
@@ -184,8 +244,10 @@ Rust (src-tauri/)                                  Frontend (src/)
   src-tauri/src/settings/     language preference beside P0's display unit (D4.8)
 
   src-tauri/src/platform/     cfg-gated: file location + standard sharing options;
-                              notification authorization, scheduling and actions
-                              (iOS / macOS; future targets add a bridge)
+                              notification authorization, scheduling and actions;
+                              the background execution window that P3 declares and
+                              registers, extended with the reminder reconciliation
+                              entry point (iOS / macOS; future targets add a bridge)
 
   household collection (P0)   UNCHANGED. Nothing in this change writes to it.
                                                    → src/features/reminders|export/api.ts + hooks
@@ -209,7 +271,9 @@ Rules held here:
   summary (MED-4) rather than a second interpreter (D4.2).
 - **The frontend never calls `invoke` directly**, only `src/features/*/api.ts` over generated
   bindings (project hard rule 2).
-- **No background mode** and no always-on surface (D4.5).
+- **One background mechanism, P3's.** The background execution window used for reminder
+  reconciliation (D4.3) is the declaration, the plugin and the registration P3 establishes for HS-11,
+  extended with one reconciliation entry point — never a second background subsystem (D4.5, R12).
 
 ## IPC contract — to be defined by architect
 
@@ -234,7 +298,7 @@ context; events named `<area>:changed` or `<area>:<verb>`; opaque ids as strings
 | `request_reminder_authorization()` | Ask the device for it; the outcome is reported honestly | D4.7 |
 | `snooze_reminder(reminder_id, occurrence_at)` | Defer an occurrence without recording anything; the slot stays unsatisfied | MED-9 |
 | `resolve_reminder_slot(reminder_id, occurrence_at)` | Mark an occurrence satisfied after P5's confirmation recorded the dose | MED-9 |
-| `reconcile_reminders()` | Reconcile occurrences against loaded data on launch/foreground; cancel follow-ups whose evidence exists | REM-3, MED-10, D4.3 |
+| `reconcile_reminders()` | Reconcile occurrences against loaded data on launch, on foreground return and inside P3's background execution window; cancel follow-ups whose evidence exists | REM-3, MED-10, D4.3 |
 | `export_rabbit_history(rabbit_id, range, format)` | Produce the export; `format = pdf \| csv`; returns the produced artifacts (one for `pdf`, several for `csv`) | EXP-1, EXP-2, EXP-4 |
 | `get_export_span(rabbit_id)` | The earliest and latest instants the rabbit has history for, so the range control can default sensibly | EXP-1 (see `questions.md` Q2) |
 | `present_export_sharing(export_ids)` | Hand the produced files to the device's standard sharing options | EXP-3 |
@@ -255,7 +319,11 @@ choosing the id keeps the file location an implementation detail, which D4.4 pre
 | `export:state-changed` | `{ export_id, state: generating \| ready \| failed }` | Drive the working state and the produced-file list |
 
 Events are additive to P0's `household:changed` and `service:status-changed`, which are unchanged.
-Because reminders are device-local, `reminders:changed` is deliberately **not** household-scoped.
+Because reminders are device-local, `reminders:changed` is deliberately **not** household-scoped. A
+reconciliation performed inside a background execution window (D4.3) is the same reconciliation and
+emits the same `reconciled` kind; the background path therefore adds **no command and no event of its
+own**, and the native window handler reaches the Rust layer without new IPC surface — exactly as P3's
+background-delivered change does (P3 D-H6).
 
 ### Shared types
 
@@ -288,11 +356,11 @@ and `Dose`** — this change consumes P5's model and adds no parallel medication
 | US-REM-01 | REM-1 | reminders: "A reminder configured for a recurring day and time fires on schedule", "An edited reminder is honoured with its new schedule", "A disabled or deleted reminder raises nothing" |
 | US-REM-02 | REM-1 | reminders: "A household-wide reminder covers the household rather than one rabbit" |
 | US-REM-03 | REM-2 | reminders: "Only the creating person's device is reminded", "Another member is never notified by a reminder they did not create", "A second member configures an independent reminder", "One person's reminder change leaves another member's reminder untouched", "A reminder does not follow the person to another device" |
-| US-REM-04 | REM-3 | reminders: all four follow-up scenarios |
+| US-REM-04 | REM-3 | reminders: all seven follow-up scenarios, including the `[ios]`/`[macos]` reconciliation scenarios |
 | US-MED-17 | MED-9 | medication-tracking: "A reminder is raised for each upcoming slot of an active medication", "Upcoming slots are derived for every schedule type that schedules doses", "The reminder offers recording the dose as given and snoozing", "Snoozing records no dose and leaves the slot unsatisfied" |
 | US-MED-18 | MED-9 | medication-tracking: "Only the device that configured the reminder is reminded" |
 | US-MED-19 | MED-9 | medication-tracking: "Recording from the reminder opens the pre-filled confirmation", "The confirmed dose satisfies the slot" |
-| US-MED-20 | MED-10 | medication-tracking: all four MED-10 scenarios |
+| US-MED-20 | MED-10 | medication-tracking: all seven MED-10 scenarios, including the `[ios]`/`[macos]` reconciliation scenarios |
 | US-MED-21 | MED-11 | medication-tracking: all three MED-11 scenarios |
 | US-EXP-01 | EXP-1 | export: "A selected range produces a formatted PDF covering weight, health and medications", "The selected range determines which entries are presented" |
 | US-EXP-02 | EXP-1 | export: "Finished courses are presented alongside active ones", "Each medication is presented with its full dose history" |
@@ -315,7 +383,10 @@ P6 (NFR-7), P1 (NFR-9), P0 (NFR-2/NFR-3/NFR-10) and this change restates none of
 
 Platform tagging: only where behaviour genuinely differs. The reminder mechanism carries the
 `[ios]`/`[macos]` pair, because a reminder falling due while the product is not open is a different
-lifecycle situation from one falling due while it stays running. The sharing handoff carries an
+lifecycle situation from one falling due while it stays running. The follow-up reconciliation carries
+the same pair for the same reason — on iOS it runs inside a background execution window that the
+platform may or may not grant (D4.3), while macOS keeps the product running and reconciles as it goes —
+so no scenario claims for macOS what is really a claim about iOS. The sharing handoff carries an
 `[ios]`/`[macos]` pair, because the device's standard sharing surface differs between them. Export's
 range/format behaviour is form-factor independent, so no `[mobile]`/`[desktop]` scenario is added;
 the layout consequence (the range control at 390×844 and at 1280×800) is UI work in task 4.5, and
@@ -328,7 +399,7 @@ tagged in NFR-4.
 |---|---|---|
 | R1 | **Reminders silently never fire** because notification authorization was denied. The person trusts a reminder that cannot be raised. | D4.7: the authorization state is a first-class, freshly observed value, presented where reminders are configured; task 5.13 asserts the surface, and no surface presents a configured reminder as guaranteed. |
 | R2 | **A second reminder subsystem reappears (IMP-5)** — a medication-specific scheduler, store or follow-up loop, because medication slots are the harder case. | D4.1/D4.2 make kind the only difference; the delta states one mechanism as its own requirement; task 6.1 reviews specifically for a second persistence shape or a second follow-up path. |
-| R3 | **A follow-up is raised for a target that was actually weighed/dosed, or is missed entirely.** Follow-up evaluation depends on the product running (D4.3). | The cancellation path is defined and asserted (tasks 5.4, 5.6); the residual gap is stated in D4.3 and recorded in `questions.md` Q6 rather than papered over. |
+| R3 | **A follow-up is raised for a window that was satisfied elsewhere, or is missed entirely.** The requested background mode (D4.3) **narrows** this gap but does not close it: iOS decides whether and when a granted background execution window actually runs and may never run one, so a follow-up already scheduled can fall due before any reconciliation, and a device that is never granted a window never reconciles while suspended. | The cancellation path is defined once and asserted — schedule-ahead plus reconciliation from three triggers (tasks 2.9/2.16, 3.9) — and covered by 5.4/5.6 plus the background reconciliation tests (5.22) and the manual simulator step (5.24); the residual gap is stated in D4.3 and D4.7 and **carried here in this register** rather than papered over, and no surface presents a follow-up as guaranteed (task 4.1's honesty requirement, D4.7). |
 | R4 | **Reminders leak into shared data**, so one member's reminder notifies another (REM-2) or survives a household switch. | Reminders are device-local by construction and the delta asserts it (mechanism scenario "it is not part of the data any household member loads"); task 6.1 checks no household write carries a reminder. |
 | R5 | **The generated document is wrong where it matters** — German umlauts corrupted, a course omitted, a dose history silently truncated. | D4.4 records the font/encoding requirement; tasks 5.9–5.11 assert content, among them a German-tagged export (5.11), and 5.19 takes the export through the sharing handoff end to end. |
 | R6 | **A large range freezes the interface or exhausts memory.** | Generation runs off the main thread with a working state (D4.4); task 4.5 gives the UI that state, and the default range is a question (Q2) rather than an unbounded "all time" guess. |
@@ -337,7 +408,8 @@ tagged in NFR-4.
 | R9 | **Localization is claimed complete but is partial.** NFR-5 is a completion gate over every phase archived before this one (P0 … P3, P5). | Task 3.7 completes the tables across all those surfaces and task 5.16 asserts that neither language falls back to the other or to a key, so a missing string fails a test rather than shipping; task 4.9 checks German layout at both viewports. |
 | R10 | **The accessible chart summary duplicates chart data or drifts from it.** | D4.6 derives it from the same series with no second query; task 5.16 asserts the summary follows the series with no additional data request. |
 | R11 | **Archive order.** Landing this change before P5 would leave `medication-tracking` holding reminder requirements for an entity that does not exist. | Stated in `proposal.md` (archive order P0 → P1 → P2 → P3 → P5 → P4 → P6). |
-| R12 | **Security surface drift** — a background mode or entitlement added "for reminders" that the phase does not need. | D4.5 forbids a background mode; task 1.7 must record where no entitlement is required and add none; task 6.1 checks the diff against it. |
+| R12 | **A second background subsystem or entitlement appears "for reminders"** instead of consuming P3's mechanism — a second background mode, a second plugin, a second registration, a second usage description or a second reconciliation path. | D4.5 states that the background mechanism is P3's and names what may be extended (the window handler entry point) and what may not (mode, entitlement, plugin, registration, reconciliation path); task 1.13 declares the extension and adds nothing new; task 2.16 reuses the one reconciliation implementation; task 6.1 checks the diff for a second background subsystem, a second entitlement and a second follow-up path. |
+| R13 | **A medication returned to active stays silent.** Finishing a course cancels its occurrences, and MED-13 lets a finished course's end date be corrected so the course becomes active again; if the cancellation is treated as one-way, or occurrences are derived from a remembered `finished` state, the medication raises nothing at the slots it is scheduled for while every surface shows it as active. | MED-9 scopes the cancellation to **as long as the course remains finished** and requires the occurrences to be scheduled again on return to active; D4.2 derives occurrences from the medication's **current** status on every evaluation with no stored `finished` flag; task 5.5 covers "A course returned to active resumes its upcoming reminders" alongside the finished-course scenarios, and task 6.2 checks MED-13 is referenced rather than restated here. |
 
 ## Verification
 
@@ -351,6 +423,11 @@ tagged in NFR-4.
   (task 5.10).
 - The accessible chart summary has a screen-reader scenario that is **tested**, not only
   implemented (task 5.21), including the no-value case.
+- The background path has no automated native coverage at phase 1 (`testing-strategy`: native
+  lifecycle behaviour is not drivable by `tauri-driver` on iOS/macOS). It is covered by Rust-level
+  tests of the reconciliation entry point and the follow-up scenarios it decides (task 5.22) plus a
+  **manual simulator step on iOS and macOS** (task 5.24), in addition to P3's own manual step (5.15)
+  for the mechanism it reuses.
 - Cross-check at review: the delta contains exactly EXP-1 … EXP-4, REM-1 … REM-3, the unified
   mechanism requirement, MED-9 … MED-11, SET-3, NFR-4 and NFR-5 — ADDED only, with no
   `## MODIFIED Requirements` section, no P5 requirement restated and no requirement from another

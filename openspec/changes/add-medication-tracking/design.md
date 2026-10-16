@@ -22,8 +22,10 @@ Windows and Linux are later, so everything stays `cfg`-clean.
 Stack: Tauri v2, Rust in `src-tauri/`, React + TypeScript + Vite in `src/`, TanStack Router +
 Query, generated bindings in `src/bindings.ts` (never hand-edited), bun as package manager.
 
-Scope held: **12 requirement IDs — MED-1 … MED-8 and MED-12 (9), the two named cross-phase dashboard
-requirements (2), DM-5 (1).** MED-9, MED-10 and MED-11 are P4's and appear nowhere here.
+Scope held: **13 requirement IDs — MED-1 … MED-8, MED-12 and MED-13 (10), the two named cross-phase
+dashboard requirements (2), DM-5 (1).** MED-13 is a deliberate product-owner addition with no
+source-document counterpart (see the delta's header note and D5.11). MED-9, MED-10 and MED-11 are P4's
+and appear nowhere here.
 
 ## Decisions
 
@@ -42,7 +44,7 @@ Two consequences are accepted explicitly, because medication is where they bite 
 - **The double-dosing guard is only as good as the data it compares against.** Because reads are
   served from the household's locally kept copy (P0's D0.2) and refreshed when reachable, a dose
   another member recorded moments ago may not yet be present locally. Whether the guard must force a
-  fresh read before confirming is a genuine open question (`questions.md` Q3) and is a risk below
+  fresh read before confirming is a genuine open question (`questions.md` Q2) and is a risk below
   (R1), not a decision invented here.
 
 ### D5.2 — Active and finished are derived from the end date, never stored
@@ -57,7 +59,10 @@ of a read.
 This is what makes MED-2's "setting the end date to today finishes the course immediately" true by
 construction: the edit changes the date, and the next read derives the new status. It is also what
 lets P4 raise no reminders for a finished course (MED-11) against the same derivation rather than
-against a second source of truth.
+against a second source of truth. Because the status is derived rather than frozen, finishing a course
+never strands a wrong end date: the end date stays correctable while the medication is finished, so
+correcting it — to a future date, or clearing it — returns the medication to active on the next read
+(MED-13, D5.6, D5.11).
 
 The dashboard badge (DASH-5) and the medications section's status column are the same derivation
 surfaced twice, so the badge and the section can never disagree.
@@ -134,29 +139,35 @@ The check is a separate read that performs **no write**, so cancelling at the wa
 collection untouched, and the check is safe to repeat.
 
 What the window is measured from, and whether it extends forward for a back-dated dose, is a genuine
-unknown (`questions.md` Q2), as is whether the check consults freshly fetched data (Q3). Until both
+unknown (`questions.md` Q1), as is whether the check consults freshly fetched data (Q2). Until both
 are answered, backend task 2.9 and its tests compare the doses the device currently resolves, using
 the entered timestamp as the reference and only preceding doses as candidates — the narrowest reading
 of "already logged" — and neither answer is invented into the specs.
 
-### D5.6 — Finished and archived are two read-only causes, both enforced at the write boundary (MED-12)
+### D5.6 — Finished and archived are two read-only causes, both enforced at the write boundary (MED-12, MED-13)
 
 Two distinct conditions make medication records read-only, and they are not the same condition:
 
-- **Finished** — a medication whose end date has passed. Its own record and its dose history are
-  read-only, and no new dose is added to it (MED-12).
-- **Archived rabbit** — every medication and dose of the rabbit is read-only. This is DM-4 and P1's
-  boundary; MED-12 states only the observable medication behaviour and references DM-4 instead of
-  restating it.
+- **Finished** — a medication whose end date has passed, and one that an end date of today finishes
+  immediately (MED-2). Its dose history is read-only and no new dose is added to it, and every one of its
+  own attributes is read-only **except its end date**, which stays correctable so a mistyped end date is
+  never frozen (MED-13, D5.11). This single exception is deliberate and closed: nothing else about a
+  finished medication is writable.
+- **Archived rabbit** — every medication and dose of the rabbit is read-only, the end date included.
+  This is DM-4 and P1's boundary; MED-12 states only the observable medication behaviour and references
+  DM-4 instead of restating it.
 
-Both are enforced **where writes are accepted** — every medication and dose write path refuses a
-finished target or an archived rabbit and reports the failure through P0's single failure surface —
-and both are **mirrored in the UI**, which presents no create/edit/delete control in those states.
-Neither layer is allowed to be the only one: hiding a control is not enforcement, and a refusal with a
-live button is a lie about what the product accepts.
+Both are enforced **where writes are accepted** — every dose write and every medication-detail write
+other than the permitted end-date correction refuses a finished target, and every medication and dose
+write refuses an archived rabbit, each reported through P0's single failure surface — and both are
+**mirrored in the UI**, which presents no create/edit/delete control in those states other than the
+end-date correction. Neither layer is allowed to be the only one: hiding a control is not enforcement,
+and a refusal with a live button is a lie about what the product accepts. **No path deletes a
+medication** (MED-13).
 
 The two conditions are independent, which the specs assert: restoring an archived rabbit returns write
-access to its active medications, and its finished medications stay read-only.
+access to its active medications, and its finished medications stay read-only except for that same
+end-date correction.
 
 ### D5.7 — Units and amounts are enumerated, and no unit conversion exists
 
@@ -164,7 +175,7 @@ MED-1 fixes the serving unit to exactly **{mg, ml, drops, tablets}**. Unlike wei
 amounts have **no canonical unit**: a unit is a label carried with its value, and the product performs
 no conversion between units (nothing in the requirements asks for one, and inventing mg↔ml for a drug
 would be a clinical claim). A dose carries its own amount and unit (the domain model's `Dose` has both
-fields), and whether that unit may differ from the serving's is a genuine unknown (`questions.md` Q4),
+fields), and whether that unit may differ from the serving's is a genuine unknown (`questions.md` Q3),
 as is what validity applies to an amount. Neither is guessed.
 
 ### D5.8 — The dashboard gains an informational badge, not a second warning
@@ -198,13 +209,61 @@ D3's one unified mechanism, alongside the weigh reminders that share it. Nothing
 depends on P4, and nothing in this change reserves, requires or forward-references a reminder
 requirement.
 
+### D5.11 — The boundary amendment: a finished course's end date stays correctable (MED-13)
+
+This is the one place where the source documents are deliberately amended, so it is stated plainly.
+
+MED-2 finishes a course immediately when its end date is set to today, and MED-12 freezes a finished
+medication's record and dose history. Read literally together, **the very edit that creates a mistyped
+end date is the edit that freezes it**, and the owner's requirement — that after any end date is set,
+including today, the person can still correct it — would be false. The source documents say nothing
+about a medication's own details being editable at all, so the correction path had to be added, not
+found.
+
+The **minimal amendment** is a split of what MED-12 freezes, not a repeal of it:
+
+- **The medication's own details** are correctable while it is active (MED-13), and once it is finished
+  **only its end date remains correctable** — name, reason, start date, serving, unit, schedule and note
+  stay read-only, exactly as MED-12 states.
+- **The dose history** — the clinical record — is frozen from the moment the medication finishes, with
+  no exception: no dose is added to it, and no dose is edited, deleted or retargeted. MED-12's dose
+  clauses are untouched.
+
+The rejected alternative was to treat read-only as beginning only once the end date lies strictly *in
+the past*. It was rejected for three reasons: it leaves the whole record, doses included, writable for a
+day after the course is clinically over; it still freezes a typo that the person notices the next
+morning, which does not meet the owner's stated intent without qualification; and it makes the
+correction window a function of the calendar rather than of the record's state. Keeping the end date
+correctable for as long as the medication exists has no time window, and it protects the one field a
+vet-facing export prints — P4's export presents finished courses with their date range (EXP-1, EXP-2),
+so a wrong end date must never become permanent.
+
+Consequences, all intended:
+
+- Correcting a finished course's end date to a future date, or clearing it, returns the medication to
+  **active** under D5.2's derivation, because the course never actually ended. Correcting it to another
+  past date leaves it finished with the corrected date.
+- A correction changes no dose: every recorded dose keeps its timestamp, its amount and its giver
+  (DM-5). The correction is a repair of a data-entry error in metadata, not an alteration of clinical
+  history.
+- An **archived rabbit** gains nothing from this amendment: DM-4 freezes it everywhere, the end date
+  included (D5.6).
+- A medication is **never deletable** — no affordance removes one and the contract proposes no command
+  that does. Deleting a course would take its recorded dose history out of the record, which is the one
+  thing this capability exists to keep. Full CRUD is explicitly rejected.
+- MED-2 and MED-12 are marked **in place** in the delta with the clause this amendment gives them; no
+  `## MODIFIED Requirements` section is used, because both requirements are stated by this change.
+
+The dose-after-the-end-date case is **not** resolved by this amendment and remains `questions.md` Q4.
+
 ## State and boundaries
 
 ```
 Rust (src-tauri/)                                    Frontend (src/)
   src-tauri/src/ipc/              P0 contract + P5 commands, events, shared types → src/bindings.ts (generated)
   src-tauri/src/domain/medication.rs   medication record, serving, derived active/finished,
-                                       the write-boundary read-only refusals (finished, archived)
+                                       the detail correction path (MED-13) and the write-boundary
+                                       read-only refusals (finished except the end date, archived)
   src-tauri/src/domain/schedule.rs     the four schedule variants, slot invariants,
                                        the human-readable summary derivation
   src-tauri/src/domain/dose.rs         dose recording and editing, giver attribution,
@@ -233,7 +292,10 @@ Rules held here:
 - A dose's giver is captured from the recording identity, never supplied by the caller, and is not an
   editable attribute (D5.4).
 - Read-only enforcement for finished medications and archived rabbits lives at the write boundary and
-  is mirrored in the UI; neither is allowed to be the only one (D5.6).
+  is mirrored in the UI; neither is allowed to be the only one (D5.6). A finished medication's **end
+  date** is the single stated exception and is correctable in both layers (MED-13, D5.11).
+- A medication is **never deleted** by any layer: no affordance offers it and the contract declares no
+  command for it (MED-13).
 - Timestamps are P0's absolute instants (DM-6); P5 supplies them for doses and medication dates and
   never re-interprets them.
 
@@ -253,6 +315,7 @@ field and schedule-invariant refusals; no new cause code is introduced unless 1.
 | Command (proposed) | Purpose | Requirements |
 |---|---|---|
 | `create_medication(rabbit_id, medication_input)` | Create a medication with its serving and its schedule; required fields validated, schedule invariants enforced | MED-1, MED-3 |
+| `update_medication(medication_id, patch)` | Correct a medication's own details — name, reason, start date, end date, serving value and unit, schedule and note. Accepted while the medication is active, and for the **end date only** while it is finished; refused for an archived rabbit | MED-13, MED-12 |
 | `get_medication(medication_id)` | Detail payload: the medication's fields, its derived status, its structured schedule and its schedule summary | MED-1, MED-2, MED-4 |
 | `list_rabbit_medications(rabbit_id, include_finished)` | The medications section: each medication with its derived status and its schedule summary | DASH-7 |
 | `record_dose(medication_id, amount, timestamp?, note?)` | Record a dose; the timestamp defaults to now; the giver is the recording member, never a parameter | MED-5, MED-8, DM-5 |
@@ -262,10 +325,12 @@ field and schedule-invariant refusals; no new cause code is introduced unless 1.
 | `delete_dose(dose_id)` | Delete a dose; shared with members | MED-6 |
 | *(type extension, not a new command)* | P1's dashboard read gains the derived active-medication badge field; `architect` reconciles the row type with P1 and P2 rather than adding a second dashboard command | DASH-5 |
 
-**No `update_medication` and no `delete_medication` command is proposed here.** The source documents
-never state that a medication's own details are editable or deletable — only its start date is
-described as editable (MED-1) and MED-12 freezes a finished record — so `architect` adds such commands
-only once `questions.md` Q1 is answered, and no task in this change implements them.
+**No `delete_medication` command is proposed here, and none may ever be added.** A medication is
+**never deletable** (MED-13): its recorded dose history is the clinical record, so there is no delete
+affordance and no delete command, and every correction path preserves every dose. `update_medication` is
+the only medication-mutating command beyond `create_medication`, and it exists because a mistyped end
+date — finished by MED-2 and otherwise frozen by MED-12 — must be correctable (D5.11). It is not an
+opening for full CRUD.
 
 `architect` also decides, and records in 1.1/1.2, where the schedule summary is produced (a derived
 field on the payload versus a frontend derivation from the structured schedule). The structured
@@ -281,7 +346,7 @@ so the detail, the section and later the export cannot disagree.
 
 Both are household-scoped like P0's `household:changed` and P1's `rabbit:changed`, so a dose recorded
 by one member reaches the others through the ordinary propagation path — which is also what makes the
-double-dosing guard meaningful when the local copy is fresh (R1, Q3). No P5 event replaces a P0 event.
+double-dosing guard meaningful when the local copy is fresh (R1, Q2). No P5 event replaces a P0 event.
 
 ### Shared types
 
@@ -294,7 +359,7 @@ double-dosing guard meaningful when the local copy is fresh (R1, Q3). No P5 even
 | `Schedule` | tagged value type: `{ kind: times_per_day, slots: [TimeOfDay] }` (1–4) / `{ kind: every_x_days, interval_days, time_of_day }` / `{ kind: weekly, weekday, time_of_day }` / `{ kind: prn, max_per_day? }` | one neutral model, four variants; carries no reminder and no export concern (D5.3); **P4 consumes this type for both reminders and export** |
 | `MedicationStatus` | `active \| finished` | derived from the end date and the present moment, never stored (D5.2) |
 | `Medication` | `{ id, rabbit_id, name, reason?, start_date, end_date?, amount_value, amount_unit, schedule, note? }` | no status field (D5.2), no reminder field (D5.3) |
-| `MedicationSummary` | `{ id, rabbit_id, name, status, schedule, schedule_summary, is_read_only }` | the medications section row; `is_read_only` folds the finished and archived causes (D5.6) |
+| `MedicationSummary` | `{ id, rabbit_id, name, status, schedule, schedule_summary, is_read_only }` | the medications section row; `is_read_only` folds the finished and archived causes (D5.6) — no dose and no medication detail is written — with MED-13's end-date correction on a finished medication as the one permitted write |
 | `Dose` | `{ id, medication_id, timestamp, amount_value, amount_unit, note?, giver_member_id }` | `giver_member_id` is written from the recording identity and is not patchable (DM-5, D5.4) |
 | `DoseSummary` | `{ id, timestamp, amount_value, amount_unit, giver_member_id, giver_display_name? }` | the chronological list; the display name resolves through P0's identity fallback chain (SET-2) |
 | `RecentDoseCheck` | `{ within_window: bool, window_minutes, existing_dose?: DoseSummary }` | MED-7; a read that performs no write (D5.5) |
@@ -333,21 +398,24 @@ requirement IDs sit in a sibling capability by design and are counted once: **DA
 is `Medications section on the rabbit dashboard`, both in `dashboard`. **US-DASH-08** is also partly
 P2's (the health history views) and is covered there; this change covers only its medications part.
 **DM-5** has no story of its own; it is exercised by US-MED-12 and US-MED-14 and is stated as an
-invariant with directly testable scenarios anyway.
+invariant with directly testable scenarios anyway. **MED-13** has no story of its own either — it is a
+deliberate product-owner addition with no source-document counterpart (see the delta's header note) —
+and its scenarios are covered by task 5.17 and by the read-only coverage US-MED-22 already names; it
+restates no story and no sibling requirement.
 
 ## Risks
 
 | # | Risk | Mitigation in this change |
 |---|---|---|
-| R1 | **The double-dosing guard is defeated by a stale read.** It compares the person's confirmation against the household collection the device currently holds, and another member's dose from four minutes ago may not be in it — which is exactly the situation the guard exists for. | D5.5 makes the check a separate read so it *can* force a fresh fetch; the freshness question is raised as `questions.md` Q3 and is not silently assumed; task 5.7 tests both the inside-window and outside-window behaviour so the guard is proven to work on the data it is given. |
-| R2 | **A finished course is read-only, so a wrongly set end date is frozen in the UI.** MED-12 freezes a finished record and MED-2 says setting the end date to today finishes the course immediately — a mistyped date therefore has no in-product correction path, and §6.7 never says whether a medication's own details are editable at all. | Raised as `questions.md` Q1 (medication editing/deletion) and Q5 (a dose actually given after the end date) instead of being guessed; no task implements medication edit/delete, and the contract proposes no such command. MED-12 is implemented exactly as given. |
+| R1 | **The double-dosing guard is defeated by a stale read.** It compares the person's confirmation against the household collection the device currently holds, and another member's dose from four minutes ago may not be in it — which is exactly the situation the guard exists for. | D5.5 makes the check a separate read so it *can* force a fresh fetch; the freshness question is raised as `questions.md` Q2 and is not silently assumed; task 5.7 tests both the inside-window and outside-window behaviour so the guard is proven to work on the data it is given. |
+| R2 | **A wrongly set end date could be frozen in the UI by the very edit that sets it.** MED-2 finishes a course immediately when the end date is set to today, and MED-12 freezes a finished record — so without an amendment the mistyped date would have no in-product correction path, and §6.7 never says whether a medication's own details are editable at all. | **Resolved by amendment, not carried.** MED-13 (a deliberate product-owner addition) makes an active course's details correctable and keeps a finished course's **end date** correctable for as long as the medication exists, while its dose history and every other attribute stay read-only (D5.11); `update_medication` is the contract's only medication-mutating command beyond creation, and **no delete command exists**. The residual, genuinely open part — whether a dose actually given after the end date may be recorded — stays `questions.md` Q4 and is not silently answered. |
 | R3 | **The schedule model is coupled to P4's consumers.** Adding a reminder flag, a next-fire time or an export field to `Schedule` while building P5 would make P4's requirements load-bearing here and would bake one device's reminder configuration into shared household data. | D5.3 fixes the model as one neutral value type with no reminder and no export concern; the wire carries the structured model so P4 can consume it; `reviewer` checks the contract for reminder/export fields (task 6.1). |
 | R4 | **The summary and the export disagree.** If the human-readable summary is computed in more than one place, the app's rendering and P4's export can describe the same schedule differently. | D5.3 requires the summary to be derived from the structured schedule in exactly one place, and `architect` records where (1.1/1.2); MED-4's scenarios pin the content of the summary for all four types, with and without doses. |
-| R5 | **Overlapping capability files collide at archive.** `dashboard` is opened by P1, P2 and this change; `data-integrity` by all four phases; `medication-tracking` is created here and extended by P4. | Cross-phase requirements use the exact names fixed in `proposal.md`; this change adds to `dashboard` and `data-integrity` under `## ADDED Requirements` only, restates no sibling requirement and references P0's NFR-10, DM-6, P1's DM-4 and P2's DM-2 by name; the review task checks the delta for exactly the 12 owned IDs. |
+| R5 | **Overlapping capability files collide at archive.** `dashboard` is opened by P1, P2 and this change; `data-integrity` by all four phases; `medication-tracking` is created here and extended by P4. | Cross-phase requirements use the exact names fixed in `proposal.md`; this change adds to `dashboard` and `data-integrity` under `## ADDED Requirements` only, restates no sibling requirement and references P0's NFR-10, DM-6, P1's DM-4 and P2's DM-2 by name; the review task checks the delta for exactly the 13 owned IDs. |
 | R6 | **Scope creep into P4 through MED-2's reminder clauses.** §6.7 puts reminder behaviour inside MED-2 and MED-3's PRN story, and the natural next step from a derived status is "and fire a reminder when it applies". | MED-2 is scoped to the observable lifecycle and the reminder consequences are named as P4's; MED-11 is not mentioned by any requirement here; a "no reminders" statement appears nowhere in this delta, not even negatively, except as an explicit boundary note outside the requirements. |
 | R7 | **Giver attribution drifts.** Storing a display name, or resolving the giver through a per-device name, would let a rename or an unresolved identity rewrite what the record says. | D5.4 stores the member id and resolves the display name at read time through P0's fallback chain; DM-5 and its scenarios assert non-retargeting and rename-independence; the edit payload carries the giver as non-patchable. |
 | R8 | **Slot times are misread as instants.** Resolving "08:00" into a timestamp or a device offset would put one device's timezone into shared household data and would make the same medication mean different things to different members. | `TimeOfDay` carries no date and no offset (D5.3), the type is distinct from `Instant`, and the firing interpretation is explicitly left to P4. |
-| R9 | **Back-dated doses disturb both orderings.** MED-5 and MED-6 allow a dose's timestamp to be edited, including to the past, and MED-7's window is measured in minutes — so a correction can change what the list looks like and whether a later confirmation would have warned. | The list sorts by the dose timestamp rather than creation order; the window's anchor is raised as `questions.md` Q2 rather than assumed; task 5.7's cases are stated relative to the recording member rather than to a clock fixture. |
+| R9 | **Back-dated doses disturb both orderings.** MED-5 and MED-6 allow a dose's timestamp to be edited, including to the past, and MED-7's window is measured in minutes — so a correction can change what the list looks like and whether a later confirmation would have warned. | The list sorts by the dose timestamp rather than creation order; the window's anchor is raised as `questions.md` Q1 rather than assumed; task 5.7's cases are stated relative to the recording member rather than to a clock fixture. |
 
 ## Verification
 
@@ -362,8 +430,8 @@ invariant with directly testable scenarios anyway.
   `bun run test`, `bun run test:e2e`.
 - UI tasks additionally: screenshots at 390×844 and 1280×800 in `.artifacts/screens/`, plus reviewer
   confirmation of touch targets, safe areas and adaptive layout.
-- Every requirement above has at least one scenario named by a test task in `tasks.md`; MED-4 and
-  MED-7 each have a test task of their own (5.4 and 5.7).
-- Cross-check at review: the delta contains exactly **MED-1 … MED-8, MED-12, DASH-5, the medications
-  part of DASH-7 and DM-5** — no more, no less; **no MED-9, MED-10 or MED-11**, no US-MED-23, no
-  reminder scope, no export scope and no restated P0/P1/P2 requirement.
+- Every requirement above has at least one scenario named by a test task in `tasks.md`; MED-4, MED-7 and
+  MED-13 each have a test task of their own (5.4, 5.7 and 5.17).
+- Cross-check at review: the delta contains exactly **MED-1 … MED-8, MED-12, MED-13, DASH-5, the
+  medications part of DASH-7 and DM-5** — no more, no less; **no MED-9, MED-10 or MED-11**, no
+  US-MED-23, no reminder scope, no export scope and no restated P0/P1/P2 requirement.

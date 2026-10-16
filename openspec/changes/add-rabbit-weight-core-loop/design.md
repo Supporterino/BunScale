@@ -77,7 +77,8 @@ weight (and later health and medication) write path refuses to touch an archived
 the failure through P0's single failure surface; the UI additionally presents no create/edit/delete
 control for archived data, so the two agree. This is the P1 instance of P0's NFR-10 rule that a write
 to an entity the boundary marks as immutable is refused. Retention is indefinite — nothing purges
-archived data, and the only removal path in P1 is RAB-10's confirmed permanent deletion.
+archived data, and the only removal path in P1 is RAB-10's confirmed permanent deletion, which RAB-10
+restricts to an archived rabbit (D1.8).
 
 ### D1.6 — The dashboard is composed by requirement, split across phases by name
 
@@ -100,10 +101,21 @@ or implementation.
 ### D1.8 — Archived, restored and deleted are three distinct states
 
 `restore` returns the rabbit to the active list with history intact; `delete` is permanent, cascades
-to the rabbit's entries, and is irreversible. Archiving is a soft delete, is reversible, and is
-therefore **not** treated as a destructive action under NFR-9 — it needs no consequence confirmation.
-Permanent deletion does, and its confirmation states the consequence. This keeps NFR-9 meaningful
-instead of cheapening it into a confirmation on every lifecycle action.
+to the rabbit's entries, and is irreversible. **Permanent deletion is available only for an archived
+rabbit and is refused for an active one**, which is what keeps archiving a genuine step rather than a
+decorative flag: it is the recoverable stage that must precede the irreversible one, so a mistaken tap
+can always be undone before the point of no return. The delete affordance therefore lives on the
+archived list and the archived rabbit's read-only surface (RAB-6, RAB-10) and is absent from an active
+rabbit's profile.
+
+This is a deliberate **narrowing** of the source RAB-10, which permits permanent deletion without
+stating a precondition. US-RAB-10's only case is an archived rabbit, and the product owner chose the
+archived-only reading; a later reader must not "correct" it back to an unqualified delete.
+
+Archiving is a soft delete, is reversible, and is therefore **not** treated as a destructive action
+under NFR-9 — it needs no consequence confirmation. Permanent deletion does, and its confirmation
+states the consequence. This keeps NFR-9 meaningful instead of cheapening it into a confirmation on
+every lifecycle action.
 
 ### D1.9 — The plausibility bound is the one the requirements state
 
@@ -181,7 +193,7 @@ refusals; no new cause codes are introduced unless 1.1 justifies one.
 | `update_rabbit(rabbit_id, patch)` | Edit any field of an active rabbit, including `weight_drop_threshold_percent` | RAB-5, WT-7 |
 | `archive_rabbit(rabbit_id)` | Soft delete; reversible | RAB-6 |
 | `restore_rabbit(rabbit_id)` | Return to the active list, history intact | RAB-7 |
-| `delete_rabbit(rabbit_id)` | Permanent deletion with cascade, shared with members | RAB-10 |
+| `delete_rabbit(rabbit_id)` | Permanent deletion of an **archived** rabbit with cascade, shared with members; refused for an active rabbit | RAB-10 |
 | `get_dashboard(household_id)` | Rows: name, thumbnail ref, last-weighed date or never-weighed, drop flag | DASH-1, DASH-2, DASH-3, DASH-4 |
 | `create_weight_entry(rabbit_id, entry)` | Save an entry; grams canonical, timestamp defaults to now | WT-1, DM-1 |
 | `get_weight_entries(rabbit_id, range)` | Trend series and the ranged weight history listing, with the alert state | WT-6, WT-7 |
@@ -217,7 +229,7 @@ later optimises).
 | `WeightEntrySummary` | `{ id, value_grams, timestamp, has_weight_drop_alert }` | trend points and history rows |
 | `WeightRange` | `days_7 \| days_30 \| days_90 \| all` | WT-6; the same enum serves both independent ranges |
 | `WeightTrend` | `{ range, points: [WeightEntrySummary], drop_threshold_percent }` | the threshold travels with the series so the alert is derivable and consistent |
-| `Sex`, `NeuterStatus` | enumerations | the source requirements do not enumerate their values (see `questions.md` Q4); `architect` records the value set with the contract |
+| `Sex`, `NeuterStatus` | enumerations | the source requirements do not enumerate their values (see `questions.md` Q3); `architect` records the value set with the contract |
 | reuse | `CommandError`, `SaveCause`, `Instant`, `WeightUnit`, `HouseholdId` | from P0, unchanged |
 
 ## Traceability: user stories → scenarios
@@ -242,7 +254,7 @@ later optimises).
 | US-RAB-07 | RAB-6, RAB-9 | rabbit-profiles: "Archiving removes the rabbit from the active list", "Archiving discards nothing", "Archived history survives an arbitrary interval" |
 | US-RAB-08 | RAB-7 | rabbit-profiles: "Restoring returns the rabbit to the active list", "Restoration leaves the history unchanged" |
 | US-RAB-09 | RAB-8, DM-4 | rabbit-profiles: "No new entry can be added to an archived rabbit", "Archived entries cannot be edited or deleted"; data-integrity: "No weight data of an archived rabbit is mutable". RAB-8's export clause is asserted by P4's EXP-1 … EXP-4 and its photo-gallery clause by P2's PHOTO-3, so P1's delta carries no scenario for them |
-| US-RAB-10 | RAB-10 | rabbit-profiles: "Confirmed deletion removes the rabbit and its data", "Without confirmation nothing is deleted", "The deletion is shared with every member" |
+| US-RAB-10 | RAB-10 | rabbit-profiles: "Confirmed deletion removes the rabbit and its data", "An active rabbit cannot be permanently deleted", "Without confirmation nothing is deleted", "The deletion is shared with every member" |
 | US-WT-01 | WT-1 | weight-tracking: "An entry is recorded with the current time", "An entry records an edited timestamp", "The note is optional" |
 | US-WT-02 | WT-2 | weight-tracking: the `[mobile]` three-tap scenario |
 | US-WT-03 | WT-2 | weight-tracking: "The quick-entry control offers a rabbit picker" |
@@ -275,8 +287,8 @@ P2), RAB-1's photo selection (PHOTO-2 in P2) and DM-4's health/medication scenar
 | R3 | **Archived immutability leaks.** Hiding controls is not enforcement; a stale route or a direct command could still write to an archived rabbit. | The refusal lives at the write boundary as well as in the UI (D1.5) and is tested through the command path, not only through the screen. |
 | R4 | **Overlapping capability files collide at archive.** `dashboard`, `data-integrity` and `weight-tracking` are each modified by several phases (and P0 owns the generic NFR-10 text). | Cross-phase requirements use the exact names fixed in `proposal.md`; DM-1/DM-4 and WT-3 are scoped and reference the P0 requirements instead of restating them; the review task checks the delta for exactly the 30 IDs. |
 | R5 | **The chart gains a baseline band again.** A healthy-range band is visually obvious "polish" and easy to reintroduce while building the chart. | D1.7 records the exclusion; the delta contains no requirement for it, the contract carries no baseline field, and review checks for it explicitly. |
-| R6 | **Back-dated and edited timestamps reorder the list.** WT-1 allows a past timestamp and WT-5 allows edits, so "most recent weigh-in" (DASH-3) is not simply creation order. | Sort on the entry timestamp, not on creation order; the derivation re-runs on every invalidation from `weight:changed`. Which entry counts as "the previous entry" when two entries share a timestamp is an open item (`questions.md` Q2). |
-| R7 | **Permanent deletion is under-specified relative to the archived model.** Deleting a rabbit that is still active is not described by any story, yet RAB-10 permits it. | Raised as `questions.md` Q1 rather than guessed: until answered, the deletion path is built for archived rabbits (the story's case) and the active case is left undecided rather than invented. |
+| R6 | **Back-dated and edited timestamps reorder the list.** WT-1 allows a past timestamp and WT-5 allows edits, so "most recent weigh-in" (DASH-3) is not simply creation order. | Sort on the entry timestamp, not on creation order; the derivation re-runs on every invalidation from `weight:changed`. Which entry counts as "the previous entry" when two entries share a timestamp is an open item (`questions.md` Q1). |
+| R7 | **Permanent deletion is narrower than the source requirement.** RAB-10 in `docs/BunScale-Reimplementation-Requirements.md` permits permanent deletion with no precondition on the rabbit's state, which would allow an irreversible action straight from an active profile, while US-RAB-10's only case is an archived rabbit. | **Settled, recorded here so it is not reopened:** permanent deletion is available only for an archived rabbit; an active rabbit presents no delete affordance and the operation is refused, so the irreversible action sits behind the recoverable step of archiving (D1.8, task 2.7, task 4.5). This is an intentional **narrowing** of the source RAB-10, not a misreading — do not "restore" the unqualified reading. |
 | R8 | **Photo references without a picker.** P1 carries a photo reference whose selection arrives in P2, so the field is never populated in P1's own flows. | Accepted as a deliberate cross-phase split (D1.11): the thumbnail and placeholder behaviour (RAB-1, DASH-1) are testable with a supplied reference, and P2 supplies the picker. No photo-library capability is opened in P1. |
 | R9 | **Range state drifting between the two ranges.** A shared range store would silently couple the chart and the history sub-view and violate WT-6. | Ranges are separate typed search parameters, one per view (D1.4); the independence scenario is asserted as a component and as an E2E case. |
 

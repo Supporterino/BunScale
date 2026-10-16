@@ -13,40 +13,17 @@ documents already give are applied as given rather than turned into questions �
 `US-MED-23` (offline dose logging) is not a question: it is **dropped** by D1, and the delivery order
 (medication before export/reminders) is settled. Medication **reminders** are not a question either:
 they are deliberately specified in `add-vet-export-and-reminders` (P4) under D3's one unified
-mechanism.
+mechanism. Whether a medication's own details are editable, and whether a medication is ever deletable,
+is **settled** as well: the product owner decided that an active course's details are correctable and
+that a medication is **never deletable**, and it is stated as **MED-13** in
+`specs/medication-tracking/spec.md` together with the end-date correction it requires of MED-2 and
+MED-12.
 
-Five open items are recorded below. Each names the tasks it blocks and the requirements it affects.
-
----
-
-## Q1 — Are a medication's own details ever editable or deletable?
-
-**Blocks:** task 1.1 (whether the contract exposes a medication edit or delete command at all);
-whatever task would build the affordance — **none is created until this is answered**.
-**Requirements affected:** MED-1, MED-2, MED-12.
-
-The requirements state editing for **doses** (MED-6: amount, note and timestamp) but never for
-**medications**. The only editable medication attribute named anywhere is the start date ("default
-today, editable", MED-1). Nothing says whether a name, reason, end date, serving, unit, note or
-schedule can be corrected after creation, or whether a medication can be removed at all.
-
-This matters immediately and not only in theory. MED-2 says setting the end date to today finishes the
-course immediately, and MED-12 makes a finished medication's records read-only — so a mistyped end
-date freezes a course that never ended, and no stated flow can correct it. A typo in a name, unit or
-serving is equally permanent under a strict reading. Conversely, "read-only once finished" could be
-read as scoped to the finished *record* while the medication's own details stay editable, which would
-make MED-12 and MED-2 mean something different from the strict reading.
-
-**Needed (a product decision):** whether a medication is editable, which of its attributes are
-editable, whether it is ever deletable (and if so, whether deleting a medication takes its dose
-history with it or is refused while doses exist), and whether any of this is possible once the
-medication is finished. Until it is answered, this change implements MED-1, MED-2 and MED-12 exactly as
-written: creation, the derived lifecycle, and read-only finished records — and no task implements
-medication editing or deletion, so nothing is invented in either direction.
+Four open items are recorded below. Each names the tasks it blocks and the requirements it affects.
 
 ---
 
-## Q2 — From which point is the approximately 15-minute window measured, and in which direction?
+## Q1 — From which point is the approximately 15-minute window measured, and in which direction?
 
 **Blocks:** task 2.9 (the near-simultaneous check), task 3.5 (the warning state), task 4.4 (the
 warning presentation), task 5.7 (the guard tests), and design D5.5.
@@ -71,7 +48,7 @@ depends on the undecided part. The approx. 15-minute duration itself is given an
 
 ---
 
-## Q3 — Must the guard be checked against freshly fetched data?
+## Q2 — Must the guard be checked against freshly fetched data?
 
 **Blocks:** task 2.9 (the check), task 3.5 (the warning state), task 5.7 (the guard tests), and
 design D5.5 and R1.
@@ -92,7 +69,7 @@ a dose is *known*, without claiming a guaranteed freshness.
 
 ---
 
-## Q4 — What amount rules apply to a serving and to a recorded dose?
+## Q3 — What amount rules apply to a serving and to a recorded dose?
 
 **Blocks:** task 1.1 (the dose payload's unit field), task 3.3 and 3.4 (the form state), task 4.1 and
 4.3 (the forms), task 5.5 (the dose tests).
@@ -119,7 +96,7 @@ domain model requires, and no amount-validation rule is invented into the specs 
 
 ---
 
-## Q5 — May a dose that was actually given after the end date still be recorded?
+## Q4 — May a dose that was actually given after the end date still be recorded?
 
 **Blocks:** task 2.10 (read-only enforcement), task 4.8 (the read-only presentation), task 5.9 (the
 read-only tests).

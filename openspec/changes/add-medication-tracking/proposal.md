@@ -4,10 +4,12 @@
 > Source of truth: `docs/BunScale-Reimplementation-Requirements.md` (§5 domain model, §5.1
 > domain invariants, §6.7 MED) and `docs/BunScale-Reimplementation-User-Stories.md`
 > (EP-7, §12).
-> This change owns **12 requirement IDs and no others**: MED-1 … MED-8 and MED-12 in the new
+> This change owns **13 requirement IDs and no others**: MED-1 … MED-8, MED-12 and MED-13 in the new
 > `medication-tracking` capability, the two named cross-phase requirements in `dashboard`
 > (`Rabbits with active medications carry an informational badge`, `Medications section on the
-> rabbit dashboard`) and DM-5 in `data-integrity`.
+> rabbit dashboard`) and DM-5 in `data-integrity`. MED-13 is a **deliberate product-owner addition with
+> no counterpart in either source document** — see the note in `specs/medication-tracking/spec.md` and
+> design D5.11.
 
 ## Why
 
@@ -56,14 +58,15 @@ for the sharing mechanism.
 
 | Capability | Requirements added | Substance |
 |---|---|---|
-| `medication-tracking` *(created here)* | MED-1, MED-2, MED-3, MED-4, MED-5, MED-6, MED-7, MED-8, MED-12 | A rabbit's courses with reason, dates, serving and note; several concurrent courses; the active/finished lifecycle with retained history; the four schedule types with editable pre-filled slots; a human-readable schedule summary for every type with and without doses; dose recording with an editable timestamp, a pre-filled editable amount, an optional note and the recording member; the chronological dose list with edit and delete; the near-simultaneous double-dosing guard; the primary give-dose action; read-only records for a finished medication |
+| `medication-tracking` *(created here)* | MED-1, MED-2, MED-3, MED-4, MED-5, MED-6, MED-7, MED-8, MED-12, MED-13 | A rabbit's courses with reason, dates, serving and note; several concurrent courses; the active/finished lifecycle with retained history; the four schedule types with editable pre-filled slots; a human-readable schedule summary for every type with and without doses; dose recording with an editable timestamp, a pre-filled editable amount, an optional note and the recording member; the chronological dose list with edit and delete; the near-simultaneous double-dosing guard; the primary give-dose action; read-only records for a finished medication; the correction of an active course's details and of a finished course's end date, and the rule that a medication is never deleted |
 | `dashboard` | DASH-5 → `Rabbits with active medications carry an informational badge`, and the medications part of DASH-7 → `Medications section on the rabbit dashboard` | An informational badge on a rabbit with at least one active medication, visually distinct from the warning flag and never warning styled; a medications section on the rabbit dashboard with each medication's active/finished status, its schedule summary, an entry point to its detail and dose history, and a read-only presentation for an archived rabbit |
 | `data-integrity` | DM-5 → `A dose records the giver as a member of the household` | Every dose carries exactly one giver, a member of the same household as its rabbit, captured from the recording member and not retargetable by the edits MED-6 permits |
 
 Supporting work: the P5 IPC contract with typed stubs in `src-tauri/src/ipc/`, the medication,
 schedule and dose domain in Rust, the frontend data layer (bindings wrappers, query keys, form state
-for the four schedule types, the pre-confirmation double-dose check), the P5 screens (medication
-form with the schedule editor, medication detail, give-dose confirmation, dose list and dose edit,
+for the four schedule types, the medication-detail correction path, the pre-confirmation double-dose
+check), the P5 screens (medication form with the schedule editor, medication detail with its correction
+affordance, give-dose confirmation, dose list and dose edit,
 the dashboard badge, the medications section), an i18n key set, and tests at unit, component and E2E
 level.
 
@@ -79,7 +82,7 @@ level.
 
 ### Cross-phase splits observed by this change
 
-- **`medication-tracking`** is created by this change under nine names of its own choosing. P4 later
+- **`medication-tracking`** is created by this change under ten names of its own choosing. P4 later
   adds exactly three requirements to it under its own names —
   `Medication reminders are raised per device with record and snooze actions` (MED-9),
   `A missed dose window raises a single follow-up reminder` (MED-10) and
@@ -121,15 +124,24 @@ level.
   anywhere except the household's shared collection.
 - **D5 — no chart baseline band.** Weight charts only; this change adds no chart at all.
 - **D6 — technology-agnostic specs.** No vendor or integration is named.
+- **The medication-editing decision (product-owner addition, MED-13).** The source documents never say
+  whether a medication's own details are editable or whether a medication can be removed. The product
+  owner settled both: an **active** course's details are correctable, a **finished** course's **end
+  date** stays correctable so a mistyped end date is never frozen, and a medication is **never
+  deleted** — full CRUD is explicitly rejected, because deleting a course would take its recorded dose
+  history out of the clinical record. MED-13 states this, and MED-2 and MED-12 are marked in place with
+  the one clause each takes from it (design D5.11).
 
 ## Impact
 
 - **New Rust surface:** `src-tauri/src/ipc/` (P5 commands, events, shared types), the medication,
-  schedule and dose domain, the derived active/finished status, and the write-boundary refusal that
-  makes a finished medication and an archived rabbit's medications read-only.
-- **New frontend surface:** `src/routes/` (medication form with schedule editor, medication detail,
-  give-dose confirmation, dose list and dose edit, the rabbit dashboard's medications section),
-  `src/features/medications/`, and regenerated `src/bindings.ts` (never hand-edited).
+  schedule and dose domain, the derived active/finished status, the medication-detail correction path,
+  and the write-boundary refusal that makes a finished medication (its end date excepted) and an
+  archived rabbit's medications read-only.
+- **New frontend surface:** `src/routes/` (medication form with schedule editor, medication detail with
+  its correction affordance, give-dose confirmation, dose list and dose edit, the rabbit dashboard's
+  medications section), `src/features/medications/`, and regenerated `src/bindings.ts` (never
+  hand-edited).
 - **Security surface: unchanged.** This change adds no capability, CSP entry, scope, entitlement or
   permission string. It opens no notification, photo, file or network surface — raising and
   handling reminders is P4's, and that is where the notification permission belongs. There is
@@ -139,8 +151,9 @@ level.
 - **Data written:** medications and doses into the household's shared collection through P0's
   boundary. No medication or dose data is stored per device.
 - **Risk carried forward:** the double-dosing guard is only as good as the data it compares against
-  (see `design.md`, R1, and `questions.md` Q2/Q3), and a finished course is read-only, so a wrongly
-  set end date is not correctable in the UI (R2, Q1/Q5).
+  (see `design.md`, R1, and `questions.md` Q1/Q2), and whether a dose actually given after a course's
+  end date may be recorded is still open (R2, Q4). The risk that a wrongly set end date was frozen in
+  the UI is **resolved** by MED-13's correction path, not carried (R2, design D5.11).
 - **Not in this change:** medication reminders and their per-device configuration (MED-9 … MED-11,
   P4), the missed-dose follow-up (P4), offline dose logging (dropped by D1), export (P4), language
   selection (P4), read-path performance (P6), and any change to P0's, P1's or P2's requirements.

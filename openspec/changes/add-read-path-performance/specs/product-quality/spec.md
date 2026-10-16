@@ -5,22 +5,29 @@ Stories: US-QUAL-07. Direction adopted from IMP-3.
 This is an ADDED-only delta; the existing `product-quality` requirements are neither modified nor
 restated. Specs stay technology-agnostic: "the shared service", "the product" and its data only.
 
+Boundedness is asserted as a **request count** — deterministic and environment-independent, so the
+automated gate asserts it (tasks 5.1 and 5.8). The wall-clock figure is measured once on the
+reference device and recorded as evidence, never as a CI assertion (design D6.7).
+
 ## ADDED Requirements
 
 ### Requirement: Bounded cold load and load-once reuse
 
 **NFR-7.** A cold dashboard load SHALL be bounded: the data the dashboard presents SHALL be
-obtained with a fixed number of remote requests that does NOT grow with the amount of data in the
-household, and those requests SHALL NOT be arranged as a chain in which each one waits for the
-previous one to finish. Opening a rabbit SHALL NOT re-download data the dashboard has already
-loaded. A remote change SHALL invalidate only the data it affects, and SHALL NOT force a full cold
-reload on the next visit.
+obtained with a fixed set of remote requests — the household's collection and one check of the
+shared service's status — whose number does NOT grow with the amount of data in the household or
+with the number of rabbits it holds, and those requests SHALL NOT be arranged as a chain in which
+each one waits for the previous one to finish. Already-loaded data SHALL be presented from the
+already-loaded copy without a remote request while it is inside a freshness window of 30 seconds,
+and that window SHALL be a single value applying to all loaded data alike. Opening a rabbit SHALL
+NOT re-download data the dashboard has already loaded. A remote change SHALL invalidate only the
+data it affects, and SHALL NOT force a full cold reload on the next visit.
 
 #### Scenario: Cold dashboard load stays within a fixed request bound
 
 - **WHEN** a person opens the dashboard for a household whose data has not been loaded and the shared service is reachable
-- **THEN** the data the dashboard presents is obtained with a fixed number of remote requests
-- **AND** that number is the same for a household holding one rabbit and a household holding many
+- **THEN** the data the dashboard presents is obtained with exactly two remote requests: the household's collection and one check of the service status
+- **AND** the number of remote requests is the same for a household holding one rabbit and a household holding many
 
 #### Scenario: A cold load is not a serialised chain
 
@@ -30,13 +37,19 @@ reload on the next visit.
 
 #### Scenario: Already-loaded data is reused inside the freshness window
 
-- **WHEN** the dashboard is opened again inside the freshness window
+- **WHEN** the dashboard is opened again less than 30 seconds after the data was loaded
 - **THEN** the already-loaded data is presented
 - **AND** no remote request is made for data that is already loaded
 
+#### Scenario: One freshness window applies to all loaded data
+
+- **WHEN** several parts of the household's data were loaded together and any one of them is opened again inside the 30 seconds
+- **THEN** that part is served from the already-loaded copy without a remote request
+- **AND** the same 30 seconds applies to every part, so no part ages differently from another
+
 #### Scenario: Data is refreshed once the freshness window has elapsed
 
-- **WHEN** the freshness window has elapsed and the shared service is reachable
+- **WHEN** 30 seconds have elapsed since the data was loaded and the shared service is reachable
 - **THEN** the loaded data is refreshed
 - **AND** the refresh stays within the same fixed request bound as a cold load
 
@@ -48,8 +61,9 @@ reload on the next visit.
 
 #### Scenario: Opening a rabbit re-downloads nothing the dashboard already loaded
 
-- **WHEN** the dashboard has loaded a rabbit's data and the person opens that rabbit
+- **WHEN** the dashboard has loaded a rabbit's data and the person opens that rabbit inside the 30 seconds
 - **THEN** no remote request is made for data that is already loaded
+- **AND** the household's collection is not requested again
 - **AND** the rabbit's screen is presented from the already-loaded data
 
 #### Scenario: Opening a rabbit loads only the data that was not already loaded

@@ -4,11 +4,13 @@ Traces requirements **MED-9, MED-10, MED-11** — **ADDED only**.
 Stories: US-MED-17, US-MED-18, US-MED-19, US-MED-20, US-MED-21.
 
 **Capability ownership.** This capability is created by `add-medication-tracking` (P5), which owns
-**MED-1 … MED-8 and MED-12**: the medication entity, the four schedule types (`timesPerDay`,
+**MED-1 … MED-8, MED-12 and MED-13**: the medication entity, the four schedule types (`timesPerDay`,
 `everyXDays`, `weekly`, `prn`), the human-readable schedule summary, and dose recording, editing,
-deleting and the near-simultaneous-dose guard. P5 specifies no reminder behaviour. This delta adds
-exactly MED-9, MED-10 and MED-11 on top of that model; **no P5 requirement is restated, modified
-or removed here**, and no `## MODIFIED Requirements` section appears in this file.
+deleting and the near-simultaneous-dose guard, plus MED-13's correction path (referenced by id, not
+restated), through which a course's status can change back from finished to active. P5 specifies no
+reminder behaviour. This delta adds exactly MED-9, MED-10 and MED-11 on top of that model; **no P5
+requirement is restated, modified or removed here**, and no `## MODIFIED Requirements` section
+appears in this file.
 
 Related, referenced and not restated:
 - the reminder mechanism these three requirements are configurations of is
@@ -18,15 +20,24 @@ Related, referenced and not restated:
 - which medications are active and which are finished is MED-2, stated by
   `add-medication-tracking` (P5), whose scope note hands the reminder consequences of that status
   here; because this change owns the single reminder mechanism (D3), the reminder consequence
-  §6.7 attaches to finishing a course — that setting an end date of today finishes the course and
-  cancels pending reminders, and that a finished medication generates no reminders — is stated
+  §6.7 attaches to a course's status — that setting an end date of today finishes the course and
+  cancels pending reminders, that a finished medication generates no reminders **for as long as the
+  course remains finished**, and that a finished course returned to active by correcting its end
+  date (MED-13) has its upcoming occurrences scheduled again — is stated
   **here**, in MED-9's requirement
   `Medication reminders are raised per device with record and snooze actions` below, as the
-  cancellation of that medication's pending and scheduled reminder occurrences. P5 deliberately
-  states the medication lifecycle only and does not state this;
+  cancellation of that medication's pending and scheduled reminder occurrences while it stays
+  finished, and their rescheduling once it is active again. P5 deliberately states the medication
+  lifecycle only and does not state this, and MED-13 is referenced by id rather than restated;
 - the pre-filled dose confirmation a reminder's "record the dose as given" action opens is MED-8,
   and the recorded dose's fields are MED-5 (P5);
-- the human-readable schedule summary export presents is MED-4 (P5).
+- the human-readable schedule summary export presents is MED-4 (P5);
+- the background execution window MED-10's follow-up reconciliation runs in is **consumed from
+  `add-household-sharing-hardening` (P3)**: the same background mode/backing-task declaration and
+  entitlement, the same native plugin and registration, and the same Rust handoff its HS-11
+  requirement ("changes reach every member without the product being opened manually") establishes.
+  Nothing here declares a second background mode, entitlement or plugin, and P3 archives before this
+  change consumes it.
 
 ## ADDED Requirements
 
@@ -41,7 +52,10 @@ derived from the medication's schedule for every schedule type that schedules do
 reminders SHALL be per device and SHALL NOT notify other members. When a medication's course is
 **finished** — including when its end date is set to today — every occurrence of its reminder that
 is still pending or scheduled SHALL be cancelled, so that no reminder is raised for that medication
-afterwards, while its recorded doses SHALL remain available.
+for **as long as the course remains finished**, while its recorded doses SHALL remain available.
+Conversely, when a finished course is returned to **active** by correcting its end date (MED-13),
+its reminder occurrences SHALL be scheduled again for its upcoming slots, so that an active
+medication raises reminders again at the slots its schedule defines.
 
 #### Scenario: A reminder is raised for each upcoming slot of an active medication
 
@@ -70,8 +84,16 @@ afterwards, while its recorded doses SHALL remain available.
 
 #### Scenario: A finished course raises no further reminder
 
-- **WHEN** a medication's course is finished and a moment at which it was scheduled arrives afterwards
+- **WHEN** a medication's course is finished and is still finished when a moment at which it was scheduled arrives afterwards
 - **THEN** no reminder is raised for that medication at that moment or later
+- **AND** its recorded doses remain available
+
+#### Scenario: A course returned to active resumes its upcoming reminders
+
+- **WHEN** a finished course's end date is corrected to a future date, or removed, so that the medication is active again (MED-13)
+- **THEN** its reminder occurrences are scheduled again for its upcoming slots
+- **AND** a reminder is raised at each of those upcoming slots
+- **AND** its recorded doses remain available
 
 #### Scenario: The reminder offers recording the dose as given and snoozing
 
@@ -108,7 +130,11 @@ afterwards, while its recorded doses SHALL remain available.
 
 **MED-10.** A medication reminder SHALL have an optional follow-up for a missed dose window, which
 SHALL be **enabled by default**. When the follow-up is enabled and a slot has passed with no dose
-recorded for it, exactly **one** follow-up reminder SHALL be raised for that window. When a dose
+recorded for it, exactly **one** follow-up reminder SHALL be raised for that window — including when
+the product has not been opened since the window passed, subject to the platform granting the product
+background execution on that device. The product SHALL reconcile outstanding follow-ups while it is
+suspended when the platform grants it a background execution window, so that a follow-up whose window
+has since been satisfied by a dose recorded elsewhere is cancelled rather than raised. When a dose
 has been recorded for the window, no follow-up SHALL be raised. When the follow-up is disabled,
 none SHALL be raised.
 
@@ -116,6 +142,28 @@ none SHALL be raised.
 
 - **WHEN** a slot passes with no dose recorded for it and the follow-up is enabled
 - **THEN** exactly one follow-up reminder is raised for that window
+
+#### Scenario: A missed dose window raises its follow-up while the product is not open [ios]
+
+- **WHEN** a slot passes with no dose recorded for it, the follow-up is enabled, the product has not
+  been opened since the slot passed, and the platform grants the product background execution
+- **THEN** exactly one follow-up reminder is raised for that window without the product having been
+  opened
+
+#### Scenario: A dose recorded elsewhere cancels a pending follow-up while the product is not open [ios]
+
+- **WHEN** a slot passes with no dose recorded on this device, a dose for that slot is recorded on
+  another device, and the platform grants this device background execution without the product being
+  opened
+- **THEN** the product reconciles in that background execution window and cancels the follow-up for
+  that window
+- **AND** no follow-up reminder is raised for the satisfied window
+
+#### Scenario: A dose recorded elsewhere cancels a pending follow-up while the product stays running [macos]
+
+- **WHEN** a slot passes with no dose recorded on this device, a dose for that slot is recorded on
+  another device, and the product keeps running on this device
+- **THEN** the follow-up for that window is cancelled rather than raised
 
 #### Scenario: The follow-up is enabled by default
 

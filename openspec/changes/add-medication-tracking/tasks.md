@@ -9,9 +9,12 @@ Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/sc
 No `tauri-security` task appears here: this change alters no capability, CSP, scope, entitlement or
 permission string (design D5.9). Task 1.3 records that finding rather than leaving it implicit.
 
-No task implements medication editing or deletion: the source documents never state that a
-medication's own details are editable or deletable, so it is raised as `questions.md` Q1 instead of
-being invented.
+Medication editing is implemented; medication deletion never is. The source documents never state that a
+medication's own details are editable or that a medication is deletable — this is a deliberate addition
+(**MED-13**, `specs/medication-tracking/spec.md`) reached as a product-owner decision, and that decision
+rejects full CRUD: a medication course is **never** deleted, so no task builds a delete affordance and no
+contract command deletes one. An active course's details are correctable, and a finished course's end
+date stays correctable so a mistyped end date is never frozen (MED-2, MED-12).
 
 ## 1. Contract
 
@@ -21,12 +24,17 @@ being invented.
   Model `Schedule` as one neutral tagged value type with the four variants, `TimeOfDay` as a wall-clock
   time with no date and no offset, and the 1-to-4 slot invariant; keep the type free of any reminder or
   export concern (P4 consumes it for both). Reconcile the active-medication badge field with P1's and
-  P2's dashboard row type instead of adding a second dashboard command. Freeze the names and add typed
-  stubs that return a `not implemented` error.
+  P2's dashboard row type instead of adding a second dashboard command. Expose
+  `update_medication(medication_id, patch)` for the medication's own details — name, reason, start date,
+  end date, serving value and unit, schedule and note — and **no command that deletes a medication at
+  all** (MED-13). Freeze the names and add typed stubs that return a `not implemented` error.
 - [ ] 1.2 [architect] Record in `design.md` (and in `docs/adr/` only if a mechanism-level choice is
   made) the schedule value type and its slot invariants, the derived-never-stored active/finished
   status, the dose-giver attribution path, the near-simultaneous check as a read-then-confirm rule that
-  performs no write, and where the human-readable schedule summary is produced.
+  performs no write, and where the human-readable schedule summary is produced. Record the corrected
+  read-only boundary (MED-13): an active course's details are correctable, a finished course's end date
+  stays correctable while its other attributes and its whole dose history stay read-only, an archived
+  rabbit is correctable in nothing, and no path deletes a medication.
 - [ ] 1.3 [architect] Confirm and record that this phase requires no capability, CSP, scope,
   entitlement or permission-string change, and that the notification permission belongs to
   `add-vet-export-and-reminders` (P4) rather than here.
@@ -62,9 +70,10 @@ being invented.
 - [ ] 2.9 [rust-backend] Implement the near-simultaneous check as a read that performs no write: given
   a medication and a moment, report whether a dose of the same medication exists inside the
   approximately 15-minute window and return it, and record nothing (MED-7).
-- [ ] 2.10 [rust-backend] Enforce read-only at the write boundary: refuse every medication and dose
-  write targeting a finished medication or a rabbit that is archived, reporting the refusal through
-  P0's single failure surface, while leaving the records readable (MED-12).
+- [ ] 2.10 [rust-backend] Enforce read-only at the write boundary: refuse every dose write, and every
+  medication-detail write other than a correction of its end date, targeting a finished medication; and
+  refuse every medication and dose write targeting a rabbit that is archived; reporting each refusal
+  through P0's single failure surface, while leaving the records readable (MED-12, MED-13).
 - [ ] 2.11 [rust-backend] Extend P1's dashboard read with the derived active-medication badge field:
   set when the rabbit has at least one active medication, clear when none is active, never stored
   (DASH-5).
@@ -72,14 +81,21 @@ being invented.
   its derived status and its schedule summary, finished medications included, plus the medication
   detail payload carrying the fields, the status, the structured schedule and the read-only flag
   (DASH-7).
+- [ ] 2.13 [rust-backend] Implement the medication-detail correction path for an active course — name,
+  reason, start date, end date, amount per serving with its unit, schedule and note — applied through the
+  same reachability-gated save and shared through the household collection, with the end date remaining
+  correctable while the medication is finished so a mistyped end date can be repaired and the course
+  returns to active under the derived status; add **no command and no path that deletes a medication**,
+  and assert a correction leaves every recorded dose untouched (MED-13).
 
 ## 3. Frontend logic
 
 - [ ] 3.1 [frontend-logic] Run `bun run gen:bindings` against the frozen contract and add
   `src/features/medications/api.ts` wrappers; no `invoke` call anywhere outside these files.
 - [ ] 3.2 [frontend-logic] Implement the medication data layer: medication-by-rabbit and medication
-  detail queries, the dose list query, the create/record/edit/delete mutations, household-scoped query
-  keys, and invalidation on `medication:changed` and `dose:changed` only.
+  detail queries, the dose list query, the medication create and correction mutations, the dose
+  record/edit/delete mutations, household-scoped query keys, and invalidation on `medication:changed`
+  and `dose:changed` only.
 - [ ] 3.3 [frontend-logic] Implement the schedule form state for all four types: the times-per-day slot
   count limited to 1 to 4 with editable pre-filled times, the every-X-days interval and time, the
   weekly weekday and time, and the as-needed optional maximum per day, with the required-field rules of
@@ -93,13 +109,18 @@ being invented.
 - [ ] 3.6 [frontend-logic] Extend the dashboard row data with the derived active-medication badge field
   from P1's and P2's dashboard query, and add the medications section query with each medication's
   status and schedule summary, so no second list request is needed (DASH-5, DASH-7).
-- [ ] 3.7 [frontend-logic] Implement the read-only state plumbing: a finished medication and an
-  archived rabbit both gate every medication and dose mutation, expose the read-only flag to the
-  presentation layer, and leave reads available (MED-12).
+- [ ] 3.7 [frontend-logic] Implement the read-only state plumbing: an archived rabbit gates every
+  medication and dose mutation, a finished medication gates every dose mutation and every
+  medication-detail change except the correction of its end date, and the read-only state is exposed to
+  the presentation layer with reads left available (MED-12, MED-13).
 - [ ] 3.8 [frontend-logic] Add the P5 i18n keys: medication field labels, the four schedule types and
   their summaries, the four unit labels, the dose list and edit labels, the double-dose warning and its
   continue/cancel actions, with no P5 string hard-coded (MED-4, MED-7). The full German/English
   coverage stays NFR-5 in P4; the scaffold is P0's.
+- [ ] 3.9 [frontend-logic] Implement the medication correction mutation layer: correct an active
+  medication's details, and a finished medication's end date only, both through the reachability-gated
+  save path with the result invalidated on `medication:changed`; propose no delete mutation for a
+  medication anywhere (MED-13).
 
 ## 4. Frontend UI
 
@@ -127,8 +148,13 @@ being invented.
   styling, visually distinct from the warning flag and never warning styled, absent when no medication
   is active, and visible without a hover; screenshots both viewports (DASH-5).
 - [ ] 4.8 [frontend-ui] Build the read-only presentations: a finished medication's detail and dose list
-  offering no add, edit or delete control, and an archived rabbit's medications section offering none,
-  with reads still available; screenshots both viewports (MED-12).
+  offering no add, edit or delete control other than the correction of its end date, and an archived
+  rabbit's medications section offering none at all, with reads still available; screenshots both
+  viewports (MED-12, MED-13).
+- [ ] 4.9 [frontend-ui] Build the medication correction affordance: a directly visible edit control on an
+  active medication's detail reaching all of its details, and on a finished medication only its end date,
+  with **no delete control for a medication anywhere**; screenshots at 390×844 and 1280×800 into
+  `.artifacts/screens/` (MED-13).
 
 ## 5. Tests
 
@@ -171,10 +197,11 @@ being invented.
   household", "The giver is not changed by the edits a dose permits" and "A renamed member does not
   rewrite past doses", through the command path rather than the screen (DM-5).
 - [ ] 5.9 [test-engineer] Rust tests for read-only enforcement — covers "A finished medication's record
-  is visible without edit or delete actions", "A finished medication's dose history is visible without
-  edit or delete actions", "An archived rabbit's medication section offers no write action" and
-  "Restoring the rabbit restores write access, but a finished medication stays read-only", asserting
-  the refusals happen at the write boundary and not only in the UI (MED-12).
+  is visible without edit or delete actions" (asserting its end date is the only correctable attribute),
+  "A finished medication's dose history is visible without edit or delete actions", "An archived rabbit's
+  medication section offers no write action", "An archived rabbit's course is not correctable" and
+  "Restoring the rabbit restores write access, but a finished medication stays read-only", asserting the
+  refusals happen at the write boundary and not only in the UI (MED-12, MED-13).
 - [ ] 5.10 [test-engineer] Rust tests for the dashboard badge derivation — covers "A rabbit with an
   active medication carries the informational badge", "The badge is absent when every medication is
   finished", "A rabbit with no medications carries no badge", "The badge is distinct from the warning
@@ -202,10 +229,16 @@ being invented.
   covers the `[mobile]` scenarios of MED-4, MED-7 and MED-8 plus MED-1, MED-5, MED-6, DASH-5 and
   DASH-7.
 - [ ] 5.16 [test-engineer] E2E at 1280×800: the same medication detail and dose list at the desktop
-  baseline, an as-needed and an every-X-days medication rendered with their summaries, and a finished
-  medication presented read-only; covers the `[desktop]` scenario of MED-4 plus MED-3, MED-4 and
-  MED-12.
-- [ ] 5.17 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
+  baseline, an as-needed and an every-X-days medication rendered with their summaries, a finished
+  medication presented read-only, and a mistyped end date corrected on a finished course so it returns to
+  active; covers the `[desktop]` scenario of MED-4 plus MED-3, MED-4, MED-12 and MED-13.
+- [ ] 5.17 [test-engineer] Rust and component tests for the correction path — covers "An active course's
+  details are corrected and the correction is shared", "A mistyped end date set to today is corrected and
+  the course is active again", "A mistyped end date in the past is corrected", "A course is never
+  deleted", "Correcting a course never rewrites a recorded dose" and "A finished course's end date is
+  correctable while its other details and doses stay read-only", asserting the mistyped-end-date case is
+  recoverable from the product and that no path removes a medication (MED-13).
+- [ ] 5.18 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
   `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` with no diff,
   `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
   `bun run test`, `bun run test:e2e`) and record the results in the change.
@@ -214,11 +247,12 @@ being invented.
 
 - [ ] 6.1 [reviewer] Review the P5 diff for contract and write-model conformance: the frontend touches
   IPC only through generated bindings and `api.ts`, every medication and dose write goes through P0's
-  reachability gate, no local write queue or optimistic write exists (D1), and the `Schedule` type and
+  reachability gate, no local write queue or optimistic write exists (D1), the contract carries no delete
+  command for a medication (MED-13), and the `Schedule` type and
   the contract carry no reminder or export concern (reminder configuration is per-device and P4's;
-  D5.3, D5.9). For the UI tasks (4.1–4.8), confirm touch targets, safe areas and the adaptive layout at
+  D5.3, D5.9). For the UI tasks (4.1–4.9), confirm touch targets, safe areas and the adaptive layout at
   390×844 and 1280×800, per `definition-of-done`.
-- [ ] 6.2 [reviewer] Verify the delta contains exactly MED-1 … MED-8 and MED-12, the two named
+- [ ] 6.2 [reviewer] Verify the delta contains exactly MED-1 … MED-8, MED-12 and MED-13, the two named
   cross-phase dashboard requirements and DM-5 — no MED-9, MED-10 or MED-11, no US-MED-23, no reminder
   or export scope, no P0/P1/P2 requirement restated, no requirement without a scenario, and every UI
   task's `.artifacts/screens/` screenshots present at 390×844 and 1280×800.

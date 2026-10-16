@@ -1,9 +1,20 @@
 # medication-tracking — delta for add-medication-tracking
 
-Traces requirements **MED-1, MED-2, MED-3, MED-4, MED-5, MED-6, MED-7, MED-8, MED-12**.
+Traces requirements **MED-1, MED-2, MED-3, MED-4, MED-5, MED-6, MED-7, MED-8, MED-12, MED-13**.
 Stories: US-MED-01 … US-MED-16, US-MED-22.
 
-`medication-tracking` is **created by this change**. It states nine requirements and no others. Three
+**MED-13 has no counterpart in either source document.** This must be read plainly:
+`docs/BunScale-Reimplementation-Requirements.md` §6.7 states MED-1 … MED-12 and
+`docs/BunScale-Reimplementation-User-Stories.md` (EP-7) states no story for it. The product owner
+therefore decided, as a deliberate addition to §6.7's medication entity, that a medication's own details
+are correctable while its course is active and that a medication is **never deletable**: full CRUD is
+explicitly rejected, because deleting a course would take its recorded dose history out of the clinical
+record, and a mistyped end date — which MED-2 finishes with and MED-12 then freezes — must have a
+correction path. MED-13 adds no entity, changes no MED-1 … MED-12 requirement's identity, and states the
+one amendment it makes to the read-only boundary of MED-12 and to the lifecycle of MED-2 (both marked in
+place below).
+
+`medication-tracking` is **created by this change**. It states ten requirements and no others. Three
 further requirements belong to this capability but are **`add-vet-export-and-reminders` (P4)**'s,
 where D3's one unified reminder mechanism is specified:
 
@@ -73,7 +84,9 @@ be active for one rabbit at the same time.
 **MED-2.** A medication SHALL be **active** while it has no end date or its end date lies in the future,
 and SHALL be **finished** once its end date has passed. A finished medication SHALL remain visible with
 its full dose history and SHALL NOT be removed, hidden or truncated by finishing. Setting a medication's
-end date to today SHALL finish the course immediately.
+end date to today SHALL finish the course immediately. Finishing a course SHALL NOT by itself make the
+medication's end date uncorrectable: while a medication is finished its end date remains correctable, so
+a mistyped end date is never frozen (MED-13).
 
 (The reminder consequences §6.7 attaches to these states belong to
 `add-vet-export-and-reminders` (P4) and are not stated here.)
@@ -260,7 +273,9 @@ dose. (The giver itself is stated as an invariant by
 **MED-6.** The product SHALL present a medication's doses in **chronological order**, each dose showing
 its timestamp, its amount and its **giver**. A recorded dose SHALL be editable in its amount, its note
 and its timestamp, and SHALL be deletable. Every such change SHALL be shared with all members of the
-household. (The giver is not among the editable attributes; see
+household. This holds while the medication is not read-only: a finished medication's dose history is
+frozen (MED-12) and an archived rabbit's medications are read-only everywhere (DM-4, P1). (The giver is
+not among the editable attributes; see
 `A dose records the giver as a member of the household` in `data-integrity`.)
 
 #### Scenario: The dose list is chronological and shows timestamp, amount and giver
@@ -369,18 +384,23 @@ record the dose and update the presented dose list.
 ### Requirement: A finished medication's records are read-only while remaining visible
 
 **MED-12.** While a medication is finished, its record and its dose history SHALL remain **viewable** and
-SHALL NOT be editable or deletable, and no dose SHALL be added to it. For an **archived rabbit**, the
-medication section of the rabbit dashboard SHALL offer no control that creates, edits or deletes a
-medication or a dose. Restoring an archived rabbit SHALL return write access to its medications, while
-its finished medications SHALL remain read-only. (That an archived rabbit is immutable *everywhere* is
-`An archived rabbit is read-only everywhere`, DM-4, owned by `add-rabbit-weight-core-loop` (P1); this
-requirement states only the observable medication behaviour and does not restate it.)
+SHALL NOT be editable or deletable, and no dose SHALL be added to it. **Its end date is the one
+exception: it SHALL remain correctable while the medication is finished, so a mistyped end date is never
+frozen (MED-13); every other attribute and the whole dose history stay read-only.** For an **archived
+rabbit**, the medication section of the rabbit dashboard SHALL offer no control that creates, edits or
+deletes a medication or a dose — including no correction of the end date, because DM-4 freezes an
+archived rabbit everywhere. Restoring an archived rabbit SHALL return write access to its medications,
+while its finished medications SHALL remain read-only except for that same end-date correction. (That an
+archived rabbit is immutable *everywhere* is `An archived rabbit is read-only everywhere`, DM-4, owned by
+`add-rabbit-weight-core-loop` (P1); this requirement states only the observable medication behaviour and
+does not restate it.)
 
 #### Scenario: A finished medication's record is visible without edit or delete actions
 
 - **WHEN** a person opens a finished medication
 - **THEN** its details are presented
-- **AND** no control is available that edits or deletes the medication
+- **AND** no control is available that edits or deletes the medication, other than the correction of its
+  end date (MED-13)
 
 #### Scenario: A finished medication's dose history is visible without edit or delete actions
 
@@ -400,4 +420,81 @@ requirement states only the observable medication behaviour and does not restate
 
 - **WHEN** an archived rabbit is restored and a person opens its medications
 - **THEN** its active medications are writable again
-- **AND** a medication of that rabbit that is finished remains read-only
+- **AND** a medication of that rabbit that is finished remains read-only, except that its end date stays
+  correctable (MED-13)
+
+### Requirement: An active course's details are correctable and a medication is never deleted
+
+**MED-13.** *(Deliberate addition — no counterpart in either source document; see the header note.)* A
+medication **SHALL NOT be deletable**: the product SHALL offer no affordance that removes a medication
+and no path accepts such a request, so a course's recorded dose history always stays part of the
+household's record. While a medication is **active**, its details SHALL be **correctable** — its name,
+its reason, its start date, its end date, its amount per serving together with its unit, its schedule and
+its note — and every correction SHALL be shared with all members of the household through the household's
+shared collection. Because finishing a course is what correcting an end date does (MED-2), the **end date
+SHALL remain correctable while the medication is finished**, so a mistyped end date can always be
+repaired; correcting it to a date in the future, or removing it, SHALL return the medication to active
+under MED-2's derivation. Every other attribute of a finished medication, and its entire dose history,
+SHALL remain read-only (MED-12). A correction SHALL NOT delete, rewrite or retarget any recorded dose, and
+SHALL NOT change a dose's giver (DM-5). For an **archived rabbit**, nothing is correctable at all, the end
+date included (DM-4, MED-12). (No requirement here restates DM-4, MED-6's dose edits or MED-12's
+read-only record: this requirement states the medication-detail edit path and the never-deletable rule,
+and references the boundaries it must not cross.)
+
+#### Scenario: An active course's details are corrected and the correction is shared
+
+- **WHEN** a member corrects an active medication's name, reason, start date, amount per serving, unit,
+  schedule or note and saves
+- **THEN** the medication carries the correction
+- **AND** every recorded dose of that medication is unchanged
+- **AND** another member of the household resolves the corrected medication
+
+#### Scenario: A mistyped end date set to today is corrected and the course is active again
+
+- **WHEN** an active medication's end date is set to today, which immediately finishes the course (MED-2),
+  and the person who set it recognises the date as a mistake
+- **THEN** the medication is finished but its details remain correctable, its end date included
+- **AND** the person can correct the end date
+- **AND** once it is corrected to a date in the future, or removed, the medication is active again
+- **AND** its dose history is unchanged by the correction
+
+#### Scenario: A mistyped end date in the past is corrected
+
+- **WHEN** a person sets a medication's end date to a past date by mistake, finishing the course, and then
+  corrects that end date
+- **THEN** the end date is correctable while the medication is finished
+- **AND** the course's status follows the corrected end date under MED-2's derivation
+- **AND** no recorded dose is deleted, rewritten or retargeted by the correction
+
+#### Scenario: A course is never deleted
+
+- **WHEN** a medication — active or finished — is presented anywhere in the product
+- **THEN** no control is available that removes the medication
+- **AND** no path accepts a request that deletes it
+- **AND** every dose recorded during the course remains reachable
+
+#### Scenario: Correcting a course never rewrites a recorded dose
+
+- **WHEN** any medication detail of an active or finished medication is corrected
+- **THEN** every recorded dose keeps its timestamp, its amount and its giver
+- **AND** the dose list is unchanged except as the correction of the medication itself requires
+
+#### Scenario: A finished course's end date is correctable while its other details and doses stay read-only
+
+- **WHEN** a person opens a finished medication and chooses to correct it
+- **THEN** its end date can be corrected
+- **AND** no control is available that changes its name, reason, start date, serving, unit, schedule or
+  note
+- **AND** no control is available that edits, deletes or records a dose
+
+#### Scenario: An archived rabbit's course is not correctable
+
+- **WHEN** a medication of an archived rabbit is opened, from any entry point in the product
+- **THEN** its end date cannot be corrected
+- **AND** no other attribute of it can be changed
+
+#### Scenario: The end-date correction is reachable without a gesture [mobile]
+
+- **WHEN** a finished medication's detail is presented at a 390×844 viewport
+- **THEN** the correction of its end date is reachable as a directly visible, touchable control
+- **AND** it is not reached through a gesture such as a long press or a nested menu

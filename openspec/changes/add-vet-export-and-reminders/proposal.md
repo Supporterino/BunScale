@@ -42,8 +42,9 @@ reminders **MED-9, MED-10 and MED-11 moved into this change**, which is where th
 mechanism is specified: decision D3 says reminders are **one** unified mechanism, so medication
 reminders are written here, beside the weigh reminders, as *configurations* of that one mechanism.
 Their relocation is therefore deliberate and not a duplication: `add-medication-tracking` (P5)
-owns MED-1 … MED-8 and MED-12 (the medication entity, the four schedule types, the schedule
-summary, dose recording/editing/deleting and the near-simultaneous-dose guard) and specifies no
+owns MED-1 … MED-8, MED-12 and MED-13 (the medication entity, the four schedule types, the schedule
+summary, dose recording/editing/deleting, the near-simultaneous-dose guard and the correction path
+that can return a finished course to active) and specifies no
 reminder behaviour at all; this change ADDS MED-9 … MED-11 to the same `medication-tracking`
 capability on top of P5's model and restates none of it.
 
@@ -56,16 +57,17 @@ the device's own facilities, never by vendor or API name.
 | Capability | Requirements added | Substance |
 |---|---|---|
 | `export` | EXP-1 … EXP-4 | A rabbit's weight, health and medication history exported for a selectable date range as a formatted, vet-readable PDF, including finished courses with their full dose histories; the same history as raw CSV with dedicated medication and dose files; the files handed to the device's standard sharing options; export completing for every schedule type with or without recorded doses |
-| `reminders` | REM-1, REM-2, REM-3, plus the unified-mechanism requirement named here | One scheduling and follow-up mechanism for both reminder kinds (D3); a recurring weigh reminder per rabbit or household-wide with a user-defined schedule; reminders scoped to the person and device that created them and never notifying other members; an optional missed-reminder follow-up the next day when no weight entry was logged |
-| `medication-tracking` | MED-9, MED-10, MED-11 | A reminder at each upcoming slot of an active medication on the device that configured it, offering record-the-dose and snooze; a single follow-up for a missed dose window, enabled by default; no reminder schedule for PRN medications |
+| `reminders` | REM-1, REM-2, REM-3, plus the unified-mechanism requirement named here | One scheduling and follow-up mechanism for both reminder kinds (D3); a recurring weigh reminder per rabbit or household-wide with a user-defined schedule; reminders scoped to the person and device that created them and never notifying other members; an optional missed-reminder follow-up the next day when no weight entry was logged, raised without the product having been opened and reconciled in a background execution window so a follow-up whose target was weighed elsewhere is cancelled |
+| `medication-tracking` | MED-9, MED-10, MED-11 | A reminder at each upcoming slot of an active medication on the device that configured it, offering record-the-dose and snooze; the occurrences cancelled while a course stays finished and scheduled again when a finished course returns to active (MED-13); a single follow-up for a missed dose window, enabled by default, raised without the product having been opened and reconciled in a background execution window; no reminder schedule for PRN medications |
 | `settings-profile` | SET-3 | Product language selectable as System / Deutsch / English, stored per device, taking effect on the next launch with the running session keeping its language |
 | `product-quality` | NFR-4, NFR-5 | Preferred text size respected, screen-reader labels, an accessible weight-chart summary; complete German and English coverage including system-supplied labels, with metric units as the default |
 
 Supporting work: the P4 IPC contract with typed stubs in `src-tauri/src/ipc/`, the device-local
-reminder store, the PDF and raw-CSV generation path, the native notification and
-file-handoff bridges, the language preference, the frontend data layer and the P4 screens
-(reminders, export flow, language control, accessibility surfaces), and tests at unit, component,
-screen-reader and E2E level.
+reminder store, the PDF and raw-CSV generation path, the native notification and file-handoff
+bridges, **the extension of P3's background-execution mechanism** so pending follow-ups are
+reconciled and cancelled while the product is suspended (D4.3/D4.5), the language preference, the
+frontend data layer and the P4 screens (reminders, export flow, language control, accessibility
+surfaces), and tests at unit, component, screen-reader and E2E level.
 
 ### Settled decisions this change implements
 
@@ -89,35 +91,50 @@ screen-reader and E2E level.
   facilities; the concrete bridges are named only in `design.md` and `tasks.md`.
 - **D2 — owner-dependent sharing.** Unaffected; this change adds nothing that would require
   ownership transfer.
+- **A deliberate reversal on background execution.** This change first decided to request **no**
+  background mode and to accept the resulting limitation on follow-up evaluation. That is reversed:
+  the product now asks for background execution so it can reconcile and cancel pending follow-ups
+  while suspended, and `questions.md` Q6 — which recorded the open question behind the earlier
+  decision — is **answered and closed**. It is not a second background subsystem (see Impact and
+  `design.md` D4.3/D4.5): it consumes and extends the mechanism `add-household-sharing-hardening`
+  (P3) establishes for HS-11.
 
 ## Impact
 
 - **New Rust surface:** `src-tauri/src/ipc/` (reminder, export and language commands, events,
   shared types), `src-tauri/src/reminders/` (the one device-local store, occurrence model,
-  follow-up), `src-tauri/src/export/` (selection, document generation, raw-file generation),
-  `src-tauri/src/settings/` (the language preference beside P0's display unit), and the
-  platform-gated bridges for notification delivery and file handoff.
+  follow-up, and the reconciliation that runs on launch, on foreground return and inside P3's
+  background execution window), `src-tauri/src/export/` (selection, document generation,
+  raw-file generation), `src-tauri/src/settings/` (the language preference beside P0's display
+  unit), and the platform-gated bridges for notification delivery, file handoff and the
+  background window extension.
 - **New frontend surface:** `src/routes/` (reminders screen, weigh-reminder form, export flow,
   the reminder-action landing), `src/features/reminders/`, `src/features/export/`, the
   language control in `src/features/settings/`, the accessible chart summary and screen-reader
   labels in the chart and control components, the completed German and English string tables,
   and regenerated `src/bindings.ts` (never hand-edited).
-- **Security surface:** notification authorization and the reminder actions, and writing the
-  exported files to a device-local location, change `src-tauri/capabilities/`, scopes, and
-  possibly entitlements — via `tauri-security` only. No CSP widening is expected, because no
-  remote content is loaded. A background mode is deliberately **not** requested (see
-  `design.md`, D4.3).
+- **Security surface:** notification authorization and the reminder actions, writing the exported
+  files to a device-local location, and the background-execution declaration consumed from P3,
+  change `src-tauri/capabilities/`, scopes, `Info.plist` background modes and possibly
+  entitlements — via `tauri-security` only. No CSP widening is expected, because no remote content
+  is loaded. A background mode **is** requested (see `design.md`, D4.3/D4.5) so that pending
+  follow-ups can be reconciled while the product is suspended — but it is the declaration, plugin
+  and registration P3 already establishes for HS-11, extended with one reconciliation entry point:
+  this change adds no second mode, no second entitlement and no second plugin.
 - **Dependencies added:** one document-generation dependency with a one-line justification in
   `design.md`, plus the native notification and sharing bridges. Any dependency must support
-  both iOS and macOS (project hard rule 6).
+  both iOS and macOS (project hard rule 6). The background mechanism adds **no** dependency: it is
+  P3's, consumed and extended (D4.5), so nothing new needs justifying under rule 6.
 - **Data written:** nothing new into the household's shared collection. Reminders and the
   language preference stay on the device; export reads and produces files locally. This is a
   property the review checks.
-- **Risk carried forward:** reminder delivery depends on the device's authorization state and on
-  the product actually running (follow-up evaluation), so honesty about both is a first-class
-  concern (see `design.md`, D4.3/D4.7 and risks R1/R3).
+- **Risk carried forward:** reminder delivery depends on the device's authorization state, on
+  whether the platform grants background execution at all, and on when it chooses to run it (iOS),
+  so honesty about all of this is a first-class concern (see `design.md`, D4.3/D4.7 and risks
+  R1/R3). Background execution **narrows** the gap between "a follow-up should fire" and "it
+  reliably fires"; it does not close it, because the platform may never run a granted window.
 - **Not in this change:** the medication entity, the four schedule types, the schedule summary
-  and dose recording/editing/deleting (MED-1 … MED-8, MED-12 — P5); the active-medication
+  and dose recording/editing/deleting (MED-1 … MED-8, MED-12, MED-13 — P5); the active-medication
   dashboard badge and medications section (DASH-5, DASH-7 medication clause — P5); the display
   weight unit (SET-4 — P0); the account name and Settings entry point (SET-1, SET-2 — P0);
   honest service status (NFR-6 — P3); bounded cold load (NFR-7 — P6); visible actions and
@@ -136,8 +153,8 @@ screen-reader and E2E level.
 | P0 | `add-shared-household-foundation` | the read path (already-loaded data) that export reads through, the cause-carrying failure surface export failures are reported with, the household collection boundary that keeps reminders and the language preference out of shared data, the per-device preference storage and the i18n scaffold |
 | P1 | `add-rabbit-weight-core-loop` | rabbit identity and the weight history export covers, the weight trend series the accessible chart summary is derived from, the archived state whose export action RAB-8 keeps available |
 | P2 | `add-health-and-photo-history` | the health entry model and the interleaved history the export presents |
-| P3 | `add-household-sharing-hardening` | the member identity a reminder's creating person resolves to, and the shared/device-local split restated there |
-| **P5** | **`add-medication-tracking`** | **the medication and `Schedule` model, the human-readable schedule summary (MED-4) export reuses, the record-a-dose flow and its pre-filled confirmation (MED-5, MED-8) that MED-9's "record as given" action opens, and the active/finished lifecycle (MED-2) that decides which medications raise reminders** |
+| P3 | `add-household-sharing-hardening` | the member identity a reminder's creating person resolves to, the shared/device-local split restated there, and **the background-delivery mechanism of HS-11 — its background-mode/backing-task declaration and entitlement, its native plugin and registration, and its Rust handoff — which this change consumes and extends (one reconciliation entry point) rather than re-declaring, so that reminder follow-ups can be reconciled while the product is suspended (D4.3/D4.5)** |
+| **P5** | **`add-medication-tracking`** | **the medication and `Schedule` model, the human-readable schedule summary (MED-4) export reuses, the record-a-dose flow and its pre-filled confirmation (MED-5, MED-8) that MED-9's "record as given" action opens, and the active/finished lifecycle (MED-2) that decides which medications raise reminders — including a finished course's return to active when its end date is corrected (MED-13), after which its reminder occurrences are scheduled again** |
 
 | Phase | change-id | Depends on P4 for |
 |---|---|---|
@@ -148,7 +165,10 @@ MUST run strictly in order **P0 → P1 → P2 → P3 → P5 → P4 → P6**. Arc
 `openspec/specs/` with deltas applied against text that does not yet exist — in this case, most
 visibly, a `medication-tracking` capability holding MED-9 … MED-11 while the medication entity
 they are reminders *for* is missing. This is recorded as an open coordination item in
-`questions.md`.
+`questions.md`. The order is also what makes the background work in D4.3 possible as specified:
+**P3's** background-mode declaration, native plugin, registration and Rust handoff are archived
+before this change consumes and extends them, so this change extends a mechanism that already exists
+rather than declaring a second one.
 
 **Open items.** P0's `questions.md` Q1 … Q3 are **settled**, not open: they are recorded as P0 design
 decisions **D0.12, D0.13 and D0.14**, and this change consumes them as fixed behaviour — allowance
@@ -156,4 +176,4 @@ exhaustion is reported as its own condition, distinct from a generic write error
 (15 s save attempt, 5 s reachability probe) and the offline threshold (3 consecutive failures) are named
 constants; and every state-changing command carries a client-generated `request_id` the service
 deduplicates on, so a retry is idempotent by construction. Every other change's open items remain
-theirs. This change's own open items are `questions.md` Q1 … Q7.
+theirs. This change's own open items are `questions.md` Q1 … Q6.

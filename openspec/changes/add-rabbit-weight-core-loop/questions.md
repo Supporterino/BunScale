@@ -3,28 +3,13 @@
 Genuine unknowns only. Settled decisions (D1–D6) are **not** reopened here, and values the source
 documents already state — the 5% default drop threshold (WT-7), the 10 kg plausibility bound (WT-4)
 and the ≈15 minute medication dose window (MED-7, not this phase) — are applied as given rather than
-turned into questions.
+turned into questions. The same applies to the settled rule that only an **archived** rabbit can be
+permanently deleted (see `design.md` D1.8 and R7): it was this list's former Q1, it carries no number
+here any more, and it is not an open question.
 
 ---
 
-## Q1 — Can an active rabbit be permanently deleted, or only an archived one?
-
-**Blocks:** task 2.7 (permanent deletion), task 4.5 (the delete control), task 5.2 (lifecycle tests).
-**Requirements affected:** RAB-10 against RAB-6, RAB-7 and RAB-8.
-
-RAB-10 states that a rabbit and all associated data are permanently deletable on confirmation, with no
-condition on the rabbit's state. US-RAB-10, which traces it, gives its acceptance criterion from an
-archived rabbit ("GIVEN an archived rabbit, WHEN I confirm permanent deletion …"), and RAB-8 makes an
-archived rabbit's timeline read-only. The documents never say whether deletion is a two-step flow
-(archive first, then delete) or available directly from an active rabbit's profile.
-
-**Needed:** a product decision on whether permanent deletion is offered for active rabbits, archived
-rabbits only, or both. Until it is answered, task 2.7 implements the archived case (the only case a
-story describes) and the active case is left out rather than invented.
-
----
-
-## Q2 — Which entry is "the previous entry" when two weight entries share a timestamp?
+## Q1 — Which entry is "the previous entry" when two weight entries share a timestamp?
 
 **Blocks:** task 2.13 (drop-alert derivation), task 5.5 (alert tests).
 **Requirements affected:** WT-7, with WT-1 and DM-6.
@@ -42,7 +27,7 @@ devices.
 
 ---
 
-## Q3 — Does the drop alert recompute when a weight entry is edited or deleted, not only when the threshold changes?
+## Q2 — Does the drop alert recompute when a weight entry is edited or deleted, not only when the threshold changes?
 
 **Blocks:** task 2.13 (drop-alert derivation), task 2.11 (entry edit and delete), task 5.5 (alert tests).
 **Requirements affected:** WT-7 against WT-5.
@@ -60,7 +45,7 @@ than left implicit, since it also determines what the dashboard flag means after
 
 ---
 
-## Q4 — What are the value sets for a rabbit's sex and neuter/spay status?
+## Q3 — What are the value sets for a rabbit's sex and neuter/spay status?
 
 **Blocks:** task 1.1 and 1.2 (contract types and their recorded value set), task 4.3 (creation form),
 task 5.1 (profile tests).

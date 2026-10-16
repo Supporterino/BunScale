@@ -6,6 +6,16 @@ source documents do state are not turned into questions: the medication follow-u
 the language set being **System / Deutsch / English** (SET-3), metric units being the **default**
 (NFR-5) and reminders being **one** mechanism (D3).
 
+One question previously recorded here has been **answered** and is no longer open. It asked whether a
+follow-up can be guaranteed when the device does not run the product again. The product owner has
+settled it: a **background mode is requested**, so the product reconciles and cancels pending
+follow-ups while it is suspended, consuming and extending the background mechanism
+`add-household-sharing-hardening` (P3) already establishes for HS-11. The decision — including that
+it deliberately reverses this change's earlier no-background-mode choice, and that the platform may
+never run a granted window, so the gap is narrowed and not closed — is recorded in `design.md`
+(D4.3/D4.5) and carried as risk R3. Nothing replaces it here; what follows is what remains genuinely
+open, renumbered contiguously.
+
 ---
 
 ## Q1 — What does a snooze actually do?
@@ -96,27 +106,7 @@ is none. Tasks 3.7/4.8 must not invent a direction claim beyond that.
 
 ---
 
-## Q6 — How is a follow-up guaranteed when the device does not run the product again?
-
-**Blocks:** tasks 2.4, 2.6, 2.9 and their tests 5.4/5.6.
-**Requirements affected:** REM-3 ("SHALL fire the next day when no weight entry was logged since the
-reminder fired"), MED-10 ("a missed dose window SHALL optionally trigger a single follow-up").
-
-Both follow-ups are conditional on evidence that only exists in the household record, and neither
-platform lets the product run on a schedule the person did not ask for (D4.3, D4.5). The design
-therefore schedules the follow-up ahead and cancels it when the evidence is found on a later launch
-or foreground return. That leaves two holes that the requirements do not resolve: a follow-up may be
-raised for a target that *was* weighed or dosed on another device while this device never ran, and a
-follow-up cannot be raised at all if the device never runs again.
-
-**Needed:** whether this is the accepted limitation (the design's reading, since a background mode is
-out of scope and would widen the security surface for something the requirements never ask for), or
-whether the product must hold a background execution grant to guarantee both directions. This is the
-single most consequential open item in this change; it is recorded rather than silently resolved.
-
----
-
-## Q7 — What must the product do when notification authorization is denied or revoked?
+## Q6 — What must the product do when notification authorization is denied or revoked?
 
 **Blocks:** task 3.2 (authorization state in the data layer), task 4.1 (reminders screen),
 task 5.13 (component assertion).

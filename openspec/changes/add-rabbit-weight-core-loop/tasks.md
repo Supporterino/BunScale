@@ -48,8 +48,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   archived list, no data discarded (RAB-6, RAB-9).
 - [ ] 2.6 [rust-backend] Implement restoring an archived rabbit to the active list with its history
   intact (RAB-7).
-- [ ] 2.7 [rust-backend] Implement permanent deletion of a rabbit with all its weight entries,
-  cascading within the household collection and shared with all members (RAB-10).
+- [ ] 2.7 [rust-backend] Implement permanent deletion of an archived rabbit with all its weight
+  entries, cascading within the household collection and shared with all members; refuse permanent
+  deletion of an active rabbit through P0's failure surface, since RAB-10 makes archival the
+  precondition (RAB-10).
 - [ ] 2.8 [rust-backend] Enforce archived-rabbit immutability on every write path at the storage
   boundary: creating, editing or deleting any weight entry of an archived rabbit is refused, and the
   refusal is reported through P0's failure surface (DM-4, RAB-8).
@@ -111,10 +113,14 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 4.4 [frontend-ui] Build the rabbit profile detail with a directly visible edit control and the
   pre-filled edit form covering every field including the weight-drop threshold (RAB-5).
 - [ ] 4.5 [frontend-ui] Build the archive control, the archived-rabbit list entry point, and the
-  restore and permanent-delete controls; deleting requires a confirmation stating the consequence, and
-  archiving does not (RAB-6, RAB-7, RAB-10, NFR-9).
+  restore and permanent-delete controls; the permanent-delete control lives on the archived list and
+  in the archived rabbit's read-only surface and is absent from an active rabbit's profile, deleting
+  requires a confirmation stating the consequence, and archiving does not (RAB-6, RAB-7, RAB-10,
+  NFR-9).
 - [ ] 4.6 [frontend-ui] Build the read-only presentation of an archived rabbit: its dashboard, its
-  history and its entry details without any add, edit or delete control (RAB-8, DM-4, DASH-7).
+  history and its entry details without any control that adds, edits or deletes its weight data (the
+  lifecycle controls — restore and permanent delete — belong to the archived list, task 4.5)
+  (RAB-8, DM-4, DASH-7).
 - [ ] 4.7 [frontend-ui] Build the per-row quick-weight control that opens the weight form pre-bound to
   that row's rabbit, as a directly visible touchable control within the row (DASH-9, WT-2, NFR-9).
 - [ ] 4.8 [frontend-ui] Build the quick-entry control with a rabbit picker that opens the same weight
@@ -148,8 +154,8 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 5.2 [test-engineer] Rust tests for profile editing and rabbit lifecycle — covers "A saved edit
   including the threshold is shared with every member" (RAB-5), "Archiving removes the rabbit from
   the active list" (RAB-6), "Restoring returns the rabbit to the active list", "Restoration leaves the
-  history unchanged" (RAB-7) and "Confirmed deletion removes the rabbit and its data", "The deletion
-  is shared with every member" (RAB-10).
+  history unchanged" (RAB-7) and "Confirmed deletion removes the rabbit and its data", "An active
+  rabbit cannot be permanently deleted", "The deletion is shared with every member" (RAB-10).
 - [ ] 5.3 [test-engineer] Rust tests for archived immutability and retention — covers "No new entry
   can be added to an archived rabbit", "Archived entries cannot be edited or deleted" (RAB-8),
   "Archived history survives an arbitrary interval", "Archiving discards nothing" (RAB-9) and "No
