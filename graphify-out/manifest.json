@@ -971,12 +971,6 @@
     "ast_hash": "8c495c2a8788b6ada0beb69bfe52b372",
     "semantic_hash": "8c495c2a8788b6ada0beb69bfe52b372"
   },
-  "SETUP.md": {
-    "mtime": 1792086243.7308567,
-    "seen": 1792139607.4100008,
-    "ast_hash": "def6ce3ee617c5ffb5cab7e2a1fafc1a",
-    "semantic_hash": "def6ce3ee617c5ffb5cab7e2a1fafc1a"
-  },
   "docs/BunScale-Reimplementation-Requirements.md": {
     "mtime": 1792085783.3715827,
     "seen": 1792139607.410002,
@@ -1324,5 +1318,23 @@
     "seen": 1792139607.410044,
     "ast_hash": "a88f7d80935e1a432dc9b5affe49eb27",
     "semantic_hash": "a88f7d80935e1a432dc9b5affe49eb27"
+  },
+  "openspec/changes/add-household-sharing-hardening/tasks.md": {
+    "mtime": 1792138325.4670475,
+    "seen": 1792145715.7195961,
+    "ast_hash": "44aff14d4c935a34dbaed54ff68821ed",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-medication-tracking/tasks.md": {
+    "mtime": 1792138088.0401645,
+    "seen": 1792145715.719605,
+    "ast_hash": "97675c1f2e1ccb9c0aa7a005b25a974e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-read-path-performance/tasks.md": {
+    "mtime": 1792136226.3240323,
+    "seen": 1792145715.71962,
+    "ast_hash": "09c54a4c7504cd66179e62ccb2af071a",
+    "semantic_hash": ""
   }
 }

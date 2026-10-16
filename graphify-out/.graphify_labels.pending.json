@@ -1,0 +1,15 @@
+{
+  "0": "TestShadcnInstaller",
+  "12": "validate_data.py",
+  "20": "ShadcnInstaller",
+  "28": "color",
+  "43": ".recommend_plugins",
+  "46": ".add_components",
+  "52": ".add_all_components",
+  "55": "button",
+  "64": ".get_installed_components",
+  "65": ".check_shadcn_config",
+  "69": ".__init__",
+  "73": ".add_colors",
+  "76": "json"
+}
