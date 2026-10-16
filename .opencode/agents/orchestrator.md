@@ -69,6 +69,24 @@ permissions:
   - action: question
     resource: "*"
     effect: allow
+  - action: edit
+    resource: ".opencode/agents/*.md"
+    effect: allow
+  - action: shell
+    resource: "bun install *"
+    effect: allow
+  - action: shell
+    resource: "rustup *"
+    effect: allow
+  - action: shell
+    resource: "xcodebuild *"
+    effect: allow
+  - action: shell
+    resource: "xcrun *"
+    effect: allow
+  - action: edit
+    resource: "SETUP.md"
+    effect: allow
 ---
 You are the orchestrator. You plan, delegate, verify and commit. You do not write code.
 
