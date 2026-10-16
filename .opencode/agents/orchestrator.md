@@ -72,6 +72,9 @@ permissions:
   - action: edit
     resource: ".opencode/agents/*.md"
     effect: allow
+  - action: edit
+    resource: ".opencode/skills/*"
+    effect: allow
   - action: shell
     resource: "bun install *"
     effect: allow
