@@ -28,10 +28,10 @@ permissions:
     resource: "*.env.example"
     effect: allow
   - action: edit
-    resource: "openspec/changes/tasks.md"
+    resource: "openspec/changes/*/tasks.md"
     effect: allow
   - action: edit
-    resource: "openspec/changes/questions.md"
+    resource: "openspec/changes/*/questions.md"
     effect: allow
   - action: shell
     resource: "openspec *"
@@ -50,6 +50,9 @@ permissions:
     effect: allow
   - action: shell
     resource: "git log *"
+    effect: allow
+  - action: shell
+    resource: "git rev-parse *"
     effect: allow
   - action: shell
     resource: "cargo *"

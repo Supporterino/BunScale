@@ -48,8 +48,8 @@ No derived state stored. No prop drilling beyond 2 levels.
 
 ## Lifecycle and connectivity
 
-- App can be suspended at any time on iOS. Persist drafts and in-flight state; refetch on foreground (`visibilitychange` / Tauri window focus event).
-- Tolerate offline and flaky network: optimistic updates with rollback, clear error states.
+- App can be suspended at any time on iOS. Persist unsaved form drafts (never queued writes); refetch on foreground (`visibilitychange` / Tauri window focus event).
+- Tolerate offline and flaky network for reads: serve from previously loaded data, and show an explicit state when nothing was ever loaded. Writes are never optimistic (`D1`) — a save reads as applied only once the shared service confirms it; a failure shows its cause with a retry.
 
 ## Events
 

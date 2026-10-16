@@ -28,7 +28,7 @@ permissions:
     resource: "*.env.example"
     effect: allow
   - action: edit
-    resource: "openspec/changes/design.md"
+    resource: "openspec/changes/*/design.md"
     effect: allow
   - action: edit
     resource: "docs/adr/*"
@@ -47,6 +47,12 @@ permissions:
     effect: allow
   - action: shell
     resource: "graphify query *"
+    effect: allow
+  - action: shell
+    resource: "cargo install tauri-cli *"
+    effect: allow
+  - action: shell
+    resource: "cargo tauri *"
     effect: allow
 ---
 You lock the interface between Rust and frontend so both sides can be built independently.

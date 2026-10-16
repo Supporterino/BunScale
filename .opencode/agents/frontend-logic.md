@@ -39,6 +39,33 @@ permissions:
   - action: edit
     resource: "src/components/ui/*"
     effect: deny
+  - action: edit
+    resource: "package.json"
+    effect: allow
+  - action: edit
+    resource: "tsconfig*.json"
+    effect: allow
+  - action: edit
+    resource: "vite.config.ts"
+    effect: allow
+  - action: edit
+    resource: "vitest.config.ts"
+    effect: allow
+  - action: edit
+    resource: "playwright.config.ts"
+    effect: allow
+  - action: edit
+    resource: "index.html"
+    effect: allow
+  - action: edit
+    resource: "eslint.config.*"
+    effect: allow
+  - action: edit
+    resource: "biome.json"
+    effect: allow
+  - action: edit
+    resource: ".gitignore"
+    effect: allow
   - action: shell
     resource: "bun run *"
     effect: allow

@@ -39,6 +39,45 @@ permissions:
   - action: shell
     resource: "git diff *"
     effect: allow
+  - action: shell
+    resource: "git status *"
+    effect: allow
+  - action: shell
+    resource: "git log *"
+    effect: allow
+  - action: shell
+    resource: "git rev-parse *"
+    effect: allow
+  - action: shell
+    resource: "git describe *"
+    effect: allow
+  - action: shell
+    resource: "cargo *"
+    effect: allow
+  - action: shell
+    resource: "bun run *"
+    effect: allow
+  - action: shell
+    resource: "tauri *"
+    effect: allow
+  - action: shell
+    resource: "bunx tauri *"
+    effect: allow
+  - action: shell
+    resource: "xcodebuild *"
+    effect: allow
+  - action: shell
+    resource: "xcrun *"
+    effect: allow
+  - action: shell
+    resource: "fastlane *"
+    effect: allow
+  - action: shell
+    resource: "gh run *"
+    effect: allow
+  - action: shell
+    resource: "gh workflow *"
+    effect: allow
 ---
 You own CI and release automation for iOS and macOS.
 
