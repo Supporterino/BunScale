@@ -123,14 +123,16 @@ file's header).
   repointed while you are there. Justify any widening in one line in `design.md`. Both platforms
   (TOOL-1).
 
-- [ ] 0.7 [apple-native] Determine the minimum iOS and macOS deployment targets **empirically from
+- [x] 0.7 [apple-native] Determine the minimum iOS and macOS deployment targets **empirically from
   the installed Xcode and SDKs** and record the floor. Do not hand-pick a version and do not type one
   from memory: inspect the toolchain that is actually installed — for example `xcodebuild -showsdks`,
   and the installed SDK's own deployment-target floor read from its `SDKSettings.plist` after `xcrun
   --sdk <sdk> --show-sdk-path` — and take the lowest target each installed SDK still supports, for
   iOS and for macOS separately. Record both floors, the exact commands and their observed output in
   the change (`design.md` D0.16) so task 0.8 applies them instead of guessing and later phases can
-  read them. `tauri-security` cannot perform this measurement (no `xcodebuild`/`xcrun` permission),
+  read them. `apple-native` measures; `architect` writes the D0.16 record, because `design.md` is the
+  only place the change's decisions live and `apple-native`'s writable paths cover plugins only, so
+  the measured values are handed over rather than the file permission widened. `tauri-security` cannot perform this measurement (no `xcodebuild`/`xcrun` permission),
   which is why this task exists and why it sits before 0.8. No configuration file is changed here —
   this task measures and records; 0.8 applies. Both platforms (TOOL-1, TOOL-2).
 
@@ -139,9 +141,13 @@ file's header).
   init`): a usage string only for a capability that is actually present, only the entitlements the
   scaffold actually uses, and the minimum iOS and macOS deployment targets **measured and recorded by
   task 0.7** (D0.16) — consume that recorded floor, never a chosen version — so the two platforms stay
-  in step. Apply the floor through `tauri.conf.json` (`bundle.iOS.minimumSystemVersion`) and regenerate
-  the iOS target with `cargo tauri ios init` — never by hand-editing anything under
-  `src-tauri/gen/apple/` (D0.11). Note how the generator actually behaves before relying on it:
+  in step. Apply the floor through `tauri.conf.json`, which is its **only** home: set
+  `bundle.iOS.minimumSystemVersion` **and** `bundle.macOS.minimumSystemVersion` — the macOS key is the
+  one that is actually unset today, so without it macOS keeps building against Tauri's inherited 10.13
+  default — from which `tauri-build` derives `IPHONEOS_DEPLOYMENT_TARGET` and
+  `MACOSX_DEPLOYMENT_TARGET`, so no environment variable is set by hand and no Rust file changes for the
+  floor. The iOS half then reaches the generated project by recreation, never by hand-editing anything
+  under `src-tauri/gen/apple/` (D0.11). Note how the generator actually behaves before relying on it:
   `cargo tauri ios init` renders **write-once** templates — it skips files that already exist, so
   re-running it against the task-0.1 project changes nothing — while `tauri ios dev` and
   `tauri ios build` synchronise `PRODUCT_BUNDLE_IDENTIFIER` and `PRODUCT_NAME` into the Xcode project
@@ -165,8 +171,14 @@ file's header).
   `ipc` module: `src-tauri/Cargo.toml` (the generator's caret ranges replaced by the pinned
   versions), `build.rs`, `src/main.rs` and `src/lib.rs` as task 0.1 generated them, wired to the ipc
   module and the builder, `cfg`-clean so later platforms stay possible, and honouring the deployment
-  floor recorded by task 0.7 (D0.16). This task carries task 0.4's evidence and is the first
-  **non-vacuous** compile of `src-tauri/src/ipc/`: 0.4's `cargo check` passed on a tree where nothing
+  floor recorded by task 0.7 (D0.16) — which reaches Rust **only** through task 0.8's `tauri.conf.json`
+  keys, because `tauri-build` emits `MACOSX_DEPLOYMENT_TARGET`/`IPHONEOS_DEPLOYMENT_TARGET` from them,
+  so nothing in `Cargo.toml` carries the floor. Note, though, that every gate command is a **dev**
+  build, for which `tauri-build` does not set it at all, and `cargo check` never links — so the floor
+  first bites in the first **non-dev** build: task 0.26's `bun run tauri build` on macOS, and
+  `tauri ios build` for iOS, where a deployment-target or linker failure must not be misread as an IPC
+  problem. This task carries task 0.4's evidence and is the
+  first **non-vacuous** compile of `src-tauri/src/ipc/`: 0.4's `cargo check` passed on a tree where nothing
   declared the module, so add the three IPC crates at the D0.8 pins — `tauri-specta =2.0.0-rc.25`
   **with its `typescript` feature**, `specta =2.0.0-rc.25`, and `specta-typescript =0.0.12` as a
   direct dependency, since the module names `specta_typescript::Typescript` and `tauri-specta` does
@@ -273,7 +285,10 @@ file's header).
   CSP at all (D0.21), so load a **built** artefact here — `bun run tauri build`, then run the produced
   macOS app — and confirm the shipped policy does not break the UI, recording what was loaded and what
   was observed. iOS cannot evidence this (its dev path is the proxied dev server), which is exactly why
-  the built macOS load matters. Both platforms (TOOL-1).
+  the built macOS load matters. That same built `.app` is also where the macOS deployment floor becomes
+  user-visible: check its `Info.plist` `LSMinimumSystemVersion` against the floor task 0.7 recorded
+  (D0.16), because neither the config key nor the build environment proves the shipped value.
+  Both platforms (TOOL-1).
 
 ### Manual verification
 

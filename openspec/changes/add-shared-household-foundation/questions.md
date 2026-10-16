@@ -7,10 +7,10 @@ in `design.md` (D0.12 … D0.20); they are tabulated below and were never reopen
 owner. The decisions the loop follows are in "Resolutions" below; the evidence each was raised on is
 kept in "History".
 
-**Current open items:** none. Q13 was resolved by the product owner on 2026-10-16 (harden the
-generated capability, no second file) and Q14's decision is implemented, with the obligations it
-carries recorded against task 0.10. Both record deviations from task 0.1's generator pass rather than
-hiding them.
+**Current open items:** Q15 (an environment blocker for task 0.27's iOS simulator boot, recorded rather
+than worked around). Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+capability, no second file) and Q14's decision is implemented, with the obligations it carries
+recorded against task 0.10.
 
 New ambiguity discovered while implementing is appended here as a new question, per project hard
 rule 7.
@@ -132,6 +132,24 @@ scenario is met. Two obligations carry forward:
    other crates.
 2. **Review expectation:** the record of this deviation lives in `design.md` D0.8/D0.11 and here; the
    generator's own artefact list is otherwise unchanged.
+
+### Q15 — CoreSimulator does not respond in this environment (open; blocks task 0.27's iOS evidence)
+
+Task 0.7's measurement found it, and it is not a defect in this change: `xcrun simctl list runtimes` and
+`xcrun simctl list runtimes -j` both hang with no output (killed at 120 s, then again at 300 s), so the
+installed simulator runtimes cannot be inventoried from an agent session. Task 0.27 requires booting the
+scaffold on an **iOS simulator** and recording what was observed, so its iOS half cannot be evidenced
+until CoreSimulator responds.
+
+What is measured and unaffected: the simulator SDK's own floor equals the device floor —
+`SupportedTargets.iphoneos.MinimumDeploymentTarget` is `15.0` in `iPhoneOS27.1.sdk`, and
+`SupportedTargets.iphonesimulator.MinimumDeploymentTarget` is `15.0` in `iPhoneSimulator27.1.sdk` —
+and the generated project already pins `ARCHS: [arm64]` with
+`EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64`, so an arm64 simulator build is the shape to expect.
+
+Nothing is worked around and nothing is claimed: 0.7's floors come from the SDKs' own metadata, not from
+a simulator run. If CoreSimulator stays unresponsive, 0.27's iOS half must be reported as blocked rather
+than recorded from a `tauri ios dev` run.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 
