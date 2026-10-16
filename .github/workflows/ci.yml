@@ -1,0 +1,170 @@
+# BunScale — CI (task 0.9 of add-shared-household-foundation).
+#
+# Requirements: TOOL-1 (a clean checkout builds and the full gate passes) and
+# TOOL-7 (CI runs the same gate as `definition-of-done`, third-party actions are
+# pinned, no platform beyond iOS/macOS is covered, and nothing is signed,
+# notarised or distributed). The gate below is mirrored command for command from
+# .opencode/skills/definition-of-done/SKILL.md, the AGENTS.md command table and
+# SETUP.md §6 — the four must be changed together.
+#
+# Scope, deliberately: the gate, on macOS, and nothing else. No `tauri ios build`,
+# no `tauri build`, no signing, no notarisation, no TestFlight, no upload, and no
+# Android, Windows or Linux job. The two debug builds the `release-signing` skill
+# lists for CI belong to the release workflow and to task 0.26's recorded
+# full-gate run, not here: a device `tauri ios build` needs signing credentials,
+# which this workflow must not hold, and only the macOS deployment floor is
+# dev-inert — the iOS compile check above compiles the app crate at the 15.0
+# floor, so what a non-dev build adds is the *shipped* value. This workflow reads
+# no secret at all — the gate is headless and the E2E IPC layer is mocked — which
+# is why `permissions:` is `contents: read` and no more.
+#
+# Pinning: every third-party action is pinned to a full commit SHA, with the
+# release tag that SHA belongs to in a trailing comment, so a reader sees both.
+#
+# Runner (facts checked 2026-10-16, and not re-derivable from this repository):
+# `macos-latest` is the macOS 26 arm64 image, whose default Xcode is 26.6
+# (17F113). The deployment floors this repository ships — iOS 15.0, macOS 12.0 —
+# were measured locally (task 0.7, design.md D0.16) on Xcode 27.1 with the iOS
+# 27.1 and macOS 27.0 SDKs, so the runner builds against different SDKs than the
+# ones the floors were derived from. That skew cannot break this workflow as
+# written for macOS: every step here is a *dev* build and `tauri-build` emits
+# `MACOSX_DEPLOYMENT_TARGET` only when `!is_dev()`, so no step here proves or
+# breaks the macOS floor. The iOS floor is not inert: `tauri-build` 2.7.3 emits
+# `IPHONEOS_DEPLOYMENT_TARGET` unconditionally for `*ios*` targets
+# (`src/lib.rs:786-791`), so the iOS compile check above compiles the app crate
+# at the 15.0 floor — it neither links nor bundles, but it would catch an
+# above-floor API use; what no step here can prove is the *shipped* value, which
+# only a built artefact gives: task 0.26's `bun run tauri build` for macOS, the
+# generated project plus Xcode for iOS.
+# The runner image's own SDK floors have NOT been verified from here.
+#
+# Cost: GitHub allows at most 5 concurrent macOS jobs and bills macOS minutes at a
+# higher rate on private repositories — hence the concurrency group and timeout.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded run's result says nothing about the newest commit: cancel it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: definition-of-done gate (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The toolchain is passed explicitly: this action otherwise takes the
+      # toolchain *from* its own tag. `aarch64-apple-ios` is what the iOS compile
+      # check needs, and rustfmt/clippy are the two binaries the lint steps run.
+      - name: Install the Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios
+          components: rustfmt, clippy
+
+      # Must follow the toolchain step: this action's key includes the rustc
+      # version. It caches `~/.cargo` and the workspace's target directory, and
+      # `workspaces: src-tauri -> target` is the `$workspace -> $target` form
+      # that a Cargo manifest outside the repository root requires.
+      - name: Cache Cargo and src-tauri/target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Cache bun packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      # package.json pins every dependency exactly, so the lockfile is the thing
+      # to honour: `--frozen-lockfile` fails instead of rewriting it.
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      # Not a gate command. It proves the CLI here is the exactly pinned
+      # @tauri-apps/cli dev dependency (task 0.13, SETUP.md §5) and that task 0.1's
+      # one-off global `cargo install tauri-cli` is not being repeated in CI. No
+      # gate step needs the Tauri CLI: `bun run gen:bindings` drives the cargo
+      # example, `bun run build` is the Vite build, and `bun run test:e2e` drives
+      # WebKit against the dev server with the IPC layer mocked.
+      - name: Tauri CLI is the pinned dev dependency
+        run: bun run tauri --version
+
+      # ---- the definition-of-done gate, in order ---------------------------
+
+      - name: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios
+        run: cargo check --manifest-path src-tauri/Cargo.toml --target aarch64-apple-ios
+
+      - name: bun run gen:bindings
+        run: bun run gen:bindings
+
+      # Drift check 1 of 2 (TOOL-3). Nothing before this step writes
+      # src/bindings.ts — the exporter is a cargo example, not a test and not a
+      # build script (design.md D0.9) — so a non-zero exit here is real staleness,
+      # and the step names the file it failed on.
+      - name: git diff --exit-code src/bindings.ts
+        run: git diff --exit-code src/bindings.ts
+
+      - name: bun run typecheck
+        run: bun run typecheck
+
+      - name: bun run lint
+        run: bun run lint
+
+      - name: bun run test
+        run: bun run test
+
+      # Route-tree regeneration: the frontend build is what runs the router plugin
+      # (design.md D0.9). It runs here rather than through a dev server, which
+      # never exits, and after `bun run test`, so neither drift check competes with
+      # another step that rewrites a generated file.
+      - name: bun run build
+        run: bun run build
+
+      # Drift check 2 of 2 (TOOL-4).
+      - name: git diff --exit-code src/routeTree.gen.ts
+        run: git diff --exit-code src/routeTree.gen.ts
+
+      # `--with-deps` is a no-op on macOS: it only acts on Windows and Linux.
+      - name: Install Playwright WebKit
+        run: bunx playwright install webkit
+
+      # Headless and secret-free: WebKit at both baselines with the IPC layer
+      # mocked through the bootstrap task 0.17 wires behind VITE_E2E_MOCK=1. The
+      # script sets that variable itself, so this is exactly the local gate
+      # command — CI adds no environment the gate does not have.
+      - name: bun run test:e2e
+        run: bun run test:e2e

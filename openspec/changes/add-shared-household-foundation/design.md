@@ -89,7 +89,8 @@ criteria are fixed here, and 1.1 names the candidate that meets them.
 ### D0.8 — Scaffold baseline and exact pins (section 0)
 
 `tasks.md` section 0 creates the workspace, because none exists: no `package.json`, no `src/`, no
-`src-tauri/`, no Vite/TypeScript config, no `.gitignore`, no CI workflow. It is folded into this
+`src-tauri/`, no Vite/TypeScript config, no CI workflow, and no `.gitignore` beyond the single
+`graphify-out/cache` entry the tooling already keeps in one. It is folded into this
 change as section 0 rather than split into its own change: phase labels and archive order stay as
 they are, and this change remains P0 with no predecessor change. The capability that states it is
 `project-toolchain` (TOOL-1 … TOOL-8), an explicitly enabler-only addition — no product behaviour,
@@ -991,6 +992,99 @@ following spellings are consequently load-bearing constraints on whoever edits t
 
 No ADR number is taken: section 0 takes none (D0.8).
 
+### D0.22 — Task 0.9: the CI gate is the gate, and nothing else
+
+**The workflow runs the eight `definition-of-done` commands in their recorded order on
+`macos-latest`, as eight separate steps named after the commands themselves**, plus the two drift
+checks as steps of their own against a single path: `bun run gen:bindings` then
+`git diff --exit-code src/bindings.ts`, and `bun run build` then
+`git diff --exit-code src/routeTree.gen.ts` — the "regenerate, then fail on any diff" shape D0.9
+requires, with the failure naming the file TOOL-3/TOOL-4 point at. Counting `bun run build` as the
+route-tree check's own prerequisite step, those are **eleven** gate steps, and `bun run test:e2e` is
+the twelfth and last, after `bunx playwright install webkit` (`--with-deps` is a no-op on macOS, so
+it is not used).
+
+**The workflow holds no secret and requests nothing beyond `permissions: contents: read`:** the gate
+is headless and the E2E IPC layer is mocked; nothing signs, notarises, uploads or distributes
+(TOOL-7). One job, one runner, so "no platform beyond iOS and macOS" is structural — no
+Android/Windows/Linux job exists.
+
+**Third-party actions are pinned to commit SHAs with the tag in a trailing comment:**
+`actions/checkout` `3d3c42e5aac5ba805825da76410c181273ba90b1` (v7.0.1), `actions/cache`
+`55cc8345863c7cc4c66a329aec7e433d2d1c52a9` (v6.1.0), `Swatinem/rust-cache`
+`6323deb102c322ba6fcbdcafc7e3dddab59af2b6` (v2.9.2 — the commit its annotated tag points at),
+`dtolnay/rust-toolchain` `683b588c487a69d01f6c6ddf40f036ff682cc2c8` (v1), `oven-sh/setup-bun`
+`0c5077e51419868618aeaa5fe8019c62421857d6` (v2.2.0). The toolchain action's spec is passed
+**explicitly** (`toolchain: stable`, `targets: aarch64-apple-ios`, `components: rustfmt, clippy`)
+because that action otherwise takes its toolchain from its own tag; the rust-cache step follows it
+because its key includes the rustc version. Caches cover the three required locations: rust-cache
+owns `~/.cargo` and `src-tauri/target` (`workspaces: src-tauri -> target`, the
+`$workspace -> $target` form a manifest outside the repository root requires), and `actions/cache`
+owns `~/.bun/install/cache` keyed on the lockfile — deliberately on both `bun.lock`, which bun
+1.4.x writes, and the legacy-but-still-readable `bun.lockb` — but that third location is the one
+coverage claim that cannot be verified yet: `hashFiles('bun.lock', 'bun.lockb')` evaluates to `''`
+rather than failing when neither file exists, so until task 0.13 writes the lockfile the key is a
+constant and the `restore-keys` prefix matches it exactly, and 0.13 is the moment it becomes
+verifiable. `bun install --frozen-lockfile` honours the lockfile the exact pins resolve to, and bun
+is the pinned runtime 1.4.3. No global Tauri CLI: the workflow asserts `bun run tauri --version`,
+i.e. task 0.13's exactly pinned `@tauri-apps/cli` dev dependency (SETUP.md §5), while task 0.1's
+`cargo install tauri-cli` stays a one-off local bootstrap. That assertion does not distinguish the
+pinned dev dependency from a globally installed CLI — a script delegating to a global `cargo tauri`
+would print the same version, and no gate step uses the CLI for anything — so the step matches
+`SETUP.md` §5 and 0.13's promised `tauri` script without proving the pin: "the workflow uses the
+pinned dev dependency" rests on `bun install --frozen-lockfile` plus the exact pin, not on this
+step.
+
+**It is the gate and deliberately not the app build:** no `tauri ios build` and no `tauri build`
+here. Consequence recorded rather than hidden — **the gate never exercises the CSP and never builds
+a non-dev artefact, so it never shows a shipped artefact's floor value**; its iOS step is the one
+place it does compile against a floor (below). That is exactly why task 0.26's non-dev
+`bun run tauri build` on macOS, its `LSMinimumSystemVersion` check and the built-artefact load are
+the only evidence for those (D0.16, D0.21).
+
+**Runner skew, recorded because the floor is derived (D0.16):** `macos-latest` is today the macOS 26
+arm64 image whose default Xcode is 26.6 (17F113), while the floor was measured on a local Xcode 27.1
+(iOS SDK 27.1 → 15.0, macOS SDK 27.0 → 12.0). The skew cannot break this workflow's macOS half —
+every step there is a *dev* build and `tauri-build` emits `MACOSX_DEPLOYMENT_TARGET` only when
+`!is_dev()` (`tauri-build-2.7.3/src/lib.rs:779-783`), while `cargo check` neither links nor bundles
+— but it does reach the iOS compile check: the same `tauri-build` 2.7.3 emits
+`IPHONEOS_DEPLOYMENT_TARGET` **unconditionally** for `*ios*` targets (`:786-791`), so
+`cargo check --target aarch64-apple-ios` compiles the app crate **at the 15.0 floor** and an
+above-floor API use would fail this workflow. What no step here can show is the floor as *shipped*:
+the value reaches iOS through the generated project (`tasks.md` 0.10) and the gate compiles the app
+crate against it, but no gate step builds a distribution-bound iOS artefact — locally that is task
+0.27's simulator `dev` run, and in CI the future release change's `tauri ios build` (below). The
+runner image's own SDK floors are **not** verified from this repository, and no step selects a
+specific Xcode, because naming one the image does not carry would replace an unverifiable risk with
+a certain failure. One cost line: GitHub allows at most 5 concurrent macOS jobs and bills macOS
+minutes at a higher rate on private repositories, hence the concurrency group, the job timeout, and
+no macOS job this phase does not need.
+
+**The workflow is red until the frontend exists, and that is expected.** It cannot pass until task
+0.12 makes `cargo fmt --check` clean, 0.13 adds `package.json` and its scripts, 0.14–0.15 add the
+build and the route tree, 0.16 commits `src/bindings.ts`, 0.17–0.18 wire the tests and Biome, and
+0.19 **extends** the root `.gitignore` — it already exists, holding only the `graphify-out/cache`
+entry, so 0.19 adds `node_modules/`, `src-tauri/target/` and `.artifacts/` to it rather than
+creating it. So this file is the evidence for TOOL-7, and task 0.26's recorded full-gate run is the
+evidence for TOOL-1.
+
+**The skill/plan tension is resolved explicitly: this change's task text governs.** `release-ci`'s
+own procedure and the `release-signing` skill describe phase-1 CI as the gate **plus** a
+`tauri ios build` debug simulator build and a `tauri build` macOS debug build, while task 0.9 says
+"exactly the `definition-of-done` gate" and TOOL-7 forbids CI to sign or distribute. The gate only,
+because a device `tauri ios build` needs signing credentials the workflow must not hold, and
+`tauri build` is a non-dev build that would import the unverified runner-SDK floor risk recorded
+above into CI. Those two builds are owed by a **future release change** — the one that adds
+signing/TestFlight and the macOS distribution ADR — not by this change: no task here creates a
+release workflow, and none exists in the repository, so the `release-signing` skill's CI bullet is
+left with a named owner instead of being silently unowned. For the built-artefact evidence of this
+phase: task 0.26's macOS build plus task 0.27's boot — noting that task 0.27's iOS `dev` run is what
+actually builds the generated Xcode project for the simulator, so TOOL-2's "the iOS target boots" is
+not left to `cargo check` alone. The `release-signing` skill is not edited here: it is not this
+agent's file.
+
+No ADR number is taken: section 0 takes none (D0.8).
+
 ## State and boundaries
 
 ```
@@ -1027,7 +1121,7 @@ the paths later phases inherit:
 
 | Path | Purpose |
 |---|---|
-| `package.json`, `index.html`, `tsconfig.json`, `vite.config.ts`, `.gitignore` | Frontend workspace; the dev server sets `server.host = process.env.TAURI_DEV_HOST` for iOS dev |
+| `package.json`, `index.html`, `tsconfig.json`, `vite.config.ts` | Frontend workspace; the dev server sets `server.host = process.env.TAURI_DEV_HOST` for iOS dev. `.gitignore` is not created here: the root `.gitignore` already exists and task 0.19 extends it |
 | `src-tauri/Cargo.toml`, `build.rs`, `src/main.rs`, `src/lib.rs` | Rust skeleton; `cfg`-clean for later platforms |
 | `src-tauri/tauri.conf.json`, `src-tauri/capabilities/` | App identity, the deployment floors (task 0.8, D0.16) and least-privilege baseline (`tauri-security`); no `src-tauri/Info.plist` and no entitlements file exist, because nothing in the scaffold calls a privacy-gated API (D0.21) |
 | `src-tauri/src/ipc/` | The specta builder and export function, empty command/event set until 1.3 |

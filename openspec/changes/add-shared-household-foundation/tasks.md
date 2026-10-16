@@ -20,7 +20,9 @@ Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/sc
 ## 0. Workspace scaffold
 
 The repository has no workspace yet: no `package.json`, no `src/`, no `src-tauri/`, no
-`vite.config.ts`, no `tsconfig.json`, no `.gitignore` and no CI workflow. Every gate command and
+`vite.config.ts`, no `tsconfig.json` and no CI workflow (the root `.gitignore` exists, but holds only
+the `graphify-out/cache` entry the graph tooling keeps there, so task 0.19 extends it rather than
+creating it). Every gate command and
 every task from section 1 onwards assumes one, so section 0 creates it, and it is the scaffolding
 prerequisite for the rest of P0 (`proposal.md` → Dependencies).
 
@@ -161,7 +163,7 @@ file's header).
   `Tauri App` absent from the whole directory. Record which values are baked at init and which are
   synchronised at build time. Both platforms (TOOL-2).
 
-- [ ] 0.9 [release-ci] Add `.github/workflows/ci.yml` on `macos-latest` running exactly the
+- [x] 0.9 [release-ci] Add `.github/workflows/ci.yml` on `macos-latest` running exactly the
   `definition-of-done` gate — Rust fmt, clippy, tests, the iOS target compile check,
   `bun run gen:bindings` with a no-diff check on `src/bindings.ts`, the route-tree no-diff check,
   typecheck, lint, unit/component tests and `test:e2e` — with third-party actions pinned and caches
@@ -177,10 +179,12 @@ file's header).
   floor recorded by task 0.7 (D0.16) — which reaches Rust **only** through task 0.8's `tauri.conf.json`
   keys, because `tauri-build` emits `MACOSX_DEPLOYMENT_TARGET`/`IPHONEOS_DEPLOYMENT_TARGET` from them,
   so nothing in `Cargo.toml` carries the floor. Note, though, that every gate command is a **dev**
-  build, for which `tauri-build` does not set it at all, and `cargo check` never links — so the floor
-  first bites in the first **non-dev** build: task 0.26's `bun run tauri build` on macOS, and
-  `tauri ios build` for iOS, where a deployment-target or linker failure must not be misread as an IPC
-  problem. This task carries task 0.4's evidence and is the
+  build, for which `tauri-build` does not set the macOS variable at all, and `cargo check` never links —
+  so the **macOS** floor first bites in the first **non-dev** build, task 0.26's `bun run tauri build`,
+  where a deployment-target or linker failure must not be misread as an IPC problem. The **iOS** floor
+  needs no such caution: it is baked into the committed generated project
+  (`IPHONEOS_DEPLOYMENT_TARGET = 15.0`) and its environment variable is emitted for `*ios*` targets
+  regardless of dev or prod. This task carries task 0.4's evidence and is the
   first **non-vacuous** compile of `src-tauri/src/ipc/`: 0.4's `cargo check` passed on a tree where nothing
   declared the module, so add the three IPC crates at the D0.8 pins — `tauri-specta =2.0.0-rc.25`
   **with its `typescript` feature**, `specta =2.0.0-rc.25`, and `specta-typescript =0.0.12` as a
@@ -222,9 +226,10 @@ file's header).
   replaced or deleted here — these values are ours from the start. Both platforms (TOOL-1, TOOL-2).
 
 - [ ] 0.15 [frontend-logic] Add `src/main.tsx` with the TanStack Query client provider and a minimal
-  route tree under `src/routes/` that the router plugin renders into `src/routeTree.gen.ts`; confirm
-  a build regenerates that file with no diff. Never edit the generated file by hand. Both platforms
-  (TOOL-4).
+  route tree under `src/routes/` that the router plugin renders into `src/routeTree.gen.ts`; **commit
+  the generated `src/routeTree.gen.ts`** — otherwise `git diff --exit-code` against it passes
+  vacuously while the file is untracked — then confirm a rebuild leaves it unchanged. Never edit the
+  generated file by hand. Both platforms (TOOL-4).
 
 - [ ] 0.16 [frontend-logic] Wire `gen:bindings` to the headless export entry point, run it, and
   commit the empty-command-set `src/bindings.ts`; a second run and
@@ -232,7 +237,9 @@ file's header).
 
 - [ ] 0.17 [frontend-logic] Configure the test harness: vitest + Testing Library, and a Playwright
   **WebKit** project with the two required viewports 390×844 and 1280×800; wire `test` and
-  `test:e2e`, and bootstrap the IPC mock only when `VITE_E2E_MOCK=1`. Both platforms (TOOL-5).
+  `test:e2e`, and bootstrap the IPC mock only when `VITE_E2E_MOCK=1` — the `test:e2e` script sets
+  that variable itself, so the local and the CI invocation are byte-identical and CI adds no
+  environment the gate does not have. Both platforms (TOOL-5).
 
 - [ ] 0.18 [frontend-logic] Add the lint/format tooling so `bun run lint` exists and passes, using
   **Biome** for both linting and formatting (D0.17). A second linter and a separate formatter
