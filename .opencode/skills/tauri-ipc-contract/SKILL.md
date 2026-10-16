@@ -8,8 +8,8 @@ description: Rules for Tauri v2 commands, events and typed bindings between Rust
 
 - Use `tauri-specta` v2 (still `2.0.0-rc.x`; pin tauri-specta and specta to exact versions together, bump deliberately). Never hand-write or edit `src/bindings.ts`.
 - Register with `Builder::<tauri::Wry>::new().commands(collect_commands![...]).events(collect_events![...])`, mount events in `setup`, annotate commands with `#[tauri::command]` + `#[specta::specta]`.
-- `bun run gen:bindings` must export headlessly (no running app). Implement once as a Rust test or small bin that calls `builder.export(Typescript::default(), "../src/bindings.ts")`; the architect creates it in the first IPC change. CI fails on a diff after regeneration.
-- Alternative to evaluate via ADR: `tauri-typed-ipc` (trait-based, built-in drift check, young 0.1.x).
+- `bun run gen:bindings` must export headlessly (no running app). Implement it **once**, as a target the Tauri CLI never builds as a bundle entry — a cargo example (`src-tauri/examples/export_bindings.rs`, run as `cargo run --manifest-path src-tauri/Cargo.toml --example export_bindings`) — and call `builder.export(Typescript::default(), <path>)` with the path resolved against `env!("CARGO_MANIFEST_DIR")`, never as a bare `"../src/bindings.ts"`: the script runs from the repository root, where that literal points outside the repository, and the exporter would create that directory rather than fail. A `src/bin/` target is not usable for this: the CLI's bundler treats every `src/bin/` entry as a bundle binary and can no longer identify a main binary. A Rust test is only acceptable if it cannot run during the gate's own `cargo test` step, which would silently rewrite the file the drift check is about to verify. The architect creates it in the first IPC change. CI fails on a diff after regeneration, and regeneration must leave no diff.
+- Alternative to evaluate in an ADR numbered **after** `0002`, in the change that owns it: `tauri-typed-ipc` (trait-based, built-in drift check, young 0.1.x). A change that may take no ADR number records the deferral in its `design.md` instead.
 
 ## Commands
 
