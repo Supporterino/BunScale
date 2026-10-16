@@ -522,9 +522,10 @@ something they replace. The frontend values step 2 passes are the contract betwe
 tasks 0.13/0.14: those two must match the dev URL and dist path exactly, since `tauri init` generates
 no frontend and nothing else reconciles the two sides. `tauri init --ci` takes the defaults for app
 name, window title and bundle identifier, so the bootstrap **invents no product identity and is not
-blocked on one** — the real identity is set once in task 0.5 (D0.15) and consumed by the iOS
-target's usage strings in task 0.8, which also applies the deployment floor measured by task 0.7
-(D0.16).
+blocked on one** — the real identity is set once in task 0.5 (D0.15) and consumed by task 0.8, which
+applied the deployment floor measured by task 0.7 (D0.16) and recreated the generated iOS target so
+the identity is rendered into it (D0.11). It is *not* consumed by any usage string: nothing in the
+scaffold calls a privacy-gated API, so 0.8 adds none (D0.16).
 
 **What the generator does and does not save.** It removes the native and configuration boilerplate
 and is the only sane way to get the iOS target; it does **not** reduce the work of exact pinning
@@ -541,8 +542,8 @@ regenerated with the CLI, never hand-edited; a hand-owned artefact is ours once 
 | `src-tauri/tauri.conf.json` | hand-owned: 0.5 sets the identity, 0.6 narrows the CSP |
 | `src-tauri/capabilities/*.json` | hand-owned: 0.6 hardens the generated default capability |
 | the iOS target's Xcode project under `src-tauri/gen/apple/` | generator-owned: recreate it with `cargo tauri ios init` (delete the target and initialise it again) rather than hand-editing the project file — the templates are write-once, so re-running init in place changes nothing (next row) |
-| `src-tauri/gen/apple/project.yml`, `src-tauri/gen/apple/Podfile` | **generator-owned:** both are rendered by `cargo tauri ios init` and both carry deployment floors (`project.yml` `deploymentTarget.iOS: 15.0`; `Podfile` `platform :ios, '15.0'` and `:osx, '11.0'`); regenerate with `cargo tauri ios init`, never hand-edit. Its templates are **write-once** (`if !path.exists() { create } else { Ok(None) }`, `src/mobile/ios/project.rs`) and `InitOptions` takes no force/overwrite flag, so re-running `ios init` against an existing `src-tauri/gen/apple/` writes nothing, and the values split into two classes. **Baked at init:** the iOS floor from `tauri.conf.json` → `bundle.iOS.minimumSystemVersion`, and the identity — `project.yml` carries `deploymentTarget.iOS: {{apple.ios-version}}`, `PRODUCT_BUNDLE_IDENTIFIER: {{app.identifier}}` and `PRODUCT_NAME: {{app.stylized-name}}`. Changing either therefore requires the generated project to be **recreated**, not init re-run in place: 0.8 deletes `src-tauri/gen/apple/` and initialises it again for the floor 0.7 measured — the **iOS** floor: `ios init` renders no macOS target, so the macOS floor is applied in `tauri.conf.json` instead (D0.16) — and for 0.5's identity, which the task-0.1 project still holds as `com.tauri.dev`/`Tauri App`. **Synchronised at build time:** `synchronize_project_config` (`src/mobile/ios/mod.rs`, called from `ios/dev.rs` and `ios/build.rs`) writes `PRODUCT_BUNDLE_IDENTIFIER` from `app.identifier` and `PRODUCT_NAME` from `productName` into the generated `app.xcodeproj/project.pbxproj` on `tauri ios dev`/`tauri ios build`, so those two values take effect without regeneration. Nothing under `src-tauri/gen/apple/` is hand-edited in either class |
-| the iOS target's `Info.plist` and entitlements files under `src-tauri/gen/apple/` | hand-owned once generated: 0.8 sets the usage strings and the entitlements the scaffold actually uses; no deployment target lives in these files |
+| `src-tauri/gen/apple/project.yml`, `src-tauri/gen/apple/Podfile` | **generator-owned:** both are rendered by `cargo tauri ios init` and both carry deployment floors (`project.yml` `deploymentTarget.iOS: 15.0`; `Podfile` `platform :ios, '15.0'` and `:osx, '11.0'`); regenerate with `cargo tauri ios init`, never hand-edit. Its templates are **write-once** (`if !path.exists() { create } else { Ok(None) }`, `src/mobile/ios/project.rs`) and `InitOptions` takes no force/overwrite flag, so re-running `ios init` against an existing `src-tauri/gen/apple/` writes nothing, and the values split into two classes. **Baked at init:** the iOS floor from `tauri.conf.json` → `bundle.iOS.minimumSystemVersion`, and the identity — `project.yml` carries `deploymentTarget.iOS: {{apple.ios-version}}`, `PRODUCT_BUNDLE_IDENTIFIER: {{app.identifier}}` and `PRODUCT_NAME: {{app.stylized-name}}`. Changing either therefore requires the generated project to be **recreated**, not init re-run in place: 0.8 deleted `src-tauri/gen/apple/` and initialised it again for the floor 0.7 measured — the **iOS** floor: `ios init` renders no macOS target, so the macOS floor is applied in `tauri.conf.json` instead (D0.16) — and for 0.5's identity, which the task-0.1 project held as `com.tauri.dev`/`Tauri App` until that recreation. **Synchronised at build time:** `synchronize_project_config` (`src/mobile/ios/mod.rs`, called from `ios/dev.rs` and `ios/build.rs`) writes `PRODUCT_BUNDLE_IDENTIFIER` from `app.identifier` and `PRODUCT_NAME` from `productName` into the generated `app.xcodeproj/project.pbxproj` on `tauri ios dev`/`tauri ios build`, so those two values take effect without regeneration. Nothing under `src-tauri/gen/apple/` is hand-edited in either class |
+| the iOS target's `Info.plist` and entitlements files under `src-tauri/gen/apple/` | hand-owned once generated, but 0.8 made no edit: nothing in the scaffold calls a privacy-gated API or references an entitlement, so it invented no usage string and no entitlement (D0.16), and both files keep the content the generator wrote; no deployment target lives in these files |
 | `src-tauri/icons/**` | **hand-owned:** generated once from our own source mark by `frontend-ui` in 0.22 (`bun run tauri icon`, D0.19); Tauri's default iconset from 0.1 is a temporary placeholder replaced there, and the icons are regenerated with that same command thereafter |
 | `@tauri-apps/cli` as a dev dependency | hand-owned: 0.13 pins it exactly so local runs and CI use the pinned CLI instead of the global `cargo install` |
 
@@ -647,6 +648,73 @@ nothing iOS or macOS needs, since a future Android task re-adds it under the gen
 The macOS window geometry was brought from the generator's **800×600** to the design's **1280×800**
 desktop baseline: the generator default no section-0 task owned.
 
+**Second generator pass — task 0.8's recreation, run by the orchestrator.** The iOS target was
+**recreated**, not initialised in place, because the values that had to change are baked at init (the
+generator-owned table above and the write-once templates it records). That makes the deletion of
+`src-tauri/gen/apple/` the **one destructive step in this change** — a precondition of the pass, not
+an incidental cleanup — so it ran under the **product owner's explicit grant of that single deletion**.
+That grant was **single-use and has since been reverted**: the deletion it permitted is done,
+`src-tauri/gen/apple/` is generator output `cargo tauri ios init` re-creates on demand, nothing else in
+the plan deletes generated output, and the product owner approved it as the means to run this one step
+rather than as a standing capability. It has therefore been removed from the orchestrator's allow list
+— no destructive permission remains — and a future regeneration of that directory would need the grant
+again.
+
+`architect`'s authoring session had no shell (the harness refuses `rm -rf` in every session), so
+**the orchestrator ran the pass**; the transcript below is its output and the values after it are
+read-only observations of the regenerated tree. It ran on 2026-10-16 through the `cargo tauri` CLI
+installed in step 1:
+
+```
+$ rm -rf src-tauri/gen/apple
+$ cargo tauri ios init
+/opt/homebrew/bin/xcodegen
+/opt/homebrew/bin/idevicesyslog
+/opt/homebrew/bin/pod
+Apple dependencies are up to date
+        Info "/Users/supporterino/github/BunScale/src-tauri" relative to "/Users/supporterino/github/BunScale/src-tauri/gen/apple" is "../../"
+Generating Xcode project...
+⚙️  Generating plists...
+⚙️  Generating project...
+⚙️  Writing project...
+Created project at /Users/supporterino/github/BunScale/src-tauri/gen/apple/app.xcodeproj
+victory: Project generated successfully!
+```
+
+**The regenerated project carries the settled values.** The placeholders the task-0.1 project held are
+gone from the whole directory — `grep -r "com.tauri.dev\|Tauri App" src-tauri/gen/apple` returns **no
+matches** — and the identity the recreation was run for is present in the generated **files**, not
+left to build-time substitution:
+
+- `src-tauri/gen/apple/project.yml:3` `bundleIdPrefix: com.bunscale.app`; `:4–5` `deploymentTarget:
+  iOS: 15.0`; `:13` `PRODUCT_NAME: BunScale`; `:14` `PRODUCT_BUNDLE_IDENTIFIER: com.bunscale.app`.
+- `src-tauri/gen/apple/app.xcodeproj/project.pbxproj:288`, `:375` `PRODUCT_BUNDLE_IDENTIFIER =
+  com.bunscale.app;`; `:289`, `:376` `PRODUCT_NAME = BunScale;`; `:341`, `:434`
+  `IPHONEOS_DEPLOYMENT_TARGET = 15.0;`. The generic `PRODUCT_NAME = "$(TARGET_NAME)";` entries
+  elsewhere in that file are unrelated target-template lines, not the app target's name.
+- `src-tauri/gen/apple/Podfile` is **unchanged** by the pass: `platform :ios, '15.0'` and `platform
+  :osx, '11.0'` — the permanent cargo-mobile2 residue D0.16 records, re-emitted exactly as the split
+  above predicts.
+- One more change beyond the identity values and the floor: the regenerated `project.pbxproj` also
+  gained a `PBXFileReference` + `PBXGroup` pair for `src-tauri/src/ipc/mod.rs` (`:36`, `:110`,
+  `:138–145`), because `gen/apple/project.yml:6`'s `fileGroups: [../../src]` enumerates
+  `src-tauri/src/` **at init time** and task 0.4's `ipc/` module did not exist when task 0.1 generated
+  the project — which is harmless, since that group is not in `PBXSourcesBuildPhase`, a phase that
+  lists only `main.mm` (`:253–262`), and which is the evidence that the generated project's file
+  listing tracks the source tree at init time, so any later `src/` reorganisation needs another
+  recreation rather than a hand edit.
+
+**Gate status on this exact tree (measured by the orchestrator after the recreation, 2026-10-16).**
+`cargo check --manifest-path src-tauri/Cargo.toml` **passes**; the same with
+`--target aarch64-apple-ios` **passes**; `cargo clippy --manifest-path src-tauri/Cargo.toml
+--all-targets -- -D warnings` **passes**; `cargo test --manifest-path src-tauri/Cargo.toml` **passes**
+(0 tests — no Rust source changed in this task, so task 0.6's clippy run still holds). `cargo fmt
+--check` **remains red** on the generator's own style and is task 0.12's deliverable, per the
+section-0 preamble. The iOS side of the floor is provable from the committed tree itself —
+`IPHONEOS_DEPLOYMENT_TARGET = 15.0` in the generated project (above) plus the
+`IPHONEOS_DEPLOYMENT_TARGET` compiler env var `tauri-build` emits in the build output — whereas the
+macOS floor can only be seen in a **built** artefact and stays task 0.26's check (below).
+
 ### D0.12 — An exhausted allowance must be reportable as its own condition (Q1)
 
 SYNC-2's "storage allowance exceeded" cause is a **hard selection criterion** for the shared-service
@@ -686,8 +754,10 @@ the collection before a retried create is therefore not needed, and R6 is closed
 
 Bundle identifier **`com.bunscale.app`**, display name **`BunScale`**, and **English only**: no
 localized display name is shipped, even though NFR-5 (P4) covers German and English *content*. This
-is the single source of truth in `tauri.conf.json` (task 0.5) and is consumed by the iOS target's
-usage strings (task 0.8). Neither task is blocked: there is no open question left on identity, and
+is the single source of truth in `tauri.conf.json` (task 0.5) and reaches the generated iOS target
+through task 0.8's recreation of it (`PRODUCT_BUNDLE_IDENTIFIER`/`PRODUCT_NAME`, D0.11) — not through
+any usage string, since nothing in the scaffold calls a privacy-gated API (D0.16). Neither task is
+blocked: there is no open question left on identity, and
 `release-signing` can treat the identifier as fixed from section 0 on.
 
 **The pinned CLI warns about the identifier, and the warning is accepted.** Every build path that
@@ -731,13 +801,13 @@ version number here is a defect, not a decision.
 | `bundle.iOS.minimumSystemVersion` | `tauri-utils-2.10.2/src/config.rs:3619–3626` (`IosConfig::minimum_system_version`; field `#[serde(rename = "iOS", alias = "ios")] pub ios` at `:1704`) | `String`, default `"15.0"` (`:698–700`), alias `minimum-system-version` |
 | `bundle.macOS.minimumSystemVersion` | `tauri-utils-2.10.2/src/config.rs:636–649` (`MacConfig::minimum_system_version`; field `#[serde(rename = "macOS", alias = "macos")] pub macos` at `:1701`) | `Option<String>`, default `10.13` (`:694–696`), alias `minimum-system-version`; documented as the bundle's `LSMinimumSystemVersion` plus the `MACOSX_DEPLOYMENT_TARGET` env var, and **ignored in `tauri dev`** |
 
-The macOS key therefore exists, and the Rust side needs nothing manual: the pinned `tauri-build` 2.7.3 emits both env vars from that one config — `cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET` from `bundle.macOS.minimumSystemVersion` (only when not dev) and `cargo:rustc-env=IPHONEOS_DEPLOYMENT_TARGET` from `bundle.iOS.minimumSystemVersion` for `*ios*` targets (`tauri-build-2.7.3/src/lib.rs:779–791`), and the macOS bundler writes `LSMinimumSystemVersion` from the same key (`tauri-bundler-2.10.3/src/bundle/macos/app.rs:260`, the one `tauri-bundler` in the local registry). Setting the config key is sufficient. Today's `tauri.conf.json` sets **neither** key (`bundle` carries only `active`, `targets`, `icon`), so macOS currently takes Tauri's own `10.13` default — **below the measured 12.0 floor** — while iOS inherits a `15.0` default that happens to equal the floor; task 0.8 sets both explicitly so the floor is recorded in the config rather than inherited from a crate default, and it does so by **editing `tauri.conf.json`**, not by regenerating `gen/apple/`.
+The macOS key therefore exists, and the Rust side needs nothing manual: the pinned `tauri-build` 2.7.3 emits both env vars from that one config — `cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET` from `bundle.macOS.minimumSystemVersion` (only when not dev) and `cargo:rustc-env=IPHONEOS_DEPLOYMENT_TARGET` from `bundle.iOS.minimumSystemVersion` for `*ios*` targets (`tauri-build-2.7.3/src/lib.rs:779–791`), and the macOS bundler writes `LSMinimumSystemVersion` from the same key (`tauri-bundler-2.10.3/src/bundle/macos/app.rs:260` — the bundler the installed `tauri-cli` 2.12.3 pins at `=2.10.3`, not a crate this app's `Cargo.lock` contains). Setting the config key is sufficient, and **task 0.8 applied the D0.16 floor in `tauri.conf.json`:** `bundle.iOS.minimumSystemVersion` `"15.0"` and `bundle.macOS.minimumSystemVersion` `"12.0"`, set explicitly so the floor is a recorded decision rather than an inherited crate default (the config it replaced carried only `active`, `targets`, `icon`, i.e. macOS took Tauri's own `10.13` default — **below the measured 12.0 floor** — while iOS inherited a `15.0` default that happened to equal the floor). This *tightens* macOS from `10.13` to the measured `12.0` (no widening, so no narrowing was rejected); its only user-visible surface, the bundled `LSMinimumSystemVersion`, is task 0.26's check (below). No `src-tauri/Info.plist` and no entitlements file were created: nothing in the scaffold calls a privacy-gated API or references an entitlement, so an invented usage string or sandbox set would be an unverifiable claim (D0.21). The macOS App Sandbox set, by contrast, is owed by **the change that first needs a signed or distributed macOS build**, authored by `tauri-security` (AGENTS.md routes entitlements there) and validated in that release flow — not carried as a standing obligation on a sibling role.
 
-**The simulator (task 0.27).** The simulator SDK's floor equals the device floor (both `15.0`), and the generated project pins `ARCHS: [arm64]` (`project.yml:70`, `app.xcodeproj/project.pbxproj:259/346`) with `EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64`, which excludes the Intel slice for the **device** SDK only; an arm64 simulator build is therefore the expected shape, and the equal floor asks for no second simulator target.
+**The simulator (task 0.27).** The simulator SDK's floor equals the device floor (both `15.0`), and the generated project pins `ARCHS: [arm64]` (`project.yml:70` — the durable anchor — and `app.xcodeproj/project.pbxproj:269/356` on the regenerated file, where the pair sat at `:259/346` before the recreation) with `EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64`, which excludes the Intel slice for the **device** SDK only; an arm64 simulator build is therefore the expected shape, and the equal floor asks for no second simulator target.
 
-**Unverified, and an obligation on task 0.8: whether Tauri's own crate or template imposes a minimum *above* the SDK floor.** Task 0.7's report records a recollection and verifies nothing, so no number is asserted here. Task 0.8 confirms it against the pinned Tauri version **before** applying the floor, and a discovered higher minimum is recorded as a deviation from the measured floor rather than quietly replacing it.
+**D0.16 resolution — no Tauri-imposed minimum above the floor:** no crate in the pinned set raises it. `tauri-build` 2.7.3 emits `MACOSX_DEPLOYMENT_TARGET`/`IPHONEOS_DEPLOYMENT_TARGET` verbatim from the config keys (`src/lib.rs:779-791`); every fallback it or its siblings could reach is at or below the floor — `tauri-utils` 2.10.2 defaults `10.13` (macOS) and `15.0` (iOS) (`src/config.rs:694-696`, `698-700`) and the SwiftLinker fallback is `13.0` (`src/build.rs:29`); `tauri-bundler` 2.10.3 passes the config value straight into `LSMinimumSystemVersion` (`src/bundle/macos/app.rs:260`). `tauri` 2.12.4 / `tauri-build` 2.7.3 / `tauri-utils` 2.10.2 are the versions the committed `Cargo.lock` resolves; `tauri-bundler` 2.10.3 is **not** lock-resolved — that lock carries no `tauri-bundler` and no `tauri-cli` entry at all — and comes instead from the installed CLI's own pin, `tauri-cli` 2.12.3 declaring `tauri-bundler = "=2.10.3"` in its `Cargo.toml`. The distinction is load-bearing: the bundler that writes `LSMinimumSystemVersion` is the **CLI's** bundler, not anything in the app's lock. The only hardcoded Apple-side default found is cargo-mobile2's macOS Podfile `11.0`, already recorded and generator-owned.
 
-**The macOS floor's one user-visible surface, and an obligation on task 0.26.** The bundled `Info.plist`'s `LSMinimumSystemVersion` — written by the macOS bundler from `bundle.macOS.minimumSystemVersion` (`tauri-bundler-2.10.3/src/bundle/macos/app.rs:260`) — is the one place the macOS floor becomes **user-visible**; nothing else in the plan verifies it. Task 0.8 sets the config key and the gate exercises the config, but only a **built** artefact shows the value that ships, so task 0.26's built-artefact check MUST load the built `.app` and confirm its bundled `Info.plist` carries the measured floor (`12.0`) — the config key and the `MACOSX_DEPLOYMENT_TARGET` env var do not by themselves prove the bundled value.
+**The macOS floor's one user-visible surface, and an obligation on task 0.26.** The bundled `Info.plist`'s `LSMinimumSystemVersion` — written by the macOS bundler from `bundle.macOS.minimumSystemVersion` (`tauri-bundler-2.10.3/src/bundle/macos/app.rs:260`) — is the one place the macOS floor becomes **user-visible**; nothing else in the plan verifies it. Task 0.8 set the config key and the gate exercises the config, but only a **built** artefact shows the value that ships, so task 0.26's built-artefact check MUST load the built `.app` and confirm its bundled `Info.plist` carries the measured floor (`12.0`) — the config key and the `MACOSX_DEPLOYMENT_TARGET` env var do not by themselves prove the bundled value.
 
 **Provenance.** Every value above comes from the installed SDKs' own `SDKSettings.plist` metadata, read through the toolchain on macOS 27.0.1 / arm64 / Xcode 27.1 (build 27A9275). `xcodebuild -showsdks` enumerates the same active toolchain (and no CommandLineTools SDK), and `xcrun --sdk <sdk> --show-sdk-path` resolves the two in-scope SDK paths in the table. The floor values were first read from each SDK's `SDKSettings.json` twin and then **re-derived from the binary `.plist` files by the orchestrator** through the sanctioned `xcrun plutil` invocation — bare `plutil` is outside `apple-native`'s shell allow list — which is why the numbers below are the `.plist` sources' own output. The exact commands and their observed output:
 
@@ -908,11 +978,16 @@ following spellings are consequently load-bearing constraints on whoever edits t
   today.
 - **1.4:** the shared service's origin is the read model's network surface (R5) and is owed a
   `connect-src` entry there, with its own rule-4 line.
-- **`release-signing`:** the macOS App Sandbox entitlements set and the iOS `Info.plist` usage strings
-  are release-time artefacts, not scaffold ones — no entitlements file exists under `src-tauri/` and
-  none is referenced, and `src-tauri/Info.plist` deliberately does not exist yet, because nothing
-  calls a privacy-gated API and inventing a usage string would ship a permission granted for nothing.
-  Task 0.8 owns the iOS usage strings once a capability is actually present.
+- **the change that first needs a signed or distributed macOS build:** the macOS App Sandbox
+  entitlements set is owed there — authored by `tauri-security`, since AGENTS.md routes entitlements to
+  that agent, and validated in that release flow — not carried as a standing obligation on a sibling
+  role. There is no such task yet: `tasks.md` contains no sandbox task, and `release-ci`'s only task
+  (0.9) explicitly disclaims signing. The iOS half of the same set already has an owner in the form the
+  decision takes: `src-tauri/Info.plist` deliberately does not exist yet, and its usage strings are
+  owed by whichever task first calls a privacy-gated API. Both halves are release-time artefacts, not
+  scaffold ones — no entitlements file exists under `src-tauri/` and none is referenced, and inventing
+  a usage string would ship a permission granted for nothing. Task 0.8 added no iOS usage string, for
+  exactly that reason (D0.16).
 
 No ADR number is taken: section 0 takes none (D0.8).
 
@@ -954,7 +1029,7 @@ the paths later phases inherit:
 |---|---|
 | `package.json`, `index.html`, `tsconfig.json`, `vite.config.ts`, `.gitignore` | Frontend workspace; the dev server sets `server.host = process.env.TAURI_DEV_HOST` for iOS dev |
 | `src-tauri/Cargo.toml`, `build.rs`, `src/main.rs`, `src/lib.rs` | Rust skeleton; `cfg`-clean for later platforms |
-| `src-tauri/tauri.conf.json`, `src-tauri/capabilities/`, `Info.plist`, entitlements | App identity and least-privilege baseline (`tauri-security`) |
+| `src-tauri/tauri.conf.json`, `src-tauri/capabilities/` | App identity, the deployment floors (task 0.8, D0.16) and least-privilege baseline (`tauri-security`); no `src-tauri/Info.plist` and no entitlements file exist, because nothing in the scaffold calls a privacy-gated API (D0.21) |
 | `src-tauri/src/ipc/` | The specta builder and export function, empty command/event set until 1.3 |
 | `src-tauri/examples/export_bindings.rs` | The headless bindings export entry point (D0.9), run by `bun run gen:bindings` as a cargo example — never bundled, and never built by the iOS `cargo check` |
 | `src-tauri/gen/apple/`, `src-tauri/icons/` | The iOS target — generator-owned, produced by the CLI bootstrap (D0.11) — and the icon set, which is **hand-owned**: Tauri's default iconset from task 0.1 is a temporary placeholder that task 0.22 replaces from the design tokens (D0.19) |

@@ -136,7 +136,7 @@ file's header).
   which is why this task exists and why it sits before 0.8. No configuration file is changed here —
   this task measures and records; 0.8 applies. Both platforms (TOOL-1, TOOL-2).
 
-- [ ] 0.8 [tauri-security] Set the iOS `Info.plist` usage strings, the macOS entitlements and the
+- [x] 0.8 [tauri-security] Set the iOS `Info.plist` usage strings, the macOS entitlements and the
   deployment targets on the generated iOS target (the target task 0.1 created with `cargo tauri ios
   init`): a usage string only for a capability that is actually present, only the entitlements the
   scaffold actually uses, and the minimum iOS and macOS deployment targets **measured and recorded by
@@ -155,7 +155,10 @@ file's header).
   generated project instead of re-running init in place (remove `src-tauri/gen/apple/` and
   initialise it again — the CLI's own documented repair, still regenerate-never-hand-edit): this task
   does that for the measured floor and for task 0.5's identity, whose values the task-0.1 project
-  still holds as `com.tauri.dev` and `Tauri App`. Record which values are baked at init and which are
+  held as `com.tauri.dev` and `Tauri App` until this task's recreation: the regenerated project now
+  carries `bundleIdPrefix`/`PRODUCT_BUNDLE_IDENTIFIER` `com.bunscale.app` and `PRODUCT_NAME` `BunScale`
+  (verified in `project.yml` and in `app.xcodeproj/project.pbxproj`), with `com.tauri.dev` and
+  `Tauri App` absent from the whole directory. Record which values are baked at init and which are
   synchronised at build time. Both platforms (TOOL-2).
 
 - [ ] 0.9 [release-ci] Add `.github/workflows/ci.yml` on `macos-latest` running exactly the

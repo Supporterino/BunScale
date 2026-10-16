@@ -1,6 +1,6 @@
 name: app
 options:
-  bundleIdPrefix: com.tauri.dev
+  bundleIdPrefix: com.bunscale.app
   deploymentTarget:
     iOS: 15.0
 fileGroups: [../../src]
@@ -10,8 +10,8 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Tauri App
-      PRODUCT_BUNDLE_IDENTIFIER: com.tauri.dev
+      PRODUCT_NAME: BunScale
+      PRODUCT_BUNDLE_IDENTIFIER: com.bunscale.app
 targetTemplates:
   app:
     type: application
