@@ -132,9 +132,9 @@ file already committed. Every dependency carries its rule-6 one-line justificati
 | `tauri-build` | `=2.7.3` | The v2 build script that emits the `mobile`/`desktop` cfg gates and the Tauri config for both platforms. |
 | `serde` | `=1.0.229` | Derives the (de)serialisation of every IPC payload type and shared type. |
 | `serde_json` | `=1.0.154` | The JSON encoding Tauri IPC and the shared service's payloads use. |
-| `tauri-specta` | `=2.0.0-rc.25` | Generates the typed bindings from the Rust contract, which is what keeps `src/bindings.ts` generated rather than hand-written (TOOL-3, D0.9). |
+| `tauri-specta` | `=2.0.0-rc.25` | Generates the typed bindings from the Rust contract, which is what keeps `src/bindings.ts` generated rather than hand-written (TOOL-3, D0.9), with its `typescript` feature (which gates the `specta-typescript` dependency — see the module shape below). |
 | `specta` | `=2.0.0-rc.25` | The type-introspection crate `tauri-specta` is built on; pinned equal to it by that crate's own exact requirement. |
-| `specta-typescript` | `=0.0.12` | The TypeScript exporter behind `tauri-specta`'s `typescript` feature; required transitively, pinned explicitly so the manifest is exact. |
+| `specta-typescript` | `=0.0.12` | The TypeScript exporter `Builder::export` is called with, named **directly** by `src-tauri/src/ipc/` because `tauri-specta` does not re-export `specta_typescript::Typescript`; pinned explicitly so the manifest stays exact. |
 
 | Package | Pin | Role and one-line justification (rule 6) |
 |---|---|---|
@@ -410,6 +410,65 @@ that owns it, since section 0 itself takes no ADR number (below).
 This record lives in `design.md`, not in an ADR. As D0.8 already states, section 0 takes no ADR
 number: `docs/adr/0002` stays reserved for task 1.2 (the shared-service mechanism, D0.7). Section 0's
 decisions, this one included, are recorded here so that 1.2 can take `0002` without renumbering.
+
+##### The module shape and the empty macro form (task 0.4)
+
+`src-tauri/src/ipc/` ships as **one file**, `mod.rs`, holding exactly two public items and no domain
+type: `builder() -> tauri_specta::Builder<tauri::Wry>` — the single constructor of "One builder,
+mounted and exported" above — and `export_bindings() -> Result<(), specta_typescript::Error>`, which
+builds from it and exports. It is a directory from the start, so task 1.3 adds its commands, events
+and shared types as sibling modules without renaming the parent or touching the pipeline.
+
+**The export path is resolved inside `export_bindings`**, not by the caller:
+`Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/bindings.ts")`. Task 0.11's example `main` is
+therefore one call with no argument, and no caller can pass a bare `../src/bindings.ts` that would
+resolve against the working directory — the defect `tauri-ipc-contract` names, where the script runs
+from the repository root and the exporter would create that directory rather than fail.
+
+**The empty macro invocation compiles in the pinned release candidate**, so TOOL-3's "The empty
+command set produces a stable artefact" needs no placeholder name (which this design forbids).
+That was read from the pinned sources rather than assumed. `specta` 2.0.0-rc.25 declares an explicit
+empty arm for the macro `tauri-specta` expands to:
+
+```rust
+macro_rules! _collect_functions {
+    ($(,)?) => {{
+        fn export(_: &mut $crate::Types) -> Vec<$crate::datatype::Function> { vec![] }
+        export
+    }};
+    // …the non-empty arm…
+}
+```
+
+and `tauri-specta` 2.0.0-rc.25's own documentation example for `Builder::export` is written in
+exactly this shape — `Builder::<tauri::Wry>::new().commands(collect_commands![]).events(collect_events![])`
+— with the empty lists passed to the two macros this module calls. `collect_commands![]` reaches
+`tauri::generate_handler![]`, whose 2.7.3 expansion parses its input with
+`parse_terminated(CommandDef::parse, Token![,])` and therefore accepts zero commands, emitting
+`match cmd { _ => { return false } }`.
+
+**What task 0.10 must declare beyond the mount:** `tauri-specta` with its `typescript` feature (the
+crate's default feature set is empty, and `Builder::export` is only usable with a `LanguageExt`
+implementor), and `specta-typescript` as a **direct** dependency, since `tauri-specta` does not
+re-export `specta_typescript::Typescript`, the implementor the export function names. Both are
+already D0.8's pins; only the direct-ness of `specta-typescript` is new, and that table's
+justification now says so.
+
+**Mounting stays one construction site.** Commands and events both come from that constructor, so
+task 0.10 calls `ipc::builder()` once, hands `Builder::invoke_handler` to
+`tauri::Builder::invoke_handler`, and calls `Builder::mount_events` with the app handle inside the
+app's own `setup` closure. That call must live in **0.10's** `setup` closure rather than in a helper
+of this module that installs a `setup` of its own: `tauri` 2.12.4's `Builder::setup` assigns —
+`self.setup = Box::new(setup)` — so a second one would silently replace the event registration
+instead of composing with it.
+
+**Honest compile status.** Nothing declares `pub mod ipc;` yet (that is task 0.10's mount, and
+`src-tauri/src/lib.rs` is outside task 0.4's writable paths), and the dependency pins above are
+0.10's manifest work, so `cargo check` passes on the scaffold *with this module absent* and proves
+nothing about it. The first compile evidence for these stubs lands with task 0.10. Nor does
+`bun run gen:bindings` exist as a script yet — `package.json` is task 0.13's artefact — so nothing
+here regenerates `src/bindings.ts` either: the first real export is task 0.16, and 0.4's evidence
+is the two `cargo check` runs that task 0.10 must make non-vacuous.
 
 ### D0.10 — Design-system status convention
 

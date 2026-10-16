@@ -98,7 +98,7 @@ file's header).
   bindings diff deliberately (D0.18); `tauri-typed-ipc` is not evaluated first. No ADR number is
   taken by section 0: `docs/adr/0002` stays reserved for task 1.2 (TOOL-3, TOOL-4).
 
-- [ ] 0.4 [architect] Define the scaffold's typed IPC surface in `src-tauri/src/ipc/`: the
+- [x] 0.4 [architect] Define the scaffold's typed IPC surface in `src-tauri/src/ipc/`: the
   `tauri_specta` builder with an **empty** `collect_commands![]` / `collect_events![]` and the
   export function, shaped so task 1.3 adds the P0 commands without changing the pipeline. Stubs
   only, no logic. `cargo check` passes (TOOL-3).
@@ -153,8 +153,17 @@ file's header).
   `ipc` module: `src-tauri/Cargo.toml` (the generator's caret ranges replaced by the pinned
   versions), `build.rs`, `src/main.rs` and `src/lib.rs` as task 0.1 generated them, wired to the ipc
   module and the builder, `cfg`-clean so later platforms stay possible, and honouring the deployment
-  floor recorded by task 0.7 (D0.16). `cargo check` passes for the macOS host and for
-  `aarch64-apple-ios`. The generator's `tauri-plugin-log` and its debug registration were already
+  floor recorded by task 0.7 (D0.16). This task carries task 0.4's evidence and is the first
+  **non-vacuous** compile of `src-tauri/src/ipc/`: 0.4's `cargo check` passed on a tree where nothing
+  declared the module, so add the three IPC crates at the D0.8 pins — `tauri-specta =2.0.0-rc.25`
+  **with its `typescript` feature**, `specta =2.0.0-rc.25`, and `specta-typescript =0.0.12` as a
+  direct dependency, since the module names `specta_typescript::Typescript` and `tauri-specta` does
+  not re-export it — declare `pub mod ipc;` in `src/lib.rs`, and mount `ipc::builder()` with commands
+  through its `invoke_handler` and events through its `mount_events` **inside this task's own `setup`
+  closure** (a helper that installs its own `setup` would clobber it, because `tauri`'s
+  `Builder::setup` assigns rather than composes). Then re-run `cargo check` for the host and for
+  `aarch64-apple-ios`; those two runs are 0.4's real evidence. `cargo check` passes for the macOS host
+  and for `aarch64-apple-ios`. The generator's `tauri-plugin-log` and its debug registration were already
   removed in task 0.1 (Q14, D0.8), together with the `log = "0.4"` dependency their removal orphaned:
   do not reintroduce either, or anything that enables `time/local-offset`. Both platforms (TOOL-1,
   TOOL-8).
