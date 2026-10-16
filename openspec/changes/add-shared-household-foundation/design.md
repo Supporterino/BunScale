@@ -259,7 +259,7 @@ icon generation, after the tokens (0.20/0.21) and the `package.json` task (0.13)
 ### D0.9 — The bindings pipeline ships with an empty command set
 
 The scaffold ships the whole bindings pipeline **and** an empty command/event set, deliberately.
-A headless export entry point (a Rust test or a small bin, chosen in task 0.3/0.4) calls
+A headless export entry point — the form this record settles below — calls
 `builder.export(Typescript::default(), "../src/bindings.ts")` with `collect_commands![]` and
 `collect_events![]` empty and no running app. It ships in section 0 because the scaffold's own gate
 must pass: `bun run gen:bindings` followed by `git diff --exit-code src/bindings.ts` has to produce
@@ -269,6 +269,147 @@ pipeline. Both `src/bindings.ts` and `src/routeTree.gen.ts` are committed, gener
 hand-edited; CI fails on a diff after regeneration (TOOL-3, TOOL-4). This is what the "IPC contract"
 section below means by "nothing may be implemented against these names until 1.3 is done": the
 pipeline exists from section 0, the names do not.
+
+##### The export entry point is a cargo example, not a test
+
+`tauri-ipc-contract` names two forms — "a Rust test or small bin that calls `builder.export(…)`" — and
+what the requirement needs is a **headless caller of `builder.export`**. This record settles a third
+form deliberately: a cargo **example** at `src-tauri/examples/export_bindings.rs` (task 0.11), whose
+`main` does nothing but call the export function of `src-tauri/src/ipc/`. It is run as
+`cargo run --manifest-path src-tauri/Cargo.toml --example export_bindings` — the exact invocation
+this record requires `bun run gen:bindings` to use (the script is task 0.13's artefact; see "The single
+regeneration entry point" below). A cargo example *is* that headless caller: the Tauri CLI's bundler
+never enumerates examples, so the target is
+not built as a bundle binary and cannot end up inside or be signed into the macOS `.app`, and —
+unlike a `required-features`-gated bin — it is still compiled and linted by the gate's
+`cargo clippy --all-targets`, so it stays under the lint gate instead of escaping it. A second
+`src/bin/` target was considered and rejected on the same evidence: `tauri-cli` 2.12.3 enumerates
+every `src/bin/` entry as a binary of the app (`get_binaries`), so the exporter would have been
+compiled in release and copied into and signed inside the macOS `.app` (`tauri-bundler`,
+`bundle/macos/app.rs`), and a second bin would also have left the CLI unable to identify a main
+binary to run. Neither consequence exists for the example, and the gate's
+`cargo check --target aarch64-apple-ios` runs without `--all-targets` and therefore never builds the
+example, so it cannot affect the iOS target.
+
+The reason for a separate entry point at all, rather than a test, is the drift check, not taste. A
+`cargo test` integration test would run inside the gate's own `cargo test` step, which precedes the
+bindings check in `definition-of-done`, and would therefore rewrite `src/bindings.ts` from the current
+source *before* that check looked at it — repairing exactly the drift TOOL-3 requires the build to
+fail on ("A stale bindings file fails the build", "A hand edit is reverted by regeneration"). A
+build-script-driven exporter is worse, not better: a `build.rs` runs on `cargo check`, `cargo build`
+and `cargo test` alike, so the macOS check and the iOS check would each mutate a generated source
+file, and the `aarch64-apple-ios` compile check would write to the working tree while presenting
+itself as read-only. The example is run only when it is asked for, so **no gate step that precedes the
+bindings drift check writes `src/bindings.ts`**; that invariant is what makes the no-diff check mean
+something. It also imposes an explicit rule on the rest of the crate: no `#[test]` under
+`src-tauri/` — a unit test beside the code, an integration test in task 0.12's `src-tauri/tests/`
+harness, or a smoke test like task 0.24's — may call that export function or the `bun run
+gen:bindings` script, because such a test would run at the gate's own `cargo test` step, which
+precedes the bindings drift check, and would rewrite the very file that check is about to verify;
+the export path is reachable only through the explicit `cargo run --example` invocation, and the
+drift checks that exercise the script are `bun run` steps, outside `cargo test`.
+
+The exported path is the repository's `src/bindings.ts` — the `../src/bindings.ts` the skill names,
+one level above the crate root — resolved from the crate root (`CARGO_MANIFEST_DIR`) rather than from
+the process working directory, because the script is invoked from the repository root while the file
+sits above `src-tauri/`. Exporting builds the builder and serialises it; it creates no window and
+starts no app (TOOL-3, "Bindings export without launching the app").
+
+##### One builder, mounted and exported
+
+`src-tauri/src/ipc/` owns a single builder constructor:
+`Builder::<tauri::Wry>::new().commands(collect_commands![…]).events(collect_events![…])`, with events
+mounted in `setup`. Task 0.10 mounts that same constructor in `src/lib.rs`; task 0.11's example calls
+it to export. There is no second, export-only builder, and that is the mechanism by which task 1.3
+**extends** the pipeline — adding entries to the two `collect_*!` lists and the types they reference —
+instead of replacing it, and by which an export can never disagree with what the running app
+registers.
+
+##### The empty command/event set it ships with
+
+Section 0 ships exactly `collect_commands![]` and `collect_events![]`: zero commands, zero events,
+and therefore no shared type of its own. Exporting that produces an empty but valid TypeScript
+module — a bindings file with no command function and no event binding, and nothing in it naming a
+command that does not exist yet. Its exact contents are whatever the pinned `tauri-specta` exporter
+emits; the requirement here is only that the file exists, is committed, and is byte-stable across
+runs (TOOL-3, "The empty command set produces a stable artefact"). If an empty invocation of either
+macro turns out not to compile in the pinned release candidate, task 0.4 records that as a question
+(rule 7) rather than inventing a placeholder command or event: a placeholder would put a name into
+the contract that task 1.3 has not approved, which is exactly what this design forbids.
+
+##### Why it ships empty
+
+Two reasons, both in the task's own terms. First, the scaffold's own gate has to pass with **no
+diff**: `bun run gen:bindings` followed by `git diff --exit-code src/bindings.ts` becomes a
+`definition-of-done` step from task 0.16 on and one of the two checks CI runs from task 0.9 on, and it
+can only pass on the scaffold if the pipeline is exercised against the set the scaffold actually
+ships — the empty one — and the committed file is what a re-run reproduces (hard rule 3: generated
+files are read-only and regeneration leaves no diff). A pipeline that needed a command to exist could
+not be gated at all before task 1.3. Second, task 1.3 extends this pipeline rather than replacing it:
+the exporter, the example, the script and both drift checks are written once, in section 0, and 1.3's own
+diff stays confined to the contract surface in `src-tauri/src/ipc/` plus the regenerated
+`src/bindings.ts`. TOOL-3 states it directly — the scaffold satisfies the requirement with an empty
+command and event set "so the pipeline is proven before any command exists".
+
+##### The single regeneration entry point
+
+`bun run gen:bindings` is the only producer of `src/bindings.ts` (AGENTS.md's command table). End to
+end, that script: runs from the repository root; invokes the export example as
+`cargo run --manifest-path src-tauri/Cargo.toml --example export_bindings`, naming the target
+explicitly so no target has to be guessed; lets the example write exactly one file,
+`src/bindings.ts`, and nothing else; and propagates a non-zero exit, so the gate stops instead of
+comparing a file that was never written. Writing exactly one path is what lets CI attribute a diff to
+that file alone. The script itself does not exist yet: `package.json` is task 0.13's artefact, and
+this record is part of
+its requirement — it MUST expose the script under exactly this name and MUST NOT introduce a second
+bindings target. Task 0.16 wires the script to the example and commits the first (empty-set)
+`src/bindings.ts`; task 1.3 regenerates through the same script, not a new one.
+
+##### The two drift checks CI runs
+
+Both follow one shape — regenerate, then fail on any diff — and they are the two generated-artefact
+checks the gate and CI run (TOOL-3, TOOL-4). `release-ci` designs them into
+`.github/workflows/ci.yml` in task 0.9, on `macos-latest` with third-party actions pinned; nothing
+here assumes that workflow exists yet.
+
+| Check | Regeneration step | Fails when | File it names |
+|---|---|---|---|
+| Bindings | `bun run gen:bindings`, headless, no app process | `git diff --exit-code src/bindings.ts` exits non-zero | `src/bindings.ts` |
+| Route tree | the frontend build, `bun run build`, which is what runs the router plugin | `git diff --exit-code src/routeTree.gen.ts` exits non-zero | `src/routeTree.gen.ts` |
+
+Each check is a step of its own, run against a single path, so a failure names the file the
+requirement says it must name (TOOL-3, "the failure names the bindings file"; TOOL-4, "naming that
+file"). Three preconditions make them meaningful rather than decorative. Both files are **tracked**,
+and neither may be excluded by `.gitignore` (task 0.19). The route-tree check runs after the build in
+the same job, because a dev server never exits — and the build is also the only step that regenerates
+that file. The bindings check is not preceded by any step that writes `src/bindings.ts`, which holds
+by construction because the exporter is an example rather than a test, the reason recorded above, and
+stays true only under the rule recorded there: that no `#[test]` under `src-tauri/` may call the
+export function or the `bun run gen:bindings` script. What the checks prove is reproducibility, not
+correctness: a contract change that regenerates cleanly still goes to the reviewer (D0.18).
+
+##### The `tauri-specta` pin and its bump discipline
+
+The pin is D0.8's and the acceptance is D0.18's; neither is re-derived here. What this record adds is
+that the whole pipeline — the export example, the `bun run gen:bindings` script and the bindings
+drift check — is written against that pinned `{tauri-specta, specta}` pair with its
+`specta-typescript` companion, so a bump is a change to the pipeline's inputs and is handled as one:
+bump `tauri-specta` and
+`specta` **together** in the same change (TOOL-8, "Paired crates move together"), regenerate
+`src/bindings.ts` through the same script, and review the resulting bindings diff deliberately as part
+of that change (D0.18) — a bump that changes the generated file's shape is a reviewed change, never
+silent drift the no-diff check would attribute to the contract. `tauri-typed-ipc` is not evaluated
+first (D0.18) for two operative reasons: the accepted `2.0.0-rc.x` `tauri-specta`/`specta` line
+already generates the bindings the pipeline needs, and standing up a second generation pipeline
+alongside it would churn TOOL-8's exact-pin set for no gain in this phase. That is a deferral, not a
+dismissal — the evaluation the skill expects lands as an ADR numbered **after** `0002`, in the change
+that owns it, since section 0 itself takes no ADR number (below).
+
+##### No ADR number is taken by section 0
+
+This record lives in `design.md`, not in an ADR. As D0.8 already states, section 0 takes no ADR
+number: `docs/adr/0002` stays reserved for task 1.2 (the shared-service mechanism, D0.7). Section 0's
+decisions, this one included, are recorded here so that 1.2 can take `0002` without renumbering.
 
 ### D0.10 — Design-system status convention
 
@@ -306,7 +447,7 @@ no template to delete and deliberately no task that removes one.
 | 1 | `cargo install tauri-cli --version "^2" --locked` | the CLI itself (the install line the v2 docs give) |
 | 2 | `cargo tauri init --ci -D ../dist -P http://localhost:1420 --before-dev-command "bun run dev" --before-build-command "bun run build"` | `src-tauri/` — the crate, `tauri.conf.json`, the capability set, and **Tauri's default iconset as a temporary placeholder** |
 | 3 | `cargo tauri ios init` | the iOS target (`src-tauri/gen/apple/`) |
-| 4 | `cargo tauri capability new` | a capability file for `tauri-security` to harden |
+| 4 | `cargo tauri capability new` | nothing: the capability file 0.6 hardens is the `capabilities/default.json` `tauri init` wrote in step 2, and no second file is created (Q13 resolved) |
 
 `cargo tauri icon` is deliberately **not** part of this pass any more. The source mark is drawn from
 the design-system tokens, which do not exist at bootstrap time, so the icon step moved to a
@@ -375,13 +516,14 @@ installed CLI lists `-D/--frontend-dist`, `-P/--dev-url`, `--before-dev-command`
 succeeded, so the D0.20 fallback is *not used* and nothing from the pass is missing on that account.
 `cargo tauri icon` was not run, as decided (D0.19).
 
-**Step 4 needs a decision, not a workaround.** `capability new` takes its identifier either as a CLI
+**Step 4 needed a decision, not a workaround.** `capability new` takes its identifier either as a CLI
 argument or as an interactive prompt; with no TTY it refuses, and this change defines no identifier, so
 none was invented. Its stated purpose is already met by generator output: step 2 wrote
 `src-tauri/capabilities/default.json` (identifier `default`, `permissions: ["core:default"]`,
-`windows: ["main"]`), the file the hand-owned table above already assigns to 0.6. The open item is
-therefore *whether a second capability file is wanted at all*, which is a least-privilege question for
-`tauri-security` (task 0.6) rather than a naming choice for the bootstrap.
+`windows: ["main"]`), the file the hand-owned table above already assigns to 0.6. That question is
+settled (2026-10-16): 0.6 hardens the generated `src-tauri/capabilities/default.json` to least
+privilege and creates no second capability file — a single window leaves nothing to split, and an extra
+file would only widen the surface 0.6 exists to narrow (Q13).
 
 **Step 6 fails, and the cause is the generator's own plugin choice.** The host check passes; the iOS
 check does not:
@@ -499,8 +641,10 @@ Task 0.18 implements it; `proposal.md`'s rule-6 justification records it.
 
 The `tauri-specta` `2.0.0-rc.x` pin is **accepted**, pinned to an exact version **together with
 `specta`** (TOOL-8's "paired crates move together"). `tauri-typed-ipc` is **not** evaluated first:
-hand-written bindings are not an option (project hard rule 3) and the pipeline's value does not
-depend on the crate leaving rc. The bump discipline this implies is part of the decision: bump both
+the accepted `2.0.0-rc.x` line already generates the bindings this pipeline needs, and a second
+generation pipeline would churn TOOL-8's exact-pin set for no gain this phase. That evaluation is
+deferred, not dropped — it lands as an ADR numbered **after** `0002`, in the change that owns it;
+section 0 takes no ADR number. The bump discipline this implies is part of the decision: bump both
 crates together, regenerate `src/bindings.ts`, and review the bindings diff deliberately — a bump
 that changes the generated file's shape is a reviewed change, never a silent drift that the
 `git diff --exit-code src/bindings.ts` check would attribute to the contract. Task 0.3 records it in
@@ -568,6 +712,7 @@ the paths later phases inherit:
 | `src-tauri/Cargo.toml`, `build.rs`, `src/main.rs`, `src/lib.rs` | Rust skeleton; `cfg`-clean for later platforms |
 | `src-tauri/tauri.conf.json`, `src-tauri/capabilities/`, `Info.plist`, entitlements | App identity and least-privilege baseline (`tauri-security`) |
 | `src-tauri/src/ipc/` | The specta builder and export function, empty command/event set until 1.3 |
+| `src-tauri/examples/export_bindings.rs` | The headless bindings export entry point (D0.9), run by `bun run gen:bindings` as a cargo example — never bundled, and never built by the iOS `cargo check` |
 | `src-tauri/gen/apple/`, `src-tauri/icons/` | The iOS target — generator-owned, produced by the CLI bootstrap (D0.11) — and the icon set, which is **hand-owned**: Tauri's default iconset from task 0.1 is a temporary placeholder that task 0.22 replaces from the design tokens (D0.19) |
 | `src-tauri/tests/`, `src/test/`, `e2e/` | Integration harness, vitest/Testing Library helpers, Playwright WebKit projects |
 | `src/styles/`, `src/components/ui/` | Design tokens and the shared primitives |
@@ -727,7 +872,10 @@ artefact (TOOL-1, TOOL-2) drawn from the design system (TOOL-6).
   0.8; the product's own app mark replaces the generator's placeholder in 0.22.
 - Decisions: D0.12 … D0.20 record the settled answers to the former `questions.md` Q1–Q9, and every
   task that consumes one is unblocked, but `questions.md` **no longer carries "no open question"**:
-  Q13 is open for `tauri-security` in task 0.6 (whether a second capability file is wanted at all)
+  Q13 is resolved for `tauri-security` in task 0.6: the product owner decided on 2026-10-16 that 0.6
+  hardens the generated `src-tauri/capabilities/default.json` to least privilege and does not create a
+  second capability file — a single window leaves nothing to split, and an extra file would only widen
+  the surface 0.6 exists to narrow —
   and Q14 is the iOS-compile failure caused by the generator's logging plugin, whose decision is
   recorded in D0.8/D0.11 here and applied inside task 0.1's own baseline commit by `rust-backend` as
   the implementing specialist, not deferred to task 0.10; the plugin's now-unused `log = "0.4"`

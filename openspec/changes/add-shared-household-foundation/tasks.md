@@ -87,8 +87,10 @@ file's header).
   inside `frontend-logic`'s edit allowlist, so they need no escalation to the orchestrator. State
   that these pins replace the generator's caret ranges from task 0.1 rather than sitting beside them.
 
-- [ ] 0.3 [architect] Record the bindings pipeline design in `design.md` (D0.9): the headless
-  export entry point (Rust test or small bin per `tauri-ipc-contract`), the empty command/event set
+- [x] 0.3 [architect] Record the bindings pipeline design in `design.md` (D0.9): the headless
+  export entry point (the target form settled in D0.9 — a cargo example at
+  `src-tauri/examples/export_bindings.rs`, satisfying `tauri-ipc-contract`'s headless-export
+  requirement), the empty command/event set
   it ships with, why it ships empty (so the scaffold's own gate can pass with no diff, and task 1.3
   extends the same pipeline instead of replacing it), and the two drift checks CI runs
   (`src/bindings.ts`, `src/routeTree.gen.ts`). Record the accepted `tauri-specta` `2.0.0-rc.x` pin
@@ -157,9 +159,11 @@ file's header).
   do not reintroduce either, or anything that enables `time/local-offset`. Both platforms (TOOL-1,
   TOOL-8).
 
-- [ ] 0.11 [rust-backend] Add the headless bindings export entry point (the bin or integration test
-  chosen in D0.9) so `bun run gen:bindings` can export `src/bindings.ts` from the empty command and
-  event set without launching the app. Both platforms (TOOL-3).
+- [ ] 0.11 [rust-backend] Add the headless bindings export entry point chosen in D0.9 — the cargo
+  example `src-tauri/examples/export_bindings.rs`, with its export path resolved against
+  `CARGO_MANIFEST_DIR` rather than the working directory — so `bun run gen:bindings` can export
+  `src/bindings.ts` from the empty command and event set without launching the app, and so the drift
+  checks stay enforceable. Both platforms (TOOL-3).
 
 - [ ] 0.12 [rust-backend] Make the crate `cargo fmt --check` and
   `cargo clippy --all-targets -- -D warnings` clean, and put the `src-tauri/tests/` integration
