@@ -39,6 +39,18 @@ unchanged: `typecheck` green, `gen:bindings` green while its own diff stays vacu
 specialist-side limitation the incremental rule runs into: a specialist session may not stage a file
 (Q17), so the git half of any task whose evidence depends on a tracked file — 0.15's route tree, 0.16's
 bindings, 0.19's `.gitignore` — is the orchestrator's step, and neither halves nor fakes were needed.
+Task 0.16 then made the second drift check meaningful the same way, and settled the one thing the earlier
+tasks could not: because `git diff --exit-code src/bindings.ts` had been vacuous since task 0.11, no
+comparison against a **frozen** blob had ever run. Task 0.11 did run the exporter and record the hash of
+what it produced (D0.9), and task 0.12 confirmed the builder rewrites nothing under `src/`, but there was
+no tracked blob to compare a fresh export against — so the file could have been altered in the interim
+and every check would still have passed. Staging it and regenerating closed that: the file is
+byte-identical to the export over the empty command and event set, so it is genuinely generated output,
+and the check now passes for a real reason (TOOL-3). What 0.16 could not do is prove TOOL-3's remaining
+two scenarios — that a stale bindings file fails the build and that a regeneration reverts a hand edit —
+because neither the orchestrator nor `frontend-logic` holds edit permission on a generated file and
+`git checkout` is unavailable; those are assigned to task 0.24, which is the first task that can assert
+them.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -263,7 +275,7 @@ file's header).
   vacuously while the file is untracked — then confirm a rebuild leaves it unchanged. Never edit the
   generated file by hand. Both platforms (TOOL-4).
 
-- [ ] 0.16 [frontend-logic] Wire `gen:bindings` to the headless export entry point, run it, and
+- [x] 0.16 [frontend-logic] Wire `gen:bindings` to the headless export entry point, run it, and
   commit the empty-command-set `src/bindings.ts`; a second run and
   `git diff --exit-code src/bindings.ts` must produce no diff. The commit is what makes that check
   mean anything — `git diff --exit-code` exits 0 with no output on an **untracked** path, so an
@@ -357,7 +369,19 @@ file's header).
 - [ ] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target
   (`src-tauri/tests/library_surface.rs`, the harness task 0.12 created) runs,
   `bun run gen:bindings` leaves `src/bindings.ts` unchanged, and a build leaves
-  `src/routeTree.gen.ts` unchanged. The two `bun run` assertions belong in a bun step, **never** inside
+  `src/routeTree.gen.ts` unchanged. Cover TOOL-3's other two scenarios as well rather than leaving
+  them asserted in prose, because they are the ones that prove the drift check actually bites: hand-add
+  a marker line to `src/bindings.ts`, assert the gate's own check now fails
+  (`git diff --exit-code src/bindings.ts` exits non-zero), then regenerate and assert the marker is gone
+  and the check passes again. The orchestrator could not demonstrate this during task 0.16 — neither the
+  orchestrator nor `frontend-logic` holds edit permission on a generated file, which is the guardrail
+  working, and `git checkout` is likewise unavailable — so this is the first place it can be asserted.
+  Two things the assertion must get right, because it deliberately leaves the tree dirty in the middle:
+  restore the file inside a `finally` (regenerate on both the success and the failure path) so an
+  assertion that fails between the edit and the regeneration cannot leave a hand-edited generated file
+  behind for a later check to trip over, and note that `bun run test` is the **last** command of the gate
+  while the bindings drift check precedes it, so this in-test mutation cannot invalidate that run's own
+  drift check. The two `bun run` assertions belong in a bun step, **never** inside
   the Rust integration target: `cargo test` precedes the drift checks in the gate, so a Rust test that
   reached the exporter or the script would rewrite the very files those checks exist to verify (D0.9).
   Also assert TOOL-8's "Versions are exact" scenario in that same bun step, because task 0.13 created
