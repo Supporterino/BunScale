@@ -121,8 +121,9 @@ is removed again inside section 0 — see the recorded refinement below.
 These pins are recorded in **exact-pin form**: Cargo `=x.y.z` for the crates, bare versions (no `^`,
 no `~`) for the npm packages. They **replace** the generator's caret ranges from task 0.1 in
 `src-tauri/Cargo.toml` — they do not sit beside them. That manifest is hand-owned (D0.11) and task
-0.10 is what writes the pins into it, so this record is 0.10's input rather than a parallel set of
-versions. `package.json` **does not exist yet**: tasks 0.13–0.19 create the frontend workspace from
+0.10 has since carried these pins into it, so this record is the input that produced the committed
+versions rather than a parallel set; the later tasks still read it as the specification behind
+them. `package.json` **does not exist yet**: tasks 0.13–0.19 create the frontend workspace from
 these pins (0.13 the manifest and its scripts, 0.18 Biome), so nothing in the npm table describes a
 file already committed. Every dependency carries its rule-6 one-line justification; entries marked
 **grouped** say so and are grouped only because they are the same kind of housekeeping dependency.
@@ -241,8 +242,15 @@ case, since the generated `capabilities/default.json` grants only `core:default`
 ("no requirement in this change asks for logging"): its only consumer was the removed plugin's `setup`
 closure, and no `log::` reference remains anywhere in `src-tauri/src/`. Task 0.10 therefore inherits
 only a **forward obligation on the reconciled crate**: it MUST NOT reintroduce `tauri-plugin-log`, nor
-anything that switches on `time/local-offset` (`time` itself stays in the graph without that feature,
-via `cookie`, `plist`, `serde_with` and `tauri-build`).
+anything that switches on `time/local-offset` (`time` itself stays in the graph without that feature:
+the measured inverse tree attributes `time v0.3.55` to `cookie v0.18.2`, `plist v1.10.1` and
+`tauri-codegen v2.7.3` — the build graph, not `tauri-build`; `serde_with` is in the lock but does **not**
+enable `time` here — its build fingerprint records features `["alloc","default","macros","std"]`,
+with no `time_0_3`, confirming it is not the enabler. The enabled `time` features are exactly
+`alloc`, `default`, `formatting`, `macros`, `parsing` and `std` (measured by
+`cargo tree -e features -i time`), so **no** `local-offset` — and `num_threads`, which
+`time/local-offset` requires, is absent from the lockfile's package set, which is the meaningful
+absence a lockfile scan can show, since the lockfile records resolved packages, not features).
 
 Two structural notes for the orchestrator. First, ownership of the root tooling files the scaffold
 creates is settled: `frontend-logic`'s edit allowlist covers exactly these paths (`package.json`,
@@ -463,13 +471,37 @@ of this module that installs a `setup` of its own: `tauri` 2.12.4's `Builder::se
 `self.setup = Box::new(setup)` — so a second one would silently replace the event registration
 instead of composing with it.
 
-**Honest compile status.** Nothing declares `pub mod ipc;` yet (that is task 0.10's mount, and
-`src-tauri/src/lib.rs` is outside task 0.4's writable paths), and the dependency pins above are
-0.10's manifest work, so `cargo check` passes on the scaffold *with this module absent* and proves
-nothing about it. The first compile evidence for these stubs lands with task 0.10. Nor does
+**Honest compile status — as 0.4 left it, before task 0.10.** Nothing declared `pub mod ipc;` (that
+was 0.10's mount, and `src-tauri/src/lib.rs` is outside task 0.4's writable paths), and the dependency
+pins were 0.10's manifest work, so `cargo check` passed on the scaffold *with this module absent* and
+proved nothing about it; the first compile evidence for these stubs lands with task 0.10. Nor does
 `bun run gen:bindings` exist as a script yet — `package.json` is task 0.13's artefact — so nothing
 here regenerates `src/bindings.ts` either: the first real export is task 0.16, and 0.4's evidence
-is the two `cargo check` runs that task 0.10 must make non-vacuous.
+is the two `cargo check` runs task 0.10 had to make non-vacuous.
+
+**Task 0.10's outcome — the pins are materialised and the module is mounted, so that compile is no
+longer vacuous.** The seven Rust pins are applied as written — `tauri =2.12.4`, `tauri-build =2.7.3`,
+`serde =1.0.229` with `derive`, `serde_json =1.0.154`, `tauri-specta =2.0.0-rc.25` with `typescript`,
+`specta =2.0.0-rc.25`, `specta-typescript =0.0.12`, the last three being the IPC crates new to the set —
+and **no caret range remains** in `src-tauri/Cargo.toml`. `specta` needed no hand-added features:
+`tauri-specta` requests `specta`'s `derive` and `function` features itself, so its pinned line stays
+bare. One reading of the manifest is worth forestalling: `tauri-specta` depends on `tauri` with its
+`specta` feature, so `tauri = { …, features = [] }` does **not** mean the final graph is specta-free —
+the feature arrives transitively. The mount is the crate's **only** `setup` call, and `ipc::builder()`
+is constructed **once** and **moved** into that closure rather than cloned, because
+`invoke_handler(&self)` and `mount_events(&self, …)` both **borrow**: the same value that produced the
+invoke handler mounts the events, which is the strongest reading of "one builder, mounted and exported"
+above. `#[cfg_attr(mobile, tauri::mobile_entry_point)]` is kept and neither a `cfg(desktop)`-only nor a
+`cfg!(mobile)` branch was introduced. **The non-vacuity is measured, not asserted:** before this task the
+module was unreachable and the compiler's dep-info files listed only `src/lib.rs`; now both the host and
+the `aarch64-apple-ios` dep-info files list `src/lib.rs` **and** `src/ipc/mod.rs`, so the gate compiles
+the module. Two crate-metadata placeholders are **deliberately kept**, not left over:
+`description = "A Tauri App"` and `authors = ["you"]` reach no iOS or macOS shipped artefact —
+`tauri-bundler` 2.10.3's macOS plist writer reads `bundle.copyright` (not Cargo `authors`) for
+`NSHumanReadableCopyright` and writes no `CFBundleGetInfoString` at all, consuming
+`description`/`authors` only on the Linux/Windows packers, while `tauri-codegen` bakes both into
+`tauri::PackageInfo` as runtime data nothing user-visible reads — so there is nothing to settle here, and
+they surface only if a later phase enables a Linux/Windows packer.
 
 ### D0.10 — Design-system status convention
 
@@ -620,8 +652,9 @@ now-unused `log = "0.4"` dependency the generated `Cargo.toml` still carries is 
 task-0.1 commit, for the same rule-6 reason as the plugin: its only consumer was the removed plugin's
 `setup` closure and nothing in `src-tauri/src/` references `log::` any more. Task 0.10 therefore
 inherits only a **forward obligation**: it MUST NOT reintroduce `tauri-plugin-log` or anything that
-switches on `time/local-offset` (`time` itself remains in the graph via `cookie`, `plist`,
-`serde_with` and `tauri-build`).
+switches on `time/local-offset` (`time` itself remains in the graph without that feature — `cookie`,
+`plist` and `tauri-codegen`, the build graph; D0.8 records the attribution, the enabled features and
+`num_threads`'s absence from the lockfile's package set).
 
 **Placeholder identity observed**, i.e. the `--ci` defaults this task deliberately did not override:
 `productName` `Tauri App`, identifier `com.tauri.dev`, window title `Tauri`, crate `app` with library
@@ -634,13 +667,18 @@ own task if it is ever wanted, not an obligation riding on 0.5. The frontend con
 passed — `frontendDist` `../dist`,
 `devUrl` `http://localhost:1420`, `beforeDevCommand` `bun run dev`, `beforeBuildCommand`
 `bun run build` — and are what 0.13/0.14 must match. Step 5 also produced the generator's
-`src-tauri/Cargo.lock`; the **committed** lockfile holds **408** `[[package]]` entries, each resolved
-to one **exact** version — a lockfile records resolved versions, never ranges. That is the post-removal
-figure: dropping the logging plugin (above) took **seven** entries out of the generator's lockfile
-(`android_log-sys`, `android_logger`, `env_filter`, `fern`, `num_threads`, `tauri-plugin`,
+`src-tauri/Cargo.lock`. At the generator stage that lockfile held **408** `[[package]]` entries, each
+resolved to one **exact** version — a lockfile records resolved versions, never ranges. 408 is the
+post-removal figure: dropping the logging plugin (above) took **seven** entries out of the generator's
+lockfile (`android_log-sys`, `android_logger`, `env_filter`, `fern`, `num_threads`, `tauri-plugin`,
 `tauri-plugin-log`), so the pre-removal figure was **415**, not the 414 an earlier measurement of this
-pass recorded. The caret ranges it resolved from live in the generated
-`src-tauri/Cargo.toml`, and that is the file D0.8 says 0.2/0.10 replaces with exact pins.
+pass recorded. Task 0.10 has since materialised the exact pins and added the IPC crates, and `cargo`
+locked **eight** packages to the newest Rust 1.90-compatible versions with **no** `Removing` and no
+`Updating` lines — the four pre-existing pins were already the locked versions — so the **committed**
+lockfile now holds **416** entries: the `specta` family (`specta`, `specta-macros`, `specta-serde`,
+`specta-util`, `specta-typescript`) and `tauri-specta` at the `2.0.0-rc.25`/`0.0.12` line, plus the
+`Inflector` and `paste` crates they pull in. The caret ranges it resolved from lived in the generated
+`src-tauri/Cargo.toml`, the file D0.8 says 0.2/0.10 replaces with exact pins.
 
 **Recorded refinements to the generated `tauri.conf.json` (task 0.5), beyond the identity.** Both are
 refinements of generator output, not additions. `bundle.android.debugApplicationIdSuffix` (`.debug`)

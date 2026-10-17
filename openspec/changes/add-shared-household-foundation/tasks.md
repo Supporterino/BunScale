@@ -172,7 +172,7 @@ file's header).
   is a one-off local bootstrap step. No signing, no TestFlight and no Android, Windows or Linux job.
   Both platforms (TOOL-1, TOOL-7).
 
-- [ ] 0.10 [rust-backend] Reconcile the generated crate with the exact pins from D0.8 and mount the
+- [x] 0.10 [rust-backend] Reconcile the generated crate with the exact pins from D0.8 and mount the
   `ipc` module: `src-tauri/Cargo.toml` (the generator's caret ranges replaced by the pinned
   versions), `build.rs`, `src/main.rs` and `src/lib.rs` as task 0.1 generated them, wired to the ipc
   module and the builder, `cfg`-clean so later platforms stay possible, and honouring the deployment
@@ -207,7 +207,10 @@ file's header).
 
 - [ ] 0.12 [rust-backend] Make the crate `cargo fmt --check` and
   `cargo clippy --all-targets -- -D warnings` clean, and put the `src-tauri/tests/` integration
-  harness in place with one integration target. Both platforms (TOOL-1).
+  harness in place with one integration target. While the crate is being cleaned, also give the
+  binary-edge `expect("error while building tauri application")` in `src/lib.rs` the invariant comment
+  `rust-conventions` requires for an `expect` outside tests (a task-0.10 review finding), or replace it
+  with a propagating entry point if that reads better. Both platforms (TOOL-1).
 
 - [ ] 0.13 [frontend-logic] Add the root `package.json` (bun), replacing the generator's implied
   frontend values with our stack and exact pins: it exposes exactly the scripts the gate needs —
@@ -326,7 +329,12 @@ file's header).
   `not implemented` error. Every state-changing command takes a client-generated `request_id`, and
   the contract states that `CommandError.request_id` is **semantic** — the operation's identity for
   the service's deduplication, which is what makes a retry safe — not a diagnostic field (D0.14).
-  Freeze the names for this phase.
+  Freeze the names for this phase. Because `tauri-specta`'s `derive` feature is exactly what gates its
+  `Event` derive macro, enabling that feature is part of this task **if and only if** the contract
+  derives `tauri_specta::Event` for its event types: section 0 pins `features = ["typescript"]` alone
+  (D0.8), so adding `derive` here is a deliberate pin change rather than a discovery left to the
+  implementer.
+
 - [ ] 1.4 [tauri-security] Declare the capability, CSP, scope and entitlement changes the chosen
   mechanism requires; keep them least-privilege, add no permission the phase does not use, and keep
   the iOS and macOS configurations in step. This task is also the **owner of the core permissions the
