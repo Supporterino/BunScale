@@ -199,7 +199,7 @@ file's header).
   do not reintroduce either, or anything that enables `time/local-offset`. Both platforms (TOOL-1,
   TOOL-8).
 
-- [ ] 0.11 [rust-backend] Add the headless bindings export entry point chosen in D0.9 — the cargo
+- [x] 0.11 [rust-backend] Add the headless bindings export entry point chosen in D0.9 — the cargo
   example `src-tauri/examples/export_bindings.rs`, with its export path resolved against
   `CARGO_MANIFEST_DIR` rather than the working directory — so `bun run gen:bindings` can export
   `src/bindings.ts` from the empty command and event set without launching the app, and so the drift
@@ -218,7 +218,10 @@ file's header).
   exact pinned dependency versions from D0.8 (Biome for lint, D0.17), and it MUST add
   **`@tauri-apps/cli` as an exactly pinned dev dependency** so local runs and CI use that pinned CLI
   instead of the global `cargo install` from task 0.1 and so task 0.22 can run `bun run tauri icon`
-  without a global install. Both platforms (TOOL-1, TOOL-8).
+  without a global install. The `gen:bindings` script must pass the export example's exit status
+  through (`cargo run`'s) and must not expect success output: the exporter exits 0 **silently** when it
+  works (task 0.11) and only a non-zero exit signals failure, so a script written to parse output would
+  look for success strings that never arrive. Both platforms (TOOL-1, TOOL-8).
 
 - [ ] 0.14 [frontend-logic] Add `index.html`, a strict `tsconfig.json` and `vite.config.ts`,
   replacing the generator's config values with our stack: the dev-server port and the build output
@@ -236,7 +239,10 @@ file's header).
 
 - [ ] 0.16 [frontend-logic] Wire `gen:bindings` to the headless export entry point, run it, and
   commit the empty-command-set `src/bindings.ts`; a second run and
-  `git diff --exit-code src/bindings.ts` must produce no diff. Both platforms (TOOL-3).
+  `git diff --exit-code src/bindings.ts` must produce no diff. The commit is what makes that check
+  mean anything — `git diff --exit-code` exits 0 with no output on an **untracked** path, so an
+  uncommitted file would make the drift check pass vacuously — and task 0.19 must keep the file out
+  of `.gitignore` for the same reason. Both platforms (TOOL-3).
 
 - [ ] 0.17 [frontend-logic] Configure the test harness: vitest + Testing Library, and a Playwright
   **WebKit** project with the two required viewports 390×844 and 1280×800; wire `test` and
@@ -283,7 +289,10 @@ file's header).
 
 - [ ] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target runs,
   `bun run gen:bindings` leaves `src/bindings.ts` unchanged, and a build leaves
-  `src/routeTree.gen.ts` unchanged (TOOL-1, TOOL-3, TOOL-4).
+  `src/routeTree.gen.ts` unchanged. The two `bun run` assertions belong in a bun step, **never** inside
+  the Rust integration target: `cargo test` precedes the drift checks in the gate, so a Rust test that
+  reached the exporter or the script would rewrite the very files those checks exist to verify (D0.9).
+  (TOOL-1, TOOL-3, TOOL-4).
 
 - [ ] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
   1280×800, asserting the adaptive navigation arrangement rather than only that content rendered.
