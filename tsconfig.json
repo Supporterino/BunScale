@@ -1,0 +1,65 @@
+{
+  "compilerOptions": {
+    /* Language and environment.
+       `target`/`lib` are the deployment syntax floor measured in design.md
+       D0.16 (iOS 15.0, macOS 12.0), whose WebKit (Safari 15) implements ES2021
+       in full while leaving some ES2022 features unsupported. Nothing is ever
+       emitted from here (`noEmit`), so this only decides which standard-library
+       APIs the typechecker accepts; the real syntax lowering is Vite's
+       (`build.target` in vite.config.ts). `useDefineForClassFields` is set
+       explicitly so tsc and the bundler agree on field semantics rather than
+       each falling back to a target-dependent default. */
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "moduleDetection": "force",
+    "useDefineForClassFields": true,
+
+    /* Modules.
+       The app is ESM end to end (`package.json` has `"type": "module"`) and is
+       only ever bundled, so bundler resolution mirrors how imports resolve at
+       build time. `verbatimModuleSyntax` requires type-only imports to say so,
+       which is what keeps per-file transpilation honest; `isolatedModules` is
+       the same guarantee for the transpiler. */
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "noEmit": true,
+
+    /* Types.
+       `@types/node` is load-bearing: vite.config.ts reads
+       `process.env.TAURI_DEV_HOST`. `vite/client` supplies `import.meta.env`
+       and the asset/CSS module declarations. Both are listed explicitly so
+       ambient global type packages stay opt-in; React's types arrive through
+       the imports that need them.
+       Accepted cost: one program covers both `src/**` and the config files, so
+       listing `node` also makes Node's globals (`process`, `Buffer`, …)
+       ambient inside `src/**`, where they do not exist in the webview — Vite
+       substitutes only `process.env.NODE_ENV` — leaving `process.env.X` in app
+       code green here and `undefined` at runtime. Closing it means either two
+       configs in Vite's own template shape (app, and node/config) or dropping
+       `node` from `types` and importing `node:process` in vite.config.ts. It
+       is recorded rather than done, deliberately and not unnoticed: a second
+       config file to keep in step against a leak no app code can hit without
+       someone noticing. */
+    "types": ["node", "vite/client"],
+    "skipLibCheck": true,
+
+    /* Type safety: `strict` plus the four checks below that it omits, which
+       this codebase wants everywhere. */
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": [
+    "src",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
+}

@@ -8,7 +8,9 @@ owner. The decisions the loop follows are in "Resolutions" below; the evidence e
 kept in "History".
 
 **Current open items:** Q15 (an environment blocker for task 0.27's iOS simulator boot, recorded rather
-than worked around). Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+than worked around) and Q16 (two configuration decisions task 0.14 recorded instead of settling alone —
+the explicit `es2021` build target, and the generated route tree's style against Biome's defaults; both
+need an owner, neither blocks 0.14). Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -150,6 +152,46 @@ and the generated project already pins `ARCHS: [arm64]` with
 Nothing is worked around and nothing is claimed: 0.7's floors come from the SDKs' own metadata, not from
 a simulator run. If CoreSimulator stays unresponsive, 0.27's iOS half must be reported as blocked rather
 than recorded from a `tauri ios dev` run.
+
+### Q16 — two decisions task 0.14's config carries that the gate cannot decide (open, `frontend-logic`, 2026-10-17)
+
+Raised while implementing task 0.14 (`index.html`, `tsconfig.json`, `vite.config.ts`). Neither item
+blocks 0.14 — the task's gate is green — but both need an owner before the tasks that act on them.
+
+**1. `build.target: 'es2021'` in `vite.config.ts` is not in 0.14's required-value list.** Vite 8's
+default is `'baseline-widely-available'`, which is Chrome/Edge 111+, Firefox 114+, **Safari 16.4+**
+(read from the pinned `vite@8.3.4` `BuildEnvironmentOptions.target` doc comment). The floor task 0.7
+measured is iOS 15.0 / macOS 12.0 (D0.16) — Safari 15, ES2021-complete but not all of ES2022 — so the
+default would emit syntax that floor cannot parse, which is what TOOL-2's `[ios]` launch scenario is
+about. `es2021` was therefore set explicitly, in one line and reversibly, and `tsconfig.json`'s
+`target`/`lib` were set to `ES2021` to agree with it. Recorded rather than silently decided: if the
+intent is instead to **raise** the deployment floor, that belongs to D0.16's owner and not to this
+file, and the two settings must move together. **The guarantee is narrower than it reads, and that is
+worth stating rather than discovering at 0.27:** `build.target` is consumed only by the build-time
+transpile step, so it governs what ships — `tauri ios dev` serves source untransformed, and
+`tsconfig.json`'s `target` is `noEmit`-only and therefore type-level. A source file using an ES2022
+construct that `tsc` accepts at `ES2021` would still reach a Safari-15 simulator in dev even though the
+build lowers it. So the floor is enforced for build output, not for the dev loop, and task 0.15's code
+must not lean on the config to keep dev-loop syntax inside the floor.
+
+**2. The generated route tree's style and Biome's defaults will fight.** The pinned
+`@tanstack/router-generator`'s defaults are `quoteStyle: 'single'`, `semicolons: false`,
+`enableRouteTreeFormatting: true`; task 0.14 deliberately does not override them. Biome's defaults are
+double quotes and tabs, which is why `bun run lint` already reports `format` diagnostics for
+`tsconfig.json`, `vite.config.ts` and `package.json` — and why it would report them for
+`src/routeTree.gen.ts` once task 0.15 commits it. One of two tasks must settle it: task 0.15 (by
+overriding the generator's style) or task 0.18 (by excluding the generated file from Biome's checked
+set, as TOOL-4's "regeneration produces no diff" and the "generated files are read-only" rule point
+to). Task 0.18's text has been extended to name **both** generated files, since it already had to
+decide the same question for `src/bindings.ts`.
+
+**Measured at 0.14, no decision needed:** `bun run test` no longer fails as "No test files found" — it
+now exits 1 inside `@tanstack/router-generator`'s generator (`ENOENT … scandir '…/src/routes'`)
+because vitest resolves `vite.config.ts` and configuring the plugin *is* 0.14's requirement. That cause
+clears the moment task 0.15 creates `src/routes/`; 0.17's missing wiring is still why the command is
+red overall. `bun run lint` moved from 1512 files / 1502 errors to 1516 / 1505, and the only
+diagnostics naming a file 0.14 owns are the two `format` ones above — no lint or correctness
+diagnostic — so `lint` remains attributable to 0.18.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 

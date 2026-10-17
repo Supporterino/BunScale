@@ -24,7 +24,11 @@ wiring until 0.17, and `lint` has no `biome.json` until 0.18 — with no config,
 1512 files and reported 1502 errors, the same numbers task 0.18 carries. So the bun commands do not
 all belong to 0.13; each belongs to the task that supplies what it needs, and 0.13 owns
 `gen:bindings` plus its manifest's two pinned properties (the 21 exact pins and the eight script
-bodies).
+bodies). Task 0.14 was ticked on the same rule and is the first task to make a previously-red bun
+command green: `bun run typecheck` now exits 0, because the `tsconfig.json` it adds is the thing that
+command was missing. `lint` stays red for 0.18 and `test` stays red for 0.17 — though at 0.14 `test`'s
+reported cause changed to the router plugin's generator failing to `scandir` `src/routes`, a directory
+0.15 creates, because configuring that plugin **is** 0.14's requirement (Q16).
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -235,7 +239,7 @@ file's header).
   works (task 0.11) and only a non-zero exit signals failure, so a script written to parse output would
   look for success strings that never arrive. Both platforms (TOOL-1, TOOL-8).
 
-- [ ] 0.14 [frontend-logic] Add `index.html`, a strict `tsconfig.json` and `vite.config.ts`,
+- [x] 0.14 [frontend-logic] Add `index.html`, a strict `tsconfig.json` and `vite.config.ts`,
   replacing the generator's config values with our stack: the dev-server port and the build output
   directory MUST match the `--dev-url` and `--frontend-dist` values task 0.1 passed to `tauri init`
   (change whichever side is wrong, never let the two drift), the dev server MUST set
@@ -269,10 +273,18 @@ file's header).
   `biome check .` run from the repository root, the config MUST narrow the checked set (`files.includes`
   or `files.ignore`) so it cannot reach `node_modules/`, `src-tauri/target/**`, `graphify-out/**` or
   `.opencode/skills/**`: with no config that command checked **1512 files and reported 1502 errors**
-  across exactly those trees (measured in task 0.13), and it must also decide what to do with the
-  generated `src/bindings.ts`, which is a single long emitted line that Biome's formatter would want to
-  break. Consider `--error-on-warnings`, since Biome's warnings do not fail `check` by default and the
-  gate has exactly one lint command to carry both jobs. Both platforms (TOOL-1).
+  across exactly those trees (measured in task 0.13), and it must also decide what to do with **both**
+  generated files, `src/bindings.ts` and `src/routeTree.gen.ts`. `src/bindings.ts` is a single long
+  emitted line that Biome's formatter would want to break. `src/routeTree.gen.ts` is the harder of the
+  two and is the reason this task names it: the pinned `@tanstack/router-generator` emits it with
+  `quoteStyle: 'single'`, `semicolons: false` and `enableRouteTreeFormatting: true`, while Biome's
+  defaults are double quotes and tabs, so unless this task either excludes the generated file from the
+  checked set or matches the generator's style, TOOL-4's "regeneration produces no diff" and this
+  task's "`bun run lint` passes" fight each other forever (Q16). Excluding the two generated artefacts
+  is the reading the project's own "generated files are read-only, regenerate never edit" rule points
+  to; state which you chose and why. Consider `--error-on-warnings`, since Biome's warnings do not fail
+  `check` by default and the gate has exactly one lint command to carry both jobs. Both platforms
+  (TOOL-1).
 
 - [ ] 0.19 [frontend-logic] Extend the root `.gitignore` to cover everything this change's own gate
   commands and tools write — `node_modules/`, `src-tauri/target/`, `dist/` (`bun run build`),
@@ -326,7 +338,12 @@ file's header).
   are `=x.y.z`, D0.8) — and fail in either half on a key that is missing from the corresponding D0.8
   table. This is the owning test for that scenario — it needs no `invoke`, no viewport and no compiled
   Rust, but it does need task 0.17's `bun run test` wiring and task 0.23's harness, which is why it
-  belongs here rather than to task 0.13. (TOOL-1, TOOL-3, TOOL-4, TOOL-8).
+  belongs here rather than to task 0.13. Also assert the agreement task 0.14 requires and warns about —
+  "change whichever side is wrong, never let the two drift" — because hand-reconciled values are
+  exactly what rots: read `src-tauri/tauri.conf.json`, take the port out of `build.devUrl` and the
+  directory out of `build.frontendDist`, and fail unless `vite.config.ts`'s `server.port` equals that
+  port (and `server.host` is still wired to `TAURI_DEV_HOST`) and its `build.outDir` resolves to the
+  same place as `frontendDist`. (TOOL-1, TOOL-2, TOOL-3, TOOL-4, TOOL-8).
 
 - [ ] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
   1280×800, asserting the adaptive navigation arrangement rather than only that content rendered.

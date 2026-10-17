@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Mobile-first baseline (390x844 first, 1280x800 second; AGENTS.md).
+      `viewport-fit=cover` is what lets the app use `env(safe-area-inset-*)`
+      for its fixed bars under the iOS notch/home indicator. Zoom is left
+      enabled on purpose: pinch-zoom is an accessibility affordance, so
+      `user-scalable=no`/`maximum-scale` are deliberately absent.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>BunScale</title>
+  </head>
+  <body>
+    <!-- Mount node for src/main.tsx (task 0.15). -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
