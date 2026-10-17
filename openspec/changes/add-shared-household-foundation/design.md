@@ -1297,6 +1297,47 @@ agent's file.
 
 No ADR number is taken: section 0 takes none (D0.8).
 
+### D0.23 — Task 0.15: the query cache is a derived cache, and its options are chosen
+
+**The app's single query cache is a derived cache and never a record of truth (D0.2), and the two
+non-default options it carries are decisions rather than inherited defaults.** `src/lib/query-client.ts`
+(task 0.15) is the one place the cache is created, and it sets `retry: false` on queries **and** on
+mutations, sets `refetchOnWindowFocus: false`, and deliberately sets **no `staleTime`** —
+`@tanstack/react-query`'s own defaults are three automatic retries and a refetch on window focus, so
+`retry` and `refetchOnWindowFocus` each change behaviour, and every query in the app inherits them.
+They are app-wide policy, and their consumers are named here so no later task has to rediscover them:
+**task 3.4** (the service-status store), **task 3.6** (the event subscription and its invalidation) and
+**P6, `add-read-path-performance`** (the freshness window and the two-request cold-load bound).
+
+**`retry: false`, because the attempt policy and its bounds are owned by the Rust side (D0.13,
+D0.12).** The number of attempts and the timeouts a save or a probe may consume are fixed in Rust
+(`SAVE_ATTEMPT_TIMEOUT`, `REACHABILITY_PROBE_TIMEOUT`, D0.13), and a failure is required to reach the
+person with its specific cause and an explicit retry the person invokes — a re-invocation (NFR-8,
+D0.6), never an automatic one. A cache-level retry would stack a second, invisible attempt policy on
+top of those bounds and would hide the cause the failure surface exists to show, which is why the
+option is off on both queries and mutations. `mutations.retry: false` merely restates the library
+default and changes nothing; it is written out so that the whole attempt policy reads in one place.
+That task 0.23's test harness also wants `retry: false` — for deterministic tests — is a separate
+reason, not this one.
+
+**`refetchOnWindowFocus: false`, because freshness is owned by the locally kept copy and the
+Rust-driven refresh (D0.2, SYNC-3).** The copy is refreshed by the explicit refresh on start and on
+foreground return, driven by the Rust events task 3.6 subscribes to, and invalidated by task 3.2's
+load and task 3.6's event. A focus refetch would be a second, invisible refresh policy running beside
+the one the Rust layer owns — and it is exactly the second policy P6 would then have to reason about
+when it fixes the cold-load bound and the freshness window (D6.1, D6.2). Where the
+`frontend-conventions` skill asks to "refetch on foreground", this decision does not contradict it:
+the **foreground refresh** it means is the Rust-driven one task 3.6 wires, not a browser-focus
+refetch, and the option is disabled so that the two cannot diverge.
+
+**No `staleTime`, because staleness is P6's subject.** Reads resolve against the in-process local copy
+(D0.2), so revalidating on mount is cheap, and a refresh is driven by invalidation once a load or a
+change event has landed (task 3.2, task 3.6). Leaving the value **unset** is the honest posture rather
+than an invented one: choosing a staleness policy presupposes the freshness window P6 fixes, and a
+value chosen here would be a second place that window lives.
+
+No ADR number is taken: section 0 takes none (D0.8).
+
 ## State and boundaries
 
 ```

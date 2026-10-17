@@ -8,7 +8,9 @@ Tick a task only after the `definition-of-done` gate passes for it. In section 0
 incrementally, because the workspace the gate runs against is what this section creates: a task is
 ticked when every gate command that is runnable at that point passes, and a gate command whose
 precondition is a later section-0 deliverable belongs to that task (the bun commands from 0.13 onwards,
-the two drift checks from 0.16, the
+the bindings drift check from 0.16 and the route-tree drift check from 0.15 — the two are not the same
+task, because each check only means something once the file it guards is tracked, and `src/routeTree.gen.ts`
+is tracked from 0.15 while `src/bindings.ts` waits for 0.16 — the
 E2E suite in 0.17). Concretely, task 0.1 was ticked on: `cargo check` for the macOS host **and** for
 `aarch64-apple-ios` both pass; `cargo clippy --all-targets -- -D warnings` and `cargo test` pass;
 `cargo fmt --check` was red on the generator's own 2-space style, which task 0.12 fixed; and the
@@ -28,7 +30,15 @@ bodies). Task 0.14 was ticked on the same rule and is the first task to make a p
 command green: `bun run typecheck` now exits 0, because the `tsconfig.json` it adds is the thing that
 command was missing. `lint` stays red for 0.18 and `test` stays red for 0.17 — though at 0.14 `test`'s
 reported cause changed to the router plugin's generator failing to `scandir` `src/routes`, a directory
-0.15 creates, because configuring that plugin **is** 0.14's requirement (Q16).
+0.15 creates, because configuring that plugin **is** 0.14's requirement (Q16). Task 0.15 is where a
+drift check first becomes meaningful rather than vacuous: the route tree is generated, and because the
+generated file is committed with that task, a rebuild followed by `git diff --exit-code
+src/routeTree.gen.ts` is a real assertion — it was run and passed (TOOL-4). Its other three commands are
+unchanged: `typecheck` green, `gen:bindings` green while its own diff stays vacuous until 0.16 commits
+`src/bindings.ts`, and `lint` and `test` still red for 0.18 and 0.17. That task also recorded the first
+specialist-side limitation the incremental rule runs into: a specialist session may not stage a file
+(Q17), so the git half of any task whose evidence depends on a tracked file — 0.15's route tree, 0.16's
+bindings, 0.19's `.gitignore` — is the orchestrator's step, and neither halves nor fakes were needed.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -247,7 +257,7 @@ file's header).
   plugin MUST be configured. `tauri init` generates no frontend, so no template output is being
   replaced or deleted here — these values are ours from the start. Both platforms (TOOL-1, TOOL-2).
 
-- [ ] 0.15 [frontend-logic] Add `src/main.tsx` with the TanStack Query client provider and a minimal
+- [x] 0.15 [frontend-logic] Add `src/main.tsx` with the TanStack Query client provider and a minimal
   route tree under `src/routes/` that the router plugin renders into `src/routeTree.gen.ts`; **commit
   the generated `src/routeTree.gen.ts`** — otherwise `git diff --exit-code` against it passes
   vacuously while the file is untracked — then confirm a rebuild leaves it unchanged. Never edit the
@@ -274,15 +284,23 @@ file's header).
   or `files.ignore`) so it cannot reach `node_modules/`, `src-tauri/target/**`, `graphify-out/**` or
   `.opencode/skills/**`: with no config that command checked **1512 files and reported 1502 errors**
   across exactly those trees (measured in task 0.13), and it must also decide what to do with **both**
-  generated files, `src/bindings.ts` and `src/routeTree.gen.ts`. `src/bindings.ts` is a single long
-  emitted line that Biome's formatter would want to break. `src/routeTree.gen.ts` is the harder of the
-  two and is the reason this task names it: the pinned `@tanstack/router-generator` emits it with
+  generated files, `src/bindings.ts` and `src/routeTree.gen.ts`. Measure both before deciding, because
+  task 0.15 found them to be in opposite states (Q18): `src/routeTree.gen.ts` already attracts **two**
+  diagnostics — one `format` and one `lint/suspicious/noExplicitAny` from the `} as any)` the generator
+  emits — while `src/bindings.ts` attracts **none** today, being a single comment line over the empty
+  command and event set, and only becomes "a single long emitted line that Biome's formatter would want
+  to break" once task 1.3 adds commands. `src/routeTree.gen.ts` is the harder of the two and is the
+  reason this task names it: the pinned `@tanstack/router-generator` emits it with
   `quoteStyle: 'single'`, `semicolons: false` and `enableRouteTreeFormatting: true`, while Biome's
   defaults are double quotes and tabs, so unless this task either excludes the generated file from the
   checked set or matches the generator's style, TOOL-4's "regeneration produces no diff" and this
-  task's "`bun run lint` passes" fight each other forever (Q16). Excluding the two generated artefacts
-  is the reading the project's own "generated files are read-only, regenerate never edit" rule points
-  to; state which you chose and why. Consider `--error-on-warnings`, since Biome's warnings do not fail
+  task's "`bun run lint` passes" fight each other forever (Q16). The generated file asks for the first
+  option in its own banner — "you should also exclude this file from your linter and/or formatter to
+  prevent it from being checked or modified" — and excluding the two generated artefacts is also the
+  reading the project's own "generated files are read-only, regenerate never edit" rule points to;
+  state which you chose and why. Every remaining `format` diagnostic in the repository is this task's
+  to settle in the same pass, including the ones on `package.json`, `tsconfig.json`, `vite.config.ts`
+  and the five files task 0.15 adds. Consider `--error-on-warnings`, since Biome's warnings do not fail
   `check` by default and the gate has exactly one lint command to carry both jobs. Both platforms
   (TOOL-1).
 
@@ -291,10 +309,12 @@ file's header).
   `test-results/` and `playwright-report/` (Playwright: the first `test:e2e` run already left
   `test-results/.last-run.json` in the tree, before task 0.17's config existed), and `.artifacts/` —
   while **not** ignoring the two generated files `src/bindings.ts` and `src/routeTree.gen.ts`. The file
-  already exists and is not empty: it holds the `graphify-out/cache` entry the graph tooling keeps
-  there, and — since before this task ran, still uncommitted as of task 0.13 — a `node_modules` line
-  the environment added. So this task extends the file and commits what it holds rather than creating
-  it, and it must keep the `graphify-out/cache` entry. Both platforms (TOOL-1).
+  already exists and is not empty — it holds the `graphify-out/cache` entry the graph tooling keeps
+  there plus whatever the environment has already added while the earlier tasks ran (`node_modules`,
+  and `dist` by the time task 0.15 built the frontend; read the file rather than trusting this list,
+  and note that 0.19 is what commits those lines, since nothing before it did). So this task extends
+  the file and commits what it holds rather than creating it, and it must keep the `graphify-out/cache`
+  entry. Both platforms (TOOL-1).
 
 - [ ] 0.20 [frontend-ui] Bootstrap the design system: define the three-layer tokens in
   `src/styles/` (primitive → semantic → component) and the component inventory, using
@@ -309,7 +329,17 @@ file's header).
 - [ ] 0.21 [frontend-ui] Build the `src/components/ui/` design-system primitives from that
   inventory (touch targets ≥ 44pt, safe areas, keyboard inset, AA contrast, screen-reader labels, no
   hover-only affordance) and a placeholder route that renders them. Screenshots at 390×844 and
-  1280×800 in `.artifacts/screens/`. Both platforms (TOOL-6).
+  1280×800 in `.artifacts/screens/`. Both platforms (TOOL-6). This task also owns the two unstyled
+  scaffolding placeholders task 0.15 left behind, because no other task does: the index route's
+  component in `src/routes/index.tsx` (which this task's placeholder route replaces) and the root
+  not-found surface in `src/routes/__root.tsx` that `tanstack-router-conventions` requires every route
+  tree to have. Present both from the primitives, or record in `design.md` why one is deliberately left
+  bare — what must not happen is a screen the product can reach that no task has ever been asked to
+  design. When you touch `src/routes/index.tsx`, also leave its **file shape** as
+  `tanstack-router-conventions` requires it — `createFileRoute` plus a thin `component` reference that
+  imports the real component from a feature, not a component body declared inline in the route file.
+  The inline component is tolerable only as a scaffold placeholder, so replacing the placeholder must
+  replace the shape too, or the convention violation outlives the thing that excused it.
 
 - [ ] 0.22 [frontend-ui] Produce the app mark and generate the platform icon set, replacing the
   Tauri default iconset that task 0.1 shipped as a placeholder: draw a minimal flat mark from the

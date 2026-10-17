@@ -10,7 +10,10 @@ kept in "History".
 **Current open items:** Q15 (an environment blocker for task 0.27's iOS simulator boot, recorded rather
 than worked around) and Q16 (two configuration decisions task 0.14 recorded instead of settling alone —
 the explicit `es2021` build target, and the generated route tree's style against Biome's defaults; both
-need an owner, neither blocks 0.14). Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+need an owner, neither blocks 0.14). Q17 and Q18 are implementation findings rather than ambiguities,
+recorded because they change what later tasks must do: Q17 hands the git half of TOOL-4's drift check to
+the orchestrator, which made it meaningful in task 0.15's commit, and Q18 measures what task 0.18 will
+actually find. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -192,6 +195,56 @@ clears the moment task 0.15 creates `src/routes/`; 0.17's missing wiring is stil
 red overall. `bun run lint` moved from 1512 files / 1502 errors to 1516 / 1505, and the only
 diagnostics naming a file 0.14 owns are the two `format` ones above — no lint or correctness
 diagnostic — so `lint` remains attributable to 0.18.
+
+### Q17 — a specialist session cannot stage a file, so TOOL-4's drift check was still vacuous at 0.15 (open, `frontend-logic`, 2026-10-17)
+
+Raised while implementing task 0.15. The task prescribes staging `src/routeTree.gen.ts` and then
+running a second build plus `git diff --exit-code src/routeTree.gen.ts`, because that command exits 0
+with no output on an **untracked** path and the check would otherwise mean nothing.
+`frontend-logic`'s allow list grants `bun run *`, `bun add *`, `bun install *`, `git diff *`,
+`git status *` and `graphify query *` only: `git add src/routeTree.gen.ts` was refused at the tool
+layer, so the precondition the task asks for cannot be created in a specialist session, and
+`graphify update .` is refused for the same reason, so the graph is not refreshed for the files 0.15
+adds. Task 0.15 produced substitute evidence (four builds, a byte-identical `src/routeTree.gen.ts`, and
+identical bundle content hashes across all four), but the **git half of TOOL-4's scenario is the
+orchestrator's to make meaningful**, and it did: the file is committed with task 0.15, after which the
+rebuild-and-diff check is a real assertion. Tasks 0.24 and 0.26 assert the same check again, and the
+graph is refreshed after the commit.
+
+**Who owns this, recorded once so it stops being re-improvised per task.** The orchestrator, and no
+allow-list widening is needed for it: by `AGENTS.md` hard rule 4 and the loop this project runs on,
+**staging and committing are the orchestrator's steps, never a specialist's** — a specialist implements
+and runs the gate, and a task whose text says "commit the generated file" is satisfied when the task's
+commit contains that file, which the orchestrator makes. So the git half of 0.15's evidence, and the
+equivalent halves of 0.16 (which commits `src/bindings.ts`) and 0.19 (which commits the `.gitignore`
+lines), are orchestrator work by design rather than a gap in three different task texts. Widening
+`frontend-logic`'s allow list with `git add *`/`git commit *` was considered and rejected: it would let
+a specialist stage or commit outside its own task boundary, for no evidence the orchestrator cannot
+produce itself, and no other thing `frontend-logic` owns needs git write access. What was genuinely
+missing was this record — the three task texts never say who performs the git half.
+
+### Q18 — the generated route tree does attract a lint diagnostic, and `src/bindings.ts` does not (measured for 0.18, `frontend-logic`, 2026-10-17)
+
+Measured with the pinned `@biomejs/biome` 2.5.15 and no `biome.json`, which is the state task 0.18
+inherits. `bun run lint` (`biome check .`) exits 1 at 1526 files / 5090 errors / 3083 warnings / 170
+infos, up from 0.13's 1512/1502 and 0.14's 1516/1505, and the new `src/` files are why the count moved.
+Attribution from `--reporter=summary` and `--reporter=github`:
+
+- `src/routeTree.gen.ts` attracts **two** diagnostics — one `format` and one
+  `lint/suspicious/noExplicitAny` from the `} as any)` the generator itself emits — so Q16's prediction
+  holds and the generated tree keeps fighting Biome's defaults until 0.18 excludes it. The file asks to
+  be excluded in its own banner: "you should also exclude this file from your linter and/or formatter to
+  prevent it from being checked or modified".
+- `src/bindings.ts` attracts **nothing**, neither lint nor format, because today it is a single comment
+  line over the empty command and event set. Task 0.18's text describes it as "a single long emitted
+  line that Biome's formatter would want to break", which describes what it becomes once task 1.3 adds
+  commands and not what 0.18 will actually find; that text has been corrected.
+- The five hand-written files 0.15 adds appear **only** in the format list, for the same reason
+  `tsconfig.json` and `vite.config.ts` already did at 0.14 (two-space indent and single quotes against
+  Biome's tab and double-quote defaults). One `assist/source/organizeImports` error on
+  `src/routes/__root.tsx` fired on the first run and was fixed by ordering the imported names, and the
+  next run confirmed it gone. Every `format` diagnostic in the repository is 0.18's to settle in one
+  pass, whichever way it settles them.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 
