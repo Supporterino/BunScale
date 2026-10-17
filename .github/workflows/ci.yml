@@ -165,6 +165,12 @@ jobs:
       # Headless and secret-free: WebKit at both baselines with the IPC layer
       # mocked through the bootstrap task 0.17 wires behind VITE_E2E_MOCK=1. The
       # script sets that variable itself, so this is exactly the local gate
-      # command — CI adds no environment the gate does not have.
+      # command — CI adds no mock environment the gate does not have: the one
+      # variable it does set, CI, is read in exactly two places in
+      # playwright.config.ts — `forbidOnly: !!process.env.CI` (a committed
+      # `.only` is refused, so the gate cannot silently shrink) and
+      # `reuseExistingServer: !process.env.CI` (CI never reuses a dev server
+      # someone else started) — and both only tighten the harness rather than
+      # supply anything the local run lacks (D0.24, on D0.22).
       - name: bun run test:e2e
         run: bun run test:e2e

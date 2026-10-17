@@ -58,6 +58,8 @@
   },
   "include": [
     "src",
+    /* Playwright specs (`playwright.config.ts` `testDir`), typechecked by the gate. */
+    "e2e",
     "vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts"

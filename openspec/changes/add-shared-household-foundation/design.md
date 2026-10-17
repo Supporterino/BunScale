@@ -1338,6 +1338,100 @@ value chosen here would be a second place that window lives.
 
 No ADR number is taken: section 0 takes none (D0.8).
 
+### D0.24 — Task 0.17: the test layer has its own config, and an empty suite stays red
+
+**The test layer is its own config, and it deliberately does not reuse the app's Vite config.**
+`vitest.config.ts` is a standalone `defineConfig` from `vitest/config`, not a `mergeConfig` of
+`vite.config.ts`: Vitest resolves `vitest.config.*` **before** `vite.config.*`, so the file *replaces*
+the app's config for the test pipeline rather than extending it. What that rules out is the one plugin
+that would change behaviour — the app's config carries the TanStack **router plugin**, which renders
+`src/routeTree.gen.ts` as a transform side effect, and that file is a tracked generated artefact whose
+drift the gate checks (TOOL-4, D0.9), so **a test run must never rewrite it**; tests exercise the
+committed route tree through `src/router.tsx` instead. Nothing else is lost: the rest of
+`vite.config.ts` (`server.port`, `TAURI_DEV_HOST`, `clearScreen`, `build.target`) is dev-server concern
+with no meaning to tests, and `@vitejs/plugin-react` is not needed because Vitest compiles `.tsx` with
+esbuild via `tsconfig.json`'s `jsx: "react-jsx"`.
+
+**`include` is scoped to `src/`, `e2e/**` is excluded explicitly, and `globals`/`setupFiles` are left
+off on purpose.** Vitest's and Playwright's default naming overlap exactly (`*.spec.ts` /
+`*.test.tsx`), so an unscoped default would make `bun run test` try to execute the E2E specs;
+`configDefaults.exclude` is spread rather than replaced so Vitest's own defaults survive. `globals`
+stays off because `tsconfig.json` does not list `vitest/globals` in `types`, so global
+`describe`/`it`/`expect` would break `bun run typecheck`; specs import from `vitest` explicitly.
+`setupFiles` is absent because task 0.23 owns `src/test/setup.ts`, and pointing at a file that does not
+exist would be a second, silent way for `bun run test` to fail — so **task 0.23's one cross-file step
+is adding that single `setupFiles` line to `vitest.config.ts`.**
+
+**The E2E layer is Playwright driving WebKit — the engine both shipped platforms actually run
+(WKWebView) — in one project per baseline, not one project looping over sizes.** `webkit-compact` is
+390×844 with `deviceScaleFactor` 3 and `hasTouch: true`; `webkit-expanded` is 1280×800 with
+`deviceScaleFactor` 2 and no touch. The numbers are declared explicitly rather than taken from a
+`devices[…]` preset, because the closest WebKit preset is 390×664 and would have to be overridden
+anyway. One project per baseline, so a failure names the baseline it failed in and `--project=…` runs
+exactly one baseline. `tauri-driver` is not used because it has no WKWebView driver and can drive
+neither iOS nor macOS — which is why the suite drives the frontend against the dev server with the IPC
+layer mocked, needing no native device and no shared service (TOOL-5); the reads it exercises resolve
+against the mock's copy rather than the local copy D0.2 defines.
+
+**The dev server is the app's own** (`bun run dev`), started by Playwright as a child of the
+`playwright test` process, at the same single address stated in three places that must agree by hand:
+`server.port`/`strictPort` in `vite.config.ts`, `build.devUrl` in `tauri.conf.json`, and this config's
+`baseURL`/`webServer.url`. Task 0.24 asserts the first two against each other; this is the E2E side of
+that same value. The determinism choices carry their reasons: `retries: 0` (a retry that hides a flake
+hides the flake), `forbidOnly` on CI only (so a committed `.only` cannot silently shrink the gate), and
+failure-only artefacts (`trace: 'retain-on-failure'`, `screenshot: 'only-on-failure'`) landing in
+`test-results/`, which task 0.19 excludes. Every dependency these two configs name is one of D0.8's
+exact pins.
+
+**The `VITE_E2E_MOCK=1` gate is a seam in `src/main.tsx` that reads a compile-time glob, and it fails
+loudly rather than silently.** The flag is set by the committed `test:e2e` script itself, so the local
+and the CI invocation are byte-identical **as far as the mock environment goes**: CI injects no mock
+variable of its own, and the one variable it does set, `CI`, only *tightens* the harness — it is read in
+exactly two places in `playwright.config.ts`, `forbidOnly: !!process.env.CI` (a committed `.only` is
+refused) and `reuseExistingServer: !process.env.CI` (CI never reuses a server someone else started) —
+rather than supplying anything the local run lacks (D0.22); the mock is task 0.23's
+`src/test/mock-ipc.ts`. The seam awaits the mock **before the first render**, so the
+mock is installed before any route loader or query can call `invoke`. It reads
+`import.meta.glob('./test/mock-ipc.ts')` rather than a static or literal dynamic import specifically so
+that the seam is inert and the build stays green while the file does not exist yet — 0.23 fills it by
+creating that file, with no edit to `src/main.tsx`. **That positive half is designed rather than
+verified, and the distinction is kept here:** it rests on Vite resolving an exact-path, non-glob
+pattern, and no committed artefact exercises it, because the only run happened with the file absent —
+where an empty glob and an unsupported glob pattern are indistinguishable (`{}` either way). It is
+therefore first verifiable once **task 0.23 creates the file**, exercised by **task 0.25**'s specs, and
+**task 0.26** now carries the assertion that makes it checked rather than asserted in prose: with the
+file present, a non-`VITE_E2E_MOCK` `bun run build` emits no `mock-ipc` chunk while the `test:e2e` path
+does load it (both recorded in `tasks.md` 0.26). The stale-pattern case remains safe rather than silent:
+it lands on the failure mode below. The deliberate failure mode: **when the flag is `1`
+and the module is absent, the seam throws instead of booting unmocked**, because a mocked run that
+silently is not mocked would look green while testing nothing — the same reason `passWithNoTests` and
+`--pass-with-no-tests` were rejected below. Observable consequence while 0.23 is still pending: an E2E
+run before then logs that throw from the page, which is expected and not a test failure.
+
+**No `passWithNoTests` and no `--pass-with-no-tests`, recorded as a decision.** At task 0.17 there are
+no vitest specs and no Playwright specs, so both commands are red; the alternative to a red command
+honestly attributed to the tasks that supply the specs (0.23/0.24 for the component layer, 0.25 for
+E2E) would be a passing gate that proves nothing. That is the section-0 incremental rule `tasks.md`
+already states: each command goes green when the task that owns its subject lands, not before.
+
+**The evidence these decisions rest on was obtained by running the layer, not by reasoning about it:**
+the component layer ran green at both baselines with a temporary spec (since deleted) — with the limit
+of that evidence stated rather than glossed, because nothing committed declares a component **baseline**:
+`vitest.config.ts` fixes the environment (`jsdom`) and deliberately declares no viewport, so the
+temporary spec set its own window size, and what was shown is "**a spec** can run at both baselines",
+not "**the suite** does", which is what TOOL-5's first two scenarios actually require. That gap is
+owned, not left implicit: **task 0.23** now owns a uniform baseline helper (it is stated in `tasks.md`
+0.23), with **0.25** consuming it, so those two scenarios are partially satisfied at 0.17 and completed
+by 0.23/0.25. The E2E layer launched WebKit in both projects and `page.viewportSize()` equalled each
+project's declared viewport
+(390×844 and 1280×800) with `--project` selecting one baseline; and the `VITE_E2E_MOCK` chain
+was observed end to end — the script sets the variable, the dev server hands it to the page as
+`import.meta.env.VITE_E2E_MOCK`, the injected env object carries the key when set and lacks it when
+unset, and the mock installs only when it is `1`. The browser binary is installed by
+`playwright install webkit`, which is what CI runs before the E2E step (D0.22).
+
+No ADR number is taken: section 0 takes none (D0.8).
+
 ## State and boundaries
 
 ```

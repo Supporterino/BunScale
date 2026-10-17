@@ -6,7 +6,8 @@ architect → tauri-security → apple-native → release-ci → rust-backend / 
 frontend-ui → tests), then contract → backend → frontend-logic → frontend-ui → tests → review.
 Tick a task only after the `definition-of-done` gate passes for it. In section 0 the gate is applied
 incrementally, because the workspace the gate runs against is what this section creates: a task is
-ticked when every gate command that is runnable at that point passes, and a gate command whose
+ticked when every gate command that is runnable at that point passes, a gate command that runs but reports
+an empty suite belongs to the task that supplies the suite, and a gate command whose
 precondition is a later section-0 deliverable belongs to that task (the bun commands from 0.13 onwards,
 the bindings drift check from 0.16 and the route-tree drift check from 0.15 — the two are not the same
 task, because each check only means something once the file it guards is tracked, and `src/routeTree.gen.ts`
@@ -51,6 +52,26 @@ two scenarios — that a stale bindings file fails the build and that a regenera
 because neither the orchestrator nor `frontend-logic` holds edit permission on a generated file and
 `git checkout` is unavailable; those are assigned to task 0.24, which is the first task that can assert
 them.
+Task 0.17 configured the last piece of the test harness, and it is one of the section-0 tasks whose
+commands stay red **because they are empty rather than because something is missing**: `bun run test`
+and `bun run test:e2e` both exist, resolve their configs and run — they simply have no specs yet, so
+vitest reports "no test files found" and Playwright "no tests found". Neither `passWithNoTests` nor
+`--pass-with-no-tests` was added to paper over that, because a passing gate that proves nothing is worse
+than a red command honestly attributed to the tasks that supply the specs: 0.23 and 0.24 for the
+component layer, 0.25 for the E2E layer. 0.23 is in the same position for the same reason, so this is a
+state two tasks share rather than a quirk of this one. The harness itself was verified by running it
+rather than by reading its config — a temporary spec was shown green at both baselines, and the E2E
+layer launched WebKit in both projects with `page.viewportSize()` equal to each project's declared
+viewport (390×844 compact, 1280×800 expanded) and `--project` selecting one baseline, and the
+`VITE_E2E_MOCK=1` chain was observed end to end from the committed script through the dev server into
+the page. One limit of that evidence is worth stating rather than glossing: the **component** layer has
+no declared baseline, because `vitest.config.ts` fixes the environment (`jsdom`) and deliberately
+declares no viewport, so the temporary spec set its own window size — "a spec can run at both
+baselines" is what was shown, not "the suite does". Making the latter true is task 0.23's, which now
+owns the baseline helper TOOL-5's first two scenarios depend on. Its decisions are recorded as D0.24,
+including why the test layer deliberately does not reuse the app's Vite config: that config carries the
+router plugin, which renders the tracked `src/routeTree.gen.ts`, and a test run must never rewrite a
+generated file the gate checks.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -282,11 +303,14 @@ file's header).
   uncommitted file would make the drift check pass vacuously — and task 0.19 must keep the file out
   of `.gitignore` for the same reason. Both platforms (TOOL-3).
 
-- [ ] 0.17 [frontend-logic] Configure the test harness: vitest + Testing Library, and a Playwright
+- [x] 0.17 [frontend-logic] Configure the test harness: vitest + Testing Library, and a Playwright
   **WebKit** project with the two required viewports 390×844 and 1280×800; wire `test` and
   `test:e2e`, and bootstrap the IPC mock only when `VITE_E2E_MOCK=1` — the `test:e2e` script sets
-  that variable itself, so the local and the CI invocation are byte-identical and CI adds no
-  environment the gate does not have. Both platforms (TOOL-5).
+  that variable itself, so the local and the CI invocation are byte-identical **as far as the mock
+  environment goes**: CI injects no mock variable of its own, and the one variable CI does set, `CI`,
+  only tightens the harness (`forbidOnly` refuses a committed `.only`, and `reuseExistingServer` stops
+  CI reusing a server someone else started) rather than supplying anything the local run lacks. Both
+  platforms (TOOL-5).
 
 - [ ] 0.18 [frontend-logic] Add the lint/format tooling so `bun run lint` exists and passes, using
   **Biome** for both linting and formatting (D0.17). A second linter and a separate formatter
@@ -364,7 +388,26 @@ file's header).
 
 - [ ] 0.23 [test-engineer] Add `src/test/setup.ts` and `src/test/mock-ipc.ts` — the latter
   bootstrapped only when `VITE_E2E_MOCK=1` — with the `QueryClientProvider` (`retry: false`) and
-  `createMemoryHistory` helpers the frontend suites use. Both platforms (TOOL-5).
+  `createMemoryHistory` helpers the frontend suites use. Both platforms (TOOL-5). Task 0.17 left two
+  seams this task closes, and both are stated in D0.24: the `VITE_E2E_MOCK` bootstrap is already wired
+  in `src/main.tsx` as an `import.meta.glob('./test/mock-ipc.ts')` seam, so **creating that file is all
+  it takes** — do not edit `src/main.tsx` — and that half is designed rather than verified until you do
+  it, since task 0.17 could only exercise the seam with the file absent, where an empty glob and an
+  unsupported glob pattern are indistinguishable. The seam deliberately **throws** while the file is
+  absent, so until this task lands an E2E run logs that throw from the page instead of booting an
+  unmocked app. This task also owns the component layer's **baseline** mechanism, which TOOL-5's first
+  two scenarios need and nothing yet provides: `vitest.config.ts` fixes the environment (`jsdom`) but
+  deliberately declares no viewport, so a component spec must set the window size itself, and the
+  uniform helper that makes "the suite runs at 390×844" and "…at 1280×800" true for every spec belongs
+  here, in `src/test/setup.ts` or beside it, with 0.25 then consuming it. Two cross-file steps are
+  therefore this task's, and both are **`frontend-logic`'s to make in this task's commit**, because
+  `vitest.config.ts` is not in `test-engineer`'s edit allow list: adding the single
+  `setupFiles: ['./src/test/setup.ts']` line to `vitest.config.ts` (`globals` stays off: `tsconfig.json`
+  does not list `vitest/globals` in `types`, so specs import from `vitest` explicitly). That is this
+  task's **one** cross-file step; the baseline helper above lives in `src/test/`, which
+  `test-engineer` does own. Report the split rather than leaving either half unowned (Q17 is the
+  precedent). This task must
+  land **before 0.25**, because 0.25's E2E specs cannot render the app until the mock file exists.
 
 - [ ] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target
   (`src-tauri/tests/library_surface.rs`, the harness task 0.12 created) runs,
@@ -401,7 +444,21 @@ file's header).
 
 - [ ] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
   1280×800, asserting the adaptive navigation arrangement rather than only that content rendered.
-  Both platforms (TOOL-5).
+  Both platforms (TOOL-5). Task 0.17 fixed where these live and what they must import: the E2E specs go
+  in **`e2e/`** (`playwright.config.ts`'s `testDir`, and the path design.md's scaffold-surface table
+  records — the directory does not exist yet, so creating it is part of this task), the component specs
+  anywhere under `src/**` matching `*.{test,spec}.{ts,tsx}` (`vitest.config.ts`'s `include`, which
+  explicitly excludes `e2e/**` because Vitest's and Playwright's default naming overlap exactly).
+  `e2e` is in `tsconfig.json`'s `include`, so these specs are inside the gate's typecheck program —
+  a type error in them fails `bun run typecheck`, not just the run. The component specs must use the
+  baseline helper task 0.23 adds (TOOL-5's first two scenarios are that requirement, and nothing else
+  declares the two baselines for the component layer), rather than each spec setting its own window
+  size. The two E2E projects are
+  `webkit-compact` (390×844, `deviceScaleFactor` 3, touch) and `webkit-expanded` (1280×800,
+  `deviceScaleFactor` 2), one per baseline so a failure names its baseline and `--project=…` runs one.
+  The suite needs no native device: it drives the frontend against the app's own dev server, which
+  Playwright starts as a child of `playwright test`, with the IPC layer mocked through 0.23's
+  `src/test/mock-ipc.ts` — which is why 0.23 must land first.
 
 - [ ] 0.26 [test-engineer] Run the full `definition-of-done` gate on the scaffold
   (`cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo check --target aarch64-apple-ios`,
@@ -415,7 +472,13 @@ file's header).
   the built macOS load matters. That same built `.app` is also where the macOS deployment floor becomes
   user-visible: check its `Info.plist` `LSMinimumSystemVersion` against the floor task 0.7 recorded
   (D0.16), because neither the config key nor the build environment proves the shipped value.
-  Both platforms (TOOL-1).
+  Both platforms (TOOL-1). One more assertion belongs here, because this is the cheapest place the E2E
+  seam's **positive** case can be checked and task 0.17 could only exercise it with the mock file
+  absent — where an empty glob and an unsupported glob pattern are indistinguishable, `{}` either way:
+  with the mock file present, run a **non**-`VITE_E2E_MOCK` `bun run build` and assert the emitted
+  bundle contains no `mock-ipc` chunk, then assert the `test:e2e` path does load the mock. That is what
+  turns "task 0.23 fills the seam with no edit to `src/main.tsx`" from a design assumption into a
+  checked claim, and it also confirms the seam stays inert for the shipped build.
 
 ### Manual verification
 
