@@ -8,11 +8,13 @@ Tick a task only after the `definition-of-done` gate passes for it. In section 0
 incrementally, because the workspace the gate runs against is what this section creates: a task is
 ticked when every gate command that is runnable at that point passes, and a gate command whose
 precondition is a later section-0 deliverable belongs to that task (the bun commands from 0.13 onwards,
-the two drift checks from 0.16, `cargo fmt --check` and the clippy-clean requirement in 0.12, the E2E
-suite in 0.17). Concretely, task 0.1 is ticked on: `cargo check` for the macOS host **and** for
+the two drift checks from 0.16, the
+E2E suite in 0.17). Concretely, task 0.1 was ticked on: `cargo check` for the macOS host **and** for
 `aarch64-apple-ios` both pass; `cargo clippy --all-targets -- -D warnings` and `cargo test` pass;
-`cargo fmt --check` is red on the generator's own 2-space style and is task 0.12's stated deliverable;
-the bun-family and drift-check commands have no `package.json` to run against yet.
+`cargo fmt --check` was red on the generator's own 2-space style, which task 0.12 fixed; and the
+bun-family and drift-check commands still have no `package.json` to run against. Since task 0.12 the
+whole Rust half of the gate is green with **no** carve-out left, and the only commands still waiting on
+a precondition are the bun-family ones (0.13), the two drift checks (0.16) and the E2E suite (0.17).
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -205,7 +207,7 @@ file's header).
   `src/bindings.ts` from the empty command and event set without launching the app, and so the drift
   checks stay enforceable. Both platforms (TOOL-3).
 
-- [ ] 0.12 [rust-backend] Make the crate `cargo fmt --check` and
+- [x] 0.12 [rust-backend] Make the crate `cargo fmt --check` and
   `cargo clippy --all-targets -- -D warnings` clean, and put the `src-tauri/tests/` integration
   harness in place with one integration target. While the crate is being cleaned, also give the
   binary-edge `expect("error while building tauri application")` in `src/lib.rs` the invariant comment
@@ -287,7 +289,8 @@ file's header).
   bootstrapped only when `VITE_E2E_MOCK=1` — with the `QueryClientProvider` (`retry: false`) and
   `createMemoryHistory` helpers the frontend suites use. Both platforms (TOOL-5).
 
-- [ ] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target runs,
+- [ ] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target
+  (`src-tauri/tests/library_surface.rs`, the harness task 0.12 created) runs,
   `bun run gen:bindings` leaves `src/bindings.ts` unchanged, and a build leaves
   `src/routeTree.gen.ts` unchanged. The two `bun run` assertions belong in a bun step, **never** inside
   the Rust integration target: `cargo test` precedes the drift checks in the gate, so a Rust test that

@@ -312,9 +312,10 @@ file, and the `aarch64-apple-ios` compile check would write to the working tree 
 itself as read-only. The example is run only when it is asked for, so **no gate step that precedes the
 bindings drift check writes `src/bindings.ts`**; that invariant is what makes the no-diff check mean
 something. It also imposes an explicit rule on the rest of the crate: no `#[test]` under
-`src-tauri/` — a unit test beside the code, an integration test in task 0.12's `src-tauri/tests/`
-harness, or a smoke test like task 0.24's — may call that export function or the `bun run
-gen:bindings` script, because such a test would run at the gate's own `cargo test` step, which
+`src-tauri/` — a unit test beside the code, an integration test in task 0.12's harness at
+`src-tauri/tests/library_surface.rs` (whose third test asserts the adjacent "nothing else writes or
+**rewrites**" half), or a smoke test like task 0.24's — may call that export function or the `bun
+run gen:bindings` script, because such a test would run at the gate's own `cargo test` step, which
 precedes the bindings drift check, and would rewrite the very file that check is about to verify;
 the export path is reachable only through the explicit `cargo run --example` invocation, and the
 drift checks that exercise the script are `bun run` steps, outside `cargo test`.
@@ -541,6 +542,68 @@ export function — 0.11 added none, and `cargo test` left the file byte-identic
 0.16 commits it, and `tasks.md` 0.16 records why that matters: `git diff --exit-code` exits 0 with no
 output on an untracked path, so an uncommitted file would make the drift check pass vacuously. Task
 0.19 must keep it out of `.gitignore`, the precondition "The two drift checks CI runs" states above.
+
+##### Task 0.12's outcome — the fmt carve-out closes, and the integration harness lands
+
+**`cargo fmt --check` is green for the whole crate.** Only two files were reindented, both from the
+generator's 2-space style to 4-space: `src-tauri/build.rs` (`tauri_build::build()`) and
+`src-tauri/src/main.rs` (`app_lib::run();`). `src-tauri/src/lib.rs`, `src-tauri/src/ipc/mod.rs` and
+`src-tauri/examples/export_bindings.rs` were already canonical, so the visible change is exactly those
+two indentations. **That closes the section-0 carve-out:** from 0.12 on the whole Rust half of the gate
+is green with nothing carved out, which is what "Section 0 applies that gate incrementally" under
+"Verification" says it must be.
+
+**The integration harness exists:** `src-tauri/tests/library_surface.rs` — one target, linking `app_lib`
+as a library, with three tests and a `//!` doc comment naming the task and the harness's purpose. What
+it asserts, and why those are the only three things assertable here:
+
+- the context the binary edge runs: `tauri::generate_context!()` typed as `tauri::Context<tauri::Wry>`,
+  asserting the identity `com.bunscale.app` and `BunScale` — so a later identity change that forgets
+  this coupling fails the gate;
+- the mount shape: two `invoke_handler()` handles off one builder; the `Send + Sync` half of
+  `Fn(Invoke) -> bool + Send + Sync + 'static` is held **at compile time** by a bound-checking helper
+  called on each handler **by reference**, and the value is then **moved across a thread**, which is the
+  only half a move can hold — `Send + 'static`, the closure bound the real `setup` needs. A move cannot
+  exercise `Sync`, and `assert!(moved.is_ok())` could never fail because the thread body has no panic
+  path; the test's doc comment therefore states plainly that it is **two compile-time bounds plus one
+  move** rather than pretending there is a run-time condition
+  (`the_ipc_builder_hands_out_a_mountable_handler_and_survives_being_moved`);
+- that constructing and mounting the builder creates, removes or **rewrites** no file under the
+  repository's `src/` — the observable half of the prohibition above, since a test that wrote bindings
+  would rewrite exactly what the drift checks verify. Regular files are compared by **content**, not by
+  name: the violation D0.9 forbids — a `#[test]` calling `export_bindings()` — rewrites the
+  `src/bindings.ts` that already exists, which a name-only comparison would leave identical; non-regular
+  entries are compared by name and kind. A missing `src/` counts as **no entries** rather than an error,
+  because a clean checkout has none — `src/bindings.ts` is untracked until task 0.16 commits it, and git
+  cannot carry an empty directory — while every other `read_dir` failure still panics, so a permission
+  or I/O failure stays loud. That clean-checkout correctness is verified from a **fresh worktree** (a
+  checkout with no `src/` at all) as part of this task's evidence, and the test is
+  `building_the_ipc_builder_creates_removes_or_rewrites_no_source_file`.
+
+**The limits are recorded rather than worked around**, so that this small test set is not later read as
+an oversight: `app_lib::run()` starts the Tauri event loop and is never called; `export_bindings()` is
+never called and nothing in the harness emits bindings; and `tauri::ipc::Invoke` cannot be constructed
+outside tauri, so the mounted handler cannot be invoked from a test — what proves the empty command and
+event set is the exported bindings file, not the harness. Task 0.24 extends this target.
+
+**The harness is under the gate, and that was measured rather than assumed.** `cargo clippy
+--all-targets -- -D warnings` really does compile it: its first run failed *inside*
+`tests/library_surface.rs` (`error: could not compile app (test "library_surface")`) before the file was
+cleaned up, which is stronger evidence than a clean pass. `cargo test` runs 3 tests in that target and 0
+elsewhere, and leaves `src/bindings.ts` byte-identical (blob
+`ca1fe9489cb42fc19cee67d21a5a02658aef607a`, the same hash the 0.11 record above gives) — so the D0.9
+invariants that record states still hold with a test target present.
+
+**The `expect` was kept, not propagated.** `run()` is the process's last frame — `src/main.rs` calls it
+and returns, and on mobile tauri's `mobile_entry_point` wrapper calls it inside `stop_unwind`, which
+discards a returned value — so no caller could act on a `Result`; and the only reachable failure is
+`Builder::build` failing before the event loop starts. The invariant comment now states that at the call
+site, which is what `rust-conventions` requires of an `expect` outside tests, and it also records where
+the panic message lands: on macOS it is what a person sees, on stderr, while on iOS it never reaches the
+app edge at all — the generated `stop_unwind` catches the panic, logs
+``attempt to unwind out of `rust` with err: …`` and calls `std::process::abort()` — and
+`tauri::log_stdout` is not what reports it: that call only redirects stdout and stderr into the device
+log **before** the wrapper body runs.
 
 ### D0.10 — Design-system status convention
 
@@ -786,9 +849,10 @@ left to build-time substitution:
 `cargo check --manifest-path src-tauri/Cargo.toml` **passes**; the same with
 `--target aarch64-apple-ios` **passes**; `cargo clippy --manifest-path src-tauri/Cargo.toml
 --all-targets -- -D warnings` **passes**; `cargo test --manifest-path src-tauri/Cargo.toml` **passes**
-(0 tests — no Rust source changed in this task, so task 0.6's clippy run still holds). `cargo fmt
---check` **remains red** on the generator's own style and is task 0.12's deliverable, per the
-section-0 preamble. The iOS side of the floor is provable from the committed tree itself —
+(0 tests at that point — no Rust source changed in this task, so task 0.6's clippy run still holds).
+`cargo fmt --check` **was red** on the generator's own style and was task 0.12's deliverable, per the
+section-0 preamble; task 0.12 has since reindented the two generator-styled files and made it **green**
+(its outcome record is in D0.9, above). The iOS side of the floor is provable from the committed tree itself —
 `IPHONEOS_DEPLOYMENT_TARGET = 15.0` in the generated project (above) plus the
 `IPHONEOS_DEPLOYMENT_TARGET` compiler env var `tauri-build` emits in the build output — whereas the
 macOS floor can only be seen in a **built** artefact and stays task 0.26's check (below).
@@ -1137,8 +1201,9 @@ a certain failure. One cost line: GitHub allows at most 5 concurrent macOS jobs 
 minutes at a higher rate on private repositories, hence the concurrency group, the job timeout, and
 no macOS job this phase does not need.
 
-**The workflow is red until the frontend exists, and that is expected.** It cannot pass until task
-0.12 makes `cargo fmt --check` clean, 0.13 adds `package.json` and its scripts, 0.14–0.15 add the
+**The workflow is red until the frontend exists, and that is expected.** It could not pass before
+task 0.12 made `cargo fmt --check` clean (that half is done — see the 0.12 outcome record in D0.9), and
+it cannot pass until 0.13 adds `package.json` and its scripts, 0.14–0.15 add the
 build and the route tree, 0.16 commits `src/bindings.ts`, 0.17–0.18 wire the tests and Biome, and
 0.19 **extends** the root `.gitignore` — it already exists, holding only the `graphify-out/cache`
 entry, so 0.19 adds `node_modules/`, `src-tauri/target/` and `.artifacts/` to it rather than
@@ -1346,14 +1411,17 @@ artefact (TOOL-1, TOOL-2) drawn from the design system (TOOL-6).
   `cargo test`, `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` (no diff),
   `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
   `bun run test`, `bun run test:e2e`.
-- Section 0 applies that gate incrementally, as the preamble in `tasks.md` states: a section-0 task is
+- Section 0 applied that gate incrementally, as the preamble in `tasks.md` states: a section-0 task is
   ticked when every gate command *runnable at that point* passes, and a gate command whose precondition
   is a later section-0 deliverable belongs to that task (the bun-family commands arrive with 0.13, the
-  two drift checks with 0.16, the E2E suite with 0.17). Task 0.12 restores `cargo fmt --check` and the
-  clippy-clean requirement — the generator's own 2-space style is red until then — and 0.26 re-runs the
-  complete gate fresh. That incremental carve-out **expires at 0.12 and must not extend past it**: from
-  0.12 on, every gate command that already exists is run in full against the tree, and a command that is
-  still absent is owned by the task that first makes it runnable rather than deferred further.
+  two drift checks with 0.16, the E2E suite with 0.17). Task 0.12 restored `cargo fmt --check` and the
+  clippy-clean requirement — the generator's own 2-space style, in `src-tauri/build.rs` and
+  `src-tauri/src/main.rs`, is why it was red until then — and 0.26 re-runs the complete gate fresh. That
+  incremental carve-out **expired at 0.12 and does not extend past it**: from 0.12 on, every gate
+  command that already exists is run in full against the tree, and a command that is still absent is
+  owned by the task that first makes it runnable rather than deferred further. It is therefore closed
+  rather than merely reached: the whole Rust half of the gate is green with nothing carved out (the 0.12
+  outcome record in D0.9 measures it).
 - Every requirement above has at least one scenario named by a test task in `tasks.md`.
 - Scaffold: TOOL-1 is evidenced by 0.26 (the full gate run fresh and recorded), TOOL-2 by 0.27
   (manual simulator and macOS boot, recorded under "Manual verification"), TOOL-3 and TOOL-4 by 0.24
@@ -1380,10 +1448,12 @@ artefact (TOOL-1, TOOL-2) drawn from the design system (TOOL-6).
   empty permission set is revisited only by the obligations D0.21 records, never by a "safety"
   re-widening. The CSP's strictness is evidenced differently — it is exercised only by a **built** macOS
   artefact, and task 0.26 now carries that step. The runnable gate status is stated, not implied:
-  `cargo clippy --all-targets -- -D warnings` **passes** and `cargo test` **passes** (0 tests — the
-  scaffold has none yet, and a config-only change cannot affect them), the two `cargo check` runs pass
-  (recorded above), and `cargo fmt --check` remains red on the generator's own 2-space style, which is
-  task 0.12's deliverable per the section-0 preamble.
+  `cargo clippy --all-targets -- -D warnings` **passes** and `cargo test` **passes** (0 tests when this
+  posture landed — the scaffold had none yet, and a config-only change cannot affect them; task 0.12's
+  harness adds 3, see its outcome record in D0.9), the two `cargo check` runs pass (recorded above), and
+  `cargo fmt --check` is **green** from task 0.12 — the generator's own 2-space style is why it was red
+  here, and 0.12's visible diff is exactly the reindentation of `src-tauri/build.rs` and
+  `src-tauri/src/main.rs`, with nothing carved out (its outcome record in D0.9).
 - Cross-check at review: the delta contains exactly HS-1…HS-4, SYNC-1/2/3/5, SET-1/2/4,
   NFR-1/2/3/8/10, DM-3 and DM-6 across the five product capabilities, **plus exactly TOOL-1…TOOL-8
   in `project-toolchain`** — no more, no less. The `TOOL-` set is the section-0 enabler and is in
