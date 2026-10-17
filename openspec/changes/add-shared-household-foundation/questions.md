@@ -63,7 +63,7 @@ D0.16 rather than naming a version. The ownership gap it exposed is **closed** b
 
 | Command family | Needed by | Status |
 |---|---|---|
-| `bun install` | tasks 0.13–0.19 (materialise `node_modules` from the hand-written exact pins) and every `bun run typecheck\|lint\|test\|test:e2e` after them | granted for the orchestrator; **`frontend-logic` still needs its own entry** — check before task 0.13 |
+| `bun install` | tasks 0.13–0.19 (materialise `node_modules` from the hand-written exact pins) and every `bun run typecheck\|lint\|test\|test:e2e` after them | granted for the orchestrator; **`frontend-logic`'s own entry landed in `fb5a375`, and task 0.13 confirmed it** — both `bun install` and `bun install --frozen-lockfile` ran there |
 | `rustup` | task 0.1's precondition, the `aarch64-apple-ios` target check, `apple-native`'s task 0.7 | granted for the orchestrator; add for `apple-native` only if it records the installed target list itself |
 | `xcodebuild`, `xcrun` | task 0.7 (measure the deployment floor from the installed SDKs); re-verified by the orchestrator during the gate | already allowed for `apple-native`; granted for the orchestrator for gate verification |
 

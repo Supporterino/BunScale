@@ -15,6 +15,16 @@ E2E suite in 0.17). Concretely, task 0.1 was ticked on: `cargo check` for the ma
 bun-family and drift-check commands still have no `package.json` to run against. Since task 0.12 the
 whole Rust half of the gate is green with **no** carve-out left, and the only commands still waiting on
 a precondition are the bun-family ones (0.13), the two drift checks (0.16) and the E2E suite (0.17).
+Task 0.13 is ticked on the same rule, and what it measured is worth stating plainly rather than
+leaving "the bun commands from 0.13" to imply that all of them became 0.13's: of the bun family only
+`bun run gen:bindings` is runnable at 0.13, and it passes — exit 0, silent, with
+`git diff --exit-code src/bindings.ts` clean. The other three exit 1 for a reason owned by a later
+task and **not** by the manifest: `typecheck` has no `tsconfig.json` until 0.14, `test` has no vitest
+wiring until 0.17, and `lint` has no `biome.json` until 0.18 — with no config, `biome check .` checked
+1512 files and reported 1502 errors, the same numbers task 0.18 carries. So the bun commands do not
+all belong to 0.13; each belongs to the task that supplies what it needs, and 0.13 owns
+`gen:bindings` plus its manifest's two pinned properties (the 21 exact pins and the eight script
+bodies).
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -214,7 +224,7 @@ file's header).
   `rust-conventions` requires for an `expect` outside tests (a task-0.10 review finding), or replace it
   with a propagating entry point if that reads better. Both platforms (TOOL-1).
 
-- [ ] 0.13 [frontend-logic] Add the root `package.json` (bun), replacing the generator's implied
+- [x] 0.13 [frontend-logic] Add the root `package.json` (bun), replacing the generator's implied
   frontend values with our stack and exact pins: it exposes exactly the scripts the gate needs —
   `gen:bindings`, `typecheck`, `lint`, `test`, `test:e2e` — plus `dev`, `build` and `tauri`, at the
   exact pinned dependency versions from D0.8 (Biome for lint, D0.17), and it MUST add
@@ -254,12 +264,25 @@ file's header).
 
 - [ ] 0.18 [frontend-logic] Add the lint/format tooling so `bun run lint` exists and passes, using
   **Biome** for both linting and formatting (D0.17). A second linter and a separate formatter
-  (Prettier) are NOT added: `cargo fmt` already covers Rust, and an extra JS tool would churn the
-  exactly pinned dependency set TOOL-8 requires. Both platforms (TOOL-1).
+  (Prettier) are NOT added **as dependencies**: `cargo fmt` already covers Rust, and an extra JS tool
+  would churn the exactly pinned dependency set TOOL-8 requires. Because the gate command is
+  `biome check .` run from the repository root, the config MUST narrow the checked set (`files.includes`
+  or `files.ignore`) so it cannot reach `node_modules/`, `src-tauri/target/**`, `graphify-out/**` or
+  `.opencode/skills/**`: with no config that command checked **1512 files and reported 1502 errors**
+  across exactly those trees (measured in task 0.13), and it must also decide what to do with the
+  generated `src/bindings.ts`, which is a single long emitted line that Biome's formatter would want to
+  break. Consider `--error-on-warnings`, since Biome's warnings do not fail `check` by default and the
+  gate has exactly one lint command to carry both jobs. Both platforms (TOOL-1).
 
-- [ ] 0.19 [frontend-logic] Add the root `.gitignore` covering `node_modules/`, `src-tauri/target/`
-  and `.artifacts/`, while **not** ignoring the two generated files `src/bindings.ts` and
-  `src/routeTree.gen.ts`. Both platforms (TOOL-1).
+- [ ] 0.19 [frontend-logic] Extend the root `.gitignore` to cover everything this change's own gate
+  commands and tools write — `node_modules/`, `src-tauri/target/`, `dist/` (`bun run build`),
+  `test-results/` and `playwright-report/` (Playwright: the first `test:e2e` run already left
+  `test-results/.last-run.json` in the tree, before task 0.17's config existed), and `.artifacts/` —
+  while **not** ignoring the two generated files `src/bindings.ts` and `src/routeTree.gen.ts`. The file
+  already exists and is not empty: it holds the `graphify-out/cache` entry the graph tooling keeps
+  there, and — since before this task ran, still uncommitted as of task 0.13 — a `node_modules` line
+  the environment added. So this task extends the file and commits what it holds rather than creating
+  it, and it must keep the `graphify-out/cache` entry. Both platforms (TOOL-1).
 
 - [ ] 0.20 [frontend-ui] Bootstrap the design system: define the three-layer tokens in
   `src/styles/` (primitive → semantic → component) and the component inventory, using
@@ -295,7 +318,15 @@ file's header).
   `src/routeTree.gen.ts` unchanged. The two `bun run` assertions belong in a bun step, **never** inside
   the Rust integration target: `cargo test` precedes the drift checks in the gate, so a Rust test that
   reached the exporter or the script would rewrite the very files those checks exist to verify (D0.9).
-  (TOOL-1, TOOL-3, TOOL-4).
+  Also assert TOOL-8's "Versions are exact" scenario in that same bun step, because task 0.13 created
+  the manifests but no test task owned it: that scenario speaks of **the manifests**, so assert both
+  halves — read `package.json` and fail on any dependency whose range carries a `^`, a `~` or any other
+  non-exact operator, and read `src-tauri/Cargo.toml` and fail on any entry under `[dependencies]`,
+  `[dev-dependencies]` or `[build-dependencies]` whose version does not begin with `=` (the crate pins
+  are `=x.y.z`, D0.8) — and fail in either half on a key that is missing from the corresponding D0.8
+  table. This is the owning test for that scenario — it needs no `invoke`, no viewport and no compiled
+  Rust, but it does need task 0.17's `bun run test` wiring and task 0.23's harness, which is why it
+  belongs here rather than to task 0.13. (TOOL-1, TOOL-3, TOOL-4, TOOL-8).
 
 - [ ] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
   1280×800, asserting the adaptive navigation arrangement rather than only that content rendered.

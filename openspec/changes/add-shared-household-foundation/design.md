@@ -123,10 +123,12 @@ no `~`) for the npm packages. They **replace** the generator's caret ranges from
 `src-tauri/Cargo.toml` — they do not sit beside them. That manifest is hand-owned (D0.11) and task
 0.10 has since carried these pins into it, so this record is the input that produced the committed
 versions rather than a parallel set; the later tasks still read it as the specification behind
-them. `package.json` **does not exist yet**: tasks 0.13–0.19 create the frontend workspace from
-these pins (0.13 the manifest and its scripts, 0.18 Biome), so nothing in the npm table describes a
-file already committed. Every dependency carries its rule-6 one-line justification; entries marked
-**grouped** say so and are grouped only because they are the same kind of housekeeping dependency.
+them. `package.json` **now exists**: task 0.13 created it from these pins and `bun install` resolved
+exactly them (the "Materialised npm manifest" subsection below records that outcome), so the npm
+table is likewise the specification behind a committed file rather than a plan, and the remaining
+tasks 0.14–0.19 add the configs, the test wiring and Biome it names. Every dependency carries its
+rule-6 one-line justification; entries marked **grouped** say so and are grouped only because they
+are the same kind of housekeeping dependency.
 
 | Crate | Pin | One-line justification (rule 6) |
 |---|---|---|
@@ -162,6 +164,71 @@ file already committed. Every dependency carries its rule-6 one-line justificati
 
 `@tanstack/react-router-devtools` is **not** in the set: nothing in this design or in
 `tanstack-router-conventions` calls for devtools.
+
+##### Materialised npm manifest (task 0.13)
+
+The npm half of the table above now has a committed manifest, so those pins are measured against a
+file rather than pending one. `package.json` is named **`bunscale`** — D0.15's product name in npm's
+mandatory lowercase form, **not** the crate name (`app` stays deliberately, D0.11) — is
+`"private": true`, and declares `"type": "module"` because the pinned Vite 8, TypeScript 7 and
+`@vitejs/plugin-react` require ESM. **No `packageManager` field is added deliberately**:
+`frontend-conventions` does not ask for one, and the bun pin is stated once, where CI acts on it
+(`setup-bun: bun-version: 1.4.3`, D0.22); a field here would be a second statement of the same pin
+with no consumer. **No `version` field is added either**: D0.15 makes `src-tauri/tauri.conf.json`'s
+`version` the single source of truth for the app's version, and a second statement of it here would
+drift from that one.
+
+**Every one of the 21 pins resolved to exactly its pinned version**, with no widening and nothing
+missing from the registry: the five runtime dependencies and the sixteen dev dependencies in the
+table above, **175 installs across 236 packages** (bun's own figures,
+`bun install --frozen-lockfile`), and the lockfile lists exactly those 21 as its direct
+dependencies — nothing entered as a direct entry that this change did not name. The platform
+binaries the iOS/macOS paragraph above predicted did arrive, as `optionalDependencies` of the pinned
+packages, each in its `darwin-arm64` form: `@tauri-apps/cli-darwin-arm64` and
+`@biomejs/cli-darwin-arm64` (direct), `@rolldown/binding-darwin-arm64` and
+`lightningcss-darwin-arm64` (via `vite`), and `@typescript/typescript-darwin-arm64` (via
+`typescript`).
+
+The lockfile is **`bun.lock`**, in text form with `lockfileVersion: 2`; **no `bun.lockb` exists**.
+That closes the caveat D0.22 records about the CI cache key: `hashFiles('bun.lock', 'bun.lockb')` no
+longer evaluates to `''`, so from task 0.13 the bun cache is real rather than a constant key.
+`bun install --frozen-lockfile` succeeds on that lockfile — verified twice — which is the step CI
+runs; bun does **not** freeze automatically when `CI` is set, so the flag is load-bearing.
+
+The eight script bodies, as the task fixed them in prose:
+
+| Script | Body |
+|---|---|
+| `gen:bindings` | `cargo run --manifest-path src-tauri/Cargo.toml --example export_bindings` |
+| `typecheck` | `tsc --noEmit` |
+| `lint` | `biome check .` |
+| `test` | `vitest run` |
+| `test:e2e` | `VITE_E2E_MOCK=1 playwright test` |
+| `dev` | `vite` |
+| `build` | `vite build` |
+| `tauri` | `tauri` |
+
+`gen:bindings` stays the bare command, so `cargo run`'s exit status **is** the script's and nothing
+is printed on success — the "propagates a non-zero exit" property D0.9 requires. `lint` is Biome's
+**single** entry point, which lints **and** format-checks: that is how one gate command carries
+D0.17's two jobs without a second tool. `test` is `vitest run`, never watch. `test:e2e` sets the mock
+flag the E2E IPC layer keys on (TOOL-5). `tauri` resolves to `node_modules/.bin/tauri` — the pinned
+`@tauri-apps/cli` — and **not** to task 0.1's global `cargo install`, which installs `cargo-tauri`
+and no bare `tauri`, so the pinned CLI is what runs; that is what D0.22's assertion and task 0.22's
+`bun run tauri icon` depend on. `dev` and `build` carry **no** port or output flags: `devUrl`
+`http://localhost:1420` and `frontendDist` `../dist` live in `tauri.conf.json`, and task 0.14's
+`vite.config.ts` is what satisfies them.
+
+**One forward pin rule follows from what the install revealed.** The resolved graph contains packages
+the manifest does not name — notably `prettier` (pulled in by the router plugin's generator, which is
+why D0.17's "no Prettier" is a **manifest** statement rather than an absence from `node_modules`) and
+`zod` (pulled in by the router plugin). A later task that **imports** such a package directly MUST add
+it to the manifest as its own exact pin with its own rule-6 one-line justification, rather than
+relying on it arriving transitively — the same discipline the three IPC crates followed when they
+became direct names in `src-tauri/Cargo.toml`.
+
+No ADR number is taken: section 0 takes none (the rule stated below), and this passage is evidence
+for a decision already taken rather than a new decision.
 
 ##### Compatibility constraints (from the published metadata, not inferred)
 
@@ -1162,11 +1229,14 @@ because its key includes the rustc version. Caches cover the three required loca
 owns `~/.cargo` and `src-tauri/target` (`workspaces: src-tauri -> target`, the
 `$workspace -> $target` form a manifest outside the repository root requires), and `actions/cache`
 owns `~/.bun/install/cache` keyed on the lockfile — deliberately on both `bun.lock`, which bun
-1.4.x writes, and the legacy-but-still-readable `bun.lockb` — but that third location is the one
-coverage claim that cannot be verified yet: `hashFiles('bun.lock', 'bun.lockb')` evaluates to `''`
-rather than failing when neither file exists, so until task 0.13 writes the lockfile the key is a
-constant and the `restore-keys` prefix matches it exactly, and 0.13 is the moment it becomes
-verifiable. `bun install --frozen-lockfile` honours the lockfile the exact pins resolve to, and bun
+1.4.x writes, and the legacy-but-still-readable `bun.lockb` — and that third location is now real
+coverage rather than a constant: task 0.13 wrote `bun.lock` (text, `lockfileVersion: 2`; no
+`bun.lockb` exists), so `hashFiles('bun.lock', 'bun.lockb')` resolves to that file's hash instead of
+`''`, and the `restore-keys` prefix no longer matches the key exactly. This was the one coverage
+claim that could not be verified before 0.13, and the reason is worth keeping on record, because it
+is also why no step here can fail on it: `hashFiles` on a missing file is **not** an error — it
+evaluates to `''` and the step still succeeds — so what ended was the key's constancy, never a
+failure. `bun install --frozen-lockfile` honours the lockfile the exact pins resolve to, and bun
 is the pinned runtime 1.4.3. No global Tauri CLI: the workflow asserts `bun run tauri --version`,
 i.e. task 0.13's exactly pinned `@tauri-apps/cli` dev dependency (SETUP.md §5), while task 0.1's
 `cargo install tauri-cli` stays a one-off local bootstrap. That assertion does not distinguish the
