@@ -472,8 +472,9 @@ no diff on the scaffold, and a pipeline that only works once a command exists co
 Task 1.3 then extends the same builder with the P0 commands — it does not introduce or rework the
 pipeline. Both `src/bindings.ts` and `src/routeTree.gen.ts` are committed, generated and never
 hand-edited; CI fails on a diff after regeneration (TOOL-3, TOOL-4). This is what the "IPC contract"
-section below means by "nothing may be implemented against these names until 1.3 is done": the
-pipeline exists from section 0, the names do not.
+section below meant by "nothing may be implemented against these names until 1.3 is done": the
+pipeline exists from section 0, and the names arrived when task 1.3 landed them (task 1.3's own
+outcome record is that section, now marked frozen).
 
 ##### The export entry point is a cargo example, not a test
 
@@ -1782,65 +1783,150 @@ the paths later phases inherit:
 | `src/styles/`, `src/components/ui/` | Design tokens and the shared primitives |
 | `.github/workflows/ci.yml` | The gate, on `macos-latest` |
 
-## IPC contract — to be defined by architect
+## IPC contract — frozen in task 1.3
 
-**Status: proposal only. `architect` owns this section and the typed stubs in
-`src-tauri/src/ipc/` (tasks 1.1–1.4). Nothing may be implemented against these names until 1.3 is
-done and `bun run gen:bindings` regenerates `src/bindings.ts`.**
+**Status: frozen.** `architect` owns this section and the typed stubs in `src-tauri/src/ipc/`
+(tasks 1.1–1.3); task 1.3 implemented it. The names, parameters and types below are exactly what
+`src-tauri/src/ipc/` declares and therefore what `bun run gen:bindings` writes into
+`src/bindings.ts`. The frontend may now be written against them, and only through
+`src/features/*/api.ts` wrappers over those bindings (project hard rule 2): no route, component or
+hook imports the generated file or calls `invoke` itself. Changing a name or a shape is a contract
+change — a reviewed bindings diff under D0.18 — not something a later task settles while coding.
 
-Consistent with D0.9: the *pipeline* that produces `src/bindings.ts` exists from section 0 and
-already runs against an **empty** command and event set, so the scaffold gate passes with no diff.
-The names below are therefore not yet in the contract: until task 1.3 lands, the generated file
-contains no command and no event, and no frontend code may be written against the table.
+Consistent with D0.9, the *pipeline* that produces `src/bindings.ts` still exists once, in section 0:
+it ran there against an **empty** command and event set so the scaffold's gate passed with no diff.
+Task 1.3 filled the two `collect_*!` lists, added the types they reference, and registered `Member`
+explicitly with `Builder::typ` (no P0 command returns it yet — see the reconciliation list below), so
+section 0's "nothing may be implemented against these names until 1.3 is done" expired with task 1.3:
+the running app registers exactly what the export writes.
 
-### Commands the frontend needs in this phase
+**Every body is a typed stub.** Each command in `src-tauri/src/ipc/commands.rs` returns
+`Err(CommandError)` with `cause: unknown`, `retryable: false` and the message key
+`error.not_implemented`; section 2 replaces the bodies (2.1–2.13), and no domain logic lives in the
+contract surface.
 
-| Command (proposed) | Purpose | Requirements |
-|---|---|---|
-| `create_household(name)` | Create a household, creator becomes first member, becomes active | HS-1, HS-2 |
-| `list_households()` | Households held by the person, with the active one indicated | HS-3, HS-4, DM-3 |
-| `get_active_household()` | The active household (or none) | HS-2, HS-3, DM-3 |
-| `set_active_household(household_id)` | Switch the active household | HS-3, HS-4, DM-3 |
-| `load_household(household_id)` | Loaded-data-first read of a household collection, refreshing when reachable | SYNC-1, SYNC-3 |
-| `get_service_status()` | Last observed service/account status with the time it was observed | NFR-1 |
-| `check_service_reachability()` | Fresh reachability probe, used before a write and on foreground return | SYNC-2, NFR-1 |
-| `get_identity()` | Account user id and resolved display name, or unresolved | SET-2 |
-| `get_display_preferences()` / `set_display_weight_unit(unit)` | Per-device display unit | SET-4 |
-| `get_diagnostics_summary()` *(optional, P0)* | Redacted counts/outcomes for support; never content | NFR-3 |
+### Commands
+
+All are `async`, registered in `collect_commands![]`, and return `Result<T, CommandError>`.
+**Every command that changes product data** — `create_household`, `set_active_household`,
+`set_display_weight_unit` — **takes a client-generated `RequestId`**; the reads and the
+reachability probe take none. The table names the Rust parameters; the generated wrappers expose
+them in camelCase (`requestId`, `householdId`), which is Tauri's default command-argument casing.
+
+| Command | Parameters | Returns (`T`) | Requirements |
+|---|---|---|---|
+| `create_household` | `name: String`, `request_id: RequestId` | `Household` | HS-1, HS-2; idempotent on `request_id` (D0.14, 2.1) |
+| `list_households` | — | `Vec<HouseholdSummary>` — an empty list proves nothing on its own (see below) | HS-3, HS-4, DM-3 (2.2) |
+| `get_active_household` | — | `Option<Household>` — `None` proves nothing on its own (see below) | HS-2, HS-3, DM-3 (2.2) |
+| `set_active_household` | `household_id: HouseholdId`, `request_id: RequestId` | `Household` — the household active afterwards | HS-3, HS-4, DM-3 (2.2) |
+| `load_household` | `household_id: HouseholdId` | `HouseholdCollection` | SYNC-1, SYNC-3 (2.5) |
+| `get_service_status` | — | `ServiceStatus` | NFR-1 (2.13) |
+| `check_service_reachability` | — | `ServiceStatus` — a fresh probe, published as `service:status-changed` | SYNC-2, NFR-1 (2.13) |
+| `get_identity` | — | `Identity` | SET-2 (2.9) |
+| `get_display_weight_unit` | — | `WeightUnit` | SET-4 (2.10) |
+| `set_display_weight_unit` | `unit: WeightUnit`, `request_id: RequestId` | `WeightUnit` — the effective unit | SET-4 (2.10) |
+| `get_diagnostics_summary` | — | `DiagnosticsSummary` | NFR-3 (2.12) |
+
+**"No household" is a fresh-outcome conclusion, never an absence of data.** `Vec<HouseholdSummary>`
+and `Option<Household>` carry no source or loaded-at flag, so an empty list or `None` cannot by
+itself distinguish "the person holds no household" from "nothing was ever loaded on this device and
+the service is unreachable" (SYNC-3, D0.2). The frontend may start first-run onboarding (HS-2) or
+otherwise treat the person as household-less **only** when a fresh `ServiceStatus` reports
+`state: reachable` **and** `account_valid: true`; while that status is `unknown` or `unreachable`, it
+shows the explicit connectivity-required state and does not start onboarding. `get_service_status()`
+(the last observation) and `check_service_reachability()` (a fresh probe) are the two sources of that
+predecessor fact — task 3.3 consumes this rule and task 3.4 holds the status — and
+`load_household`'s `source`/`loaded_at` carry the same distinction for a collection.
 
 Every state-changing command in the table carries a **client-generated `request_id`**, and the
 shared service deduplicates on it, so a retry is safe by construction (D0.14): retry (SYNC-2) is a
 re-invocation of the failed command with the *same* `request_id`, not a separate retry command.
 `request_id` is therefore **semantic, not diagnostic** — it identifies the operation the service
-must not perform twice. Mechanism selection is conditional on that support (task 1.1).
+must not perform twice. `CommandError.request_id` carries exactly that value; it is `None` only on a
+read's or the reachability probe's failure, because neither has an operation identity to
+deduplicate, so a retry is a fresh call. Mechanism selection is conditional on that support
+(task 1.1).
 
-### Events the frontend needs in this phase
+**Reconciliations against the earlier proposal.** Task 1.3 changed these names and shapes; the
+tables above are the record.
 
-| Event (proposed) | Payload | Purpose |
-|---|---|---|
-| `household:changed` | `{ household_id, kind: created \| switched \| refreshed \| removed }` | Invalidate/refresh the affected household query only |
-| `service:status-changed` | `ServiceStatus` | Drive the status indicator and the offline/loaded-data states |
+- `get_display_preferences()` became **`get_display_weight_unit()`**, matching its setter. The
+  display unit is P0's only display preference; P4 adds the language preference as its own command
+  pair rather than as a second field here.
+- **No `save_item` command.** P0's frontend has no item editor (R8: the P0 dashboard renders
+  household, offline and settings surfaces only), so a generic item-write command would have no
+  consumer and would break the "commands the frontend needs in this phase" rule. The
+  reachability-gated write path (2.4) sits behind `create_household` — P0's only state-changing
+  command that writes to the shared service, which is where every `SaveCause` must be reachable
+  (5.4, 5.16) — and behind the item commands P1 introduces on the same path.
+- `ServiceStatus.account_valid` and `ServiceStatus.observed_at` are **optional**. "We have not
+  looked" and "we looked and it was fine" are different facts, and R3 forbids presenting the first
+  as the second; `None` is that distinction, so no cached guess is representable. P0 carries **no**
+  consecutive-failure count: the three-failure threshold (D0.13) is applied in Rust (2.13) and
+  reported as `state: unreachable`, and P3 adds the count when NFR-6 needs it visible.
+- `HouseholdSummary` has **no `rabbit_count`**: rabbits are P1's, and a count P0 cannot produce
+  would either be a lie or block the row. `member_count` stays — it is at least 1, because the
+  creator is recorded as the first member (HS-1).
+- `CollectionItem` exposes identity and version only — **no payload**. P0 fixes the collection layer
+  (SYNC-1, SYNC-5); the first domain content is P1's and arrives as a new field on this type. The
+  tombstone flag is part of it because a removal must stay reportable.
+- `Member` is exported even though no P0 command returns it yet: it is the frozen member model
+  (D0.3) and P3's member list is its first consumer, so exporting it now keeps one definition.
+- `get_diagnostics_summary()` is no longer marked *optional*: P3's reuse list names it among P0's
+  frozen commands, and 2.12/5.9 implement and test the sink it summarises. No P0 screen consumes it.
+- `SaveCause` is used for reads too, despite its name: D0.6 requires one failure surface for every
+  operation, so a read's refusal (`validation`) carries a cause like any write's.
+
+### Events
+
+Both are registered in `collect_events![]` and mounted through `Builder::mount_events`; the
+generated bindings expose them as `events.householdChanged` and `events.serviceStatusChanged`, which
+is how task 3.6 subscribes.
+
+| Event | Payload type | Payload | Emitted when |
+|---|---|---|---|
+| `household:changed` | `HouseholdChanged` | `{ household_id: HouseholdId, kind: created \| switched \| refreshed \| removed }` | The held/active household set or a loaded collection changes (2.x). P3 reuses the four kinds unchanged, with `removed` carrying deletion propagation |
+| `service:status-changed` | `ServiceStatus` | the status struct below | A fresh observation exists — `check_service_reachability`, a foreground return (2.13) |
+
+The names are registered by explicit `impl tauri_specta::Event` blocks rather than by the crate's
+`Event` derive macro: that macro is gated behind `tauri-specta`'s optional `derive` feature, which
+section 0 pins off (D0.8), and the trait's only required item is `const NAME`. No `Cargo.toml`
+change is therefore needed by this contract; if a later phase enables `derive` (P1 adds two events),
+those two blocks are what it replaces.
 
 ### Shared types
 
-| Type (proposed) | Shape | Notes |
+Declared in `src-tauri/src/ipc/types.rs` (the two event payloads' event names in
+`src-tauri/src/ipc/events.rs`), re-exported at `ipc::`, and present in `src/bindings.ts`. Every
+type derives `Serialize`, `Deserialize` and `specta::Type`; the opaque ids and `Instant` are
+transparent newtypes, so the generated TypeScript sees plain `string` aliases.
+
+| Type | Shape | Notes |
 |---|---|---|
-| `HouseholdId`, `MemberId`, `AccountUserId` | opaque, stable strings | shared verbatim across members |
-| `Household` | `{ id, name, created_at, owner_member_id, is_active, is_owner }` | `is_owner` gates P3's delete control |
-| `HouseholdSummary` | `{ id, name, created_at, is_active, is_owner, member_count, rabbit_count }` | list view; counts may be omitted in P0 |
-| `Member` | `{ id, account_user_id, display_name }` | `display_name` optional → SET-2 fallback chain |
-| `Identity` | `{ account_user_id?, display_name?, resolved: bool }` | unresolved must not break Settings |
-| `ServiceStatus` | `{ state: reachable \| unreachable \| unknown, account_valid: bool, cause?, observed_at }` | `unknown` until a fresh outcome exists |
-| `SaveCause` | `connectivity \| no_account \| allowance_exceeded \| rate_limited \| timeout \| validation \| unknown` | drives the cause-specific copy of NFR-8 |
-| `CommandError` | `{ cause: SaveCause, retryable: bool, message_key, request_id }` | one failure surface for every operation; `request_id` is **semantic** — the operation's identity for the service's deduplication — not a diagnostic field |
-| `WeightUnit` | `grams \| kilograms` | display only; storage stays canonical |
-| `Instant` | RFC 3339 absolute instant, normalised to UTC | DM-6 |
+| `RequestId` | opaque string | the operation identity (D0.14): generated by `api.ts` per state-changing call and re-used on retry; semantic, never diagnostic |
+| `HouseholdId`, `MemberId`, `AccountUserId`, `ItemId` | opaque, stable strings | shared verbatim across members; nothing may be parsed out of them |
+| `Instant` | RFC 3339 string with an offset, normalised to UTC on store | D0.5, DM-6; absolute instants only, never local times |
+| `WeightUnit` | `grams \| kilograms` | display only; storage stays canonical (D0.4) |
+| `SaveCause` | `connectivity \| no_account \| allowance_exceeded \| rate_limited \| timeout \| validation \| unknown` | the frozen, exhaustive cause list (D0.6, D0.12, D0.13); one UI copy per cause (NFR-8) |
+| `CommandError` | `{ cause: SaveCause, retryable: bool, message_key: String, request_id?: RequestId }` | one failure surface for every operation; `request_id` is **semantic** — the operation's identity for the service's deduplication, which is what makes a retry safe — not a diagnostic field (D0.14); `None` only on a read's or the reachability probe's failure |
+| `ServiceState` | `reachable \| unreachable \| unknown` | `unknown` until a fresh outcome exists (R3); P3 adds `syncing` |
+| `ServiceStatus` | `{ state: ServiceState, account_valid?: bool, cause?: SaveCause, observed_at?: Instant }` | the `service:status-changed` payload; the optional fields mean "no observation yet", never a default (R3) |
+| `Household` | `{ id, name, created_at, owner_member_id, is_active, is_owner }` | `is_owner` gates P3's delete control; ownership is recorded from P0 on (D0.3) |
+| `HouseholdSummary` | `{ id, name, created_at, is_active, is_owner, member_count }` | the list row (HS-4); no rabbit count in P0 |
+| `Member` | `{ id, account_user_id, display_name? }` | D0.3; exported for P3's member list |
+| `Identity` | `{ account_user_id?, display_name?, resolved: bool }` | SET-2's chain: account name, then locally known member name, then the frontend's localized placeholder; unresolved never fails the command |
+| `CollectionSource` | `service \| local` | where a collection read resolved its items (D0.2, SYNC-3) |
+| `CollectionItem` | `{ item_id: ItemId, updated_at: Instant, deleted: bool }` | identity, version marker and tombstone (SYNC-1, SYNC-5); P1 adds content |
+| `HouseholdCollection` | `{ household_id: HouseholdId, items: [CollectionItem], source: CollectionSource, loaded_at?: Instant }` | `load_household`'s result; the three SYNC-3 states are distinguishable — `loaded_at: null` is "never loaded", never an empty collection |
+| `DiagnosticsSummary` | `{ record_count: u32, oldest_at?: Instant, newest_at?: Instant }` | counts and timestamps only, never content (NFR-3) |
 
 `SaveCause` → UI copy is one-to-one, so no cause can degrade into a generic message (NFR-8). A
 `timeout` cause exists because HS-5 and NFR-1 require stalled operations to resolve with feedback
-rather than hang; it is a first-class cause, not a placeholder, and its bound is the save-attempt
-constant of D0.13. `allowance_exceeded` likewise reports the exhausted owner allowance as its **own**
-condition (D0.12) rather than as a generic write error mapped after the fact.
+rather than hang; it is a first-class cause, not a placeholder, and its bounds are the two constants
+of D0.13 — `SAVE_ATTEMPT_TIMEOUT` 15 s for a save attempt and `REACHABILITY_PROBE_TIMEOUT` 5 s for a
+reachability probe, which is why `ServiceStatus.cause` can be `timeout` as well.
+`allowance_exceeded` likewise reports the exhausted owner allowance as its **own** condition (D0.12)
+rather than as a generic write error mapped after the fact.
 
 ## Traceability: user stories → scenarios
 

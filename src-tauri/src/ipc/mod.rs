@@ -2,17 +2,31 @@
 //!
 //! Owns the single `tauri-specta` builder that both the running app and the headless bindings
 //! export are built from (D0.9), and the export function the export example calls. It holds no
-//! domain logic, and in section 0 no command, event or shared type either: both `collect_*!` lists
-//! are empty until task 1.3 fills them.
+//! domain logic: [`types`] fixes the shared shapes, [`events`] fixes the two P0 event names, and
+//! [`commands`] holds typed stubs whose bodies section 2 replaces.
 //!
-//! Section 0 ships it this way deliberately: the scaffold's own gate must regenerate
-//! `src/bindings.ts` with no diff before any command exists (TOOL-3). Task 1.3 extends the two
-//! lists below and the types they reference; it does not change this pipeline.
+//! The P0 contract was frozen by task 1.3. `src/bindings.ts` is generated from exactly this
+//! builder, so the frontend reaches every command only through `src/features/*/api.ts` wrappers
+//! over those bindings (project hard rule 2): no route, component or hook imports the bindings or
+//! writes an `invoke` call itself.
+//!
+//! Section 0 shipped this module with an empty command and event set, deliberately, so the
+//! scaffold's own gate could regenerate `src/bindings.ts` with no diff before any command existed
+//! (TOOL-3). Task 1.3 filled the two `collect_*!` lists below, added the types they reference and
+//! registered `Member` explicitly (no P0 command returns it yet); it does not change the pipeline,
+//! so what the running app registers and what the export writes stay one and the same set.
 
 use std::path::Path;
 
 use specta_typescript::Typescript;
 use tauri_specta::{Builder, collect_commands, collect_events};
+
+pub mod commands;
+pub mod events;
+pub mod types;
+
+pub use events::{HouseholdChangeKind, HouseholdChanged};
+pub use types::*;
 
 /// The generated frontend bindings file, relative to this crate's root (`src-tauri/`).
 ///
@@ -28,11 +42,31 @@ const BINDINGS_PATH: &str = "../src/bindings.ts";
 /// through `Builder::mount_events` inside the app's `setup`), and the export example calls
 /// [`export_bindings`] (task 0.11).
 ///
-/// The empty command and event sets are what section 0 ships; task 1.3 adds the P0 entries here.
+/// The lists below are the frozen P0 contract (task 1.3): eleven commands and two events, all
+/// declared in [`commands`] and [`events`]. `Member` is registered explicitly with
+/// [`Builder::typ`] because P0 freezes the member model (D0.3) but no P0 command returns it yet —
+/// P3's member list is its first consumer, and exporting it now is what keeps that shape one
+/// frozen definition rather than two.
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
-        .commands(collect_commands![])
-        .events(collect_events![])
+        .commands(collect_commands![
+            commands::create_household,
+            commands::list_households,
+            commands::get_active_household,
+            commands::set_active_household,
+            commands::load_household,
+            commands::get_service_status,
+            commands::check_service_reachability,
+            commands::get_identity,
+            commands::get_display_weight_unit,
+            commands::set_display_weight_unit,
+            commands::get_diagnostics_summary,
+        ])
+        .events(collect_events![
+            events::HouseholdChanged,
+            types::ServiceStatus
+        ])
+        .typ::<types::Member>()
 }
 
 /// Export the typed bindings headlessly: no window, no app, no running process.

@@ -768,7 +768,7 @@ file's header).
   supports both iOS and macOS with a one-line dependency justification.
 - [ ] 1.2 [architect] Record the mechanism, the connectivity-required write model (D1/D0.1) and the
   loaded-data read model (D0.2) in `docs/adr/0002-shared-service-mechanism.md`.
-- [ ] 1.3 [architect] Define the P0 IPC contract in `src-tauri/src/ipc/`: the commands, events,
+- [x] 1.3 [architect] Define the P0 IPC contract in `src-tauri/src/ipc/`: the commands, events,
   `ServiceStatus`, `SaveCause`, `CommandError`, `Household`, `Member`, `Identity`, `WeightUnit` and
   `Instant` types listed in the design's "IPC contract" section, plus typed stubs that return a
   `not implemented` error. Every state-changing command takes a client-generated `request_id`, and
