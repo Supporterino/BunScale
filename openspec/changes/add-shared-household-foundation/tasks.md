@@ -147,6 +147,28 @@ it, there is no `visualViewport` code anywhere, and the app-shell assignment is 
 first screen with a real keyboard (Q21). Four screenshots sit in `.artifacts/screens/` — the preview and the not-found surface at both baselines —
 gitignored as evidence rather than committed, per `definition-of-done`. The build stays at 47 linted files
 and the route set is unchanged, so `src/routeTree.gen.ts` needed no regeneration.
+Task 0.22 replaced Tauri's default mark with one drawn from the design system. The source artwork is
+committed at `src-tauri/icons/app-mark.svg` — beside the set it generates rather than in `src/styles/`,
+because the iconset is hand-owned (D0.11) and the mark is an input to it, not a stylesheet — and it is a
+flat four-shape rabbit head: two rotated ear ellipses behind a head circle, with the accent inner ear in
+each, which is legible down to 16px. Every colour is a brand token resolved through the layers
+(`--app-mark-tile` → `--color-brand-tile` → `--color-orange-700`, and the same chain for glyph and
+accent); the hex is inlined only because the icon is rasterised outside the document and cannot read a
+custom property, with the provenance recorded in the file's `<desc>`. Generation is `bun run tauri icon
+src-tauri/icons/app-mark.svg` through the pinned CLI — no global install, no new dependency — and it
+replaced **34 tracked files**: the 16 desktop entries, the 18 iOS `AppIcon` slots, and the PNGs embedded
+in `icon.icns` and `icon.ico`. Verification was pixel-level rather than visual: a scratch decoder read the
+raster back at every desktop size, all 18 iOS catalog slots — 13 distinct raster sizes — and both
+container formats, and found the exact token values; the two honest exceptions are ICO's 16px and 24px
+entries, where the accent is sub-pixel blended by downsampling. `tauri.conf.json` was not touched and its five `bundle.icon` entries all still exist, so
+the replacement is in place rather than merely alongside. Two judgement calls are recorded rather than
+implied: the task could not put the artwork in `src-tauri/icons/` without a write grant, so
+`frontend-ui`'s allow list gained **one narrow path** (`src-tauri/icons/*`, after the blanket deny, with
+the reason in the file) rather than the artwork being parked in a stylesheet directory; and the CLI emits
+`icons/android/**` and a `64x64.png` unconditionally, which are **kept** rather than hand-deleted, because
+deleting part of generated output would make re-running the documented command produce a diff and D0.11
+says regenerate rather than edit. Phase 1 ships neither Android nor Windows, so that is dead weight by
+design, not a platform commitment (Q22).
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -469,7 +491,7 @@ file's header).
   and it is deliberately limited to
   P0 needs with a named deferred list, so build from that list rather than inventing component types.
 
-- [ ] 0.22 [frontend-ui] Produce the app mark and generate the platform icon set, replacing the
+- [x] 0.22 [frontend-ui] Produce the app mark and generate the platform icon set, replacing the
   Tauri default iconset that task 0.1 shipped as a placeholder: draw a minimal flat mark from the
   design-system tokens of task 0.20 (a squared PNG or SVG with transparency, committed as the source
   artwork), then run `bun run tauri icon <source artwork>` through the exactly pinned

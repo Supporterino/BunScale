@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>BunScale app mark</title>
+  <desc>Source artwork for the platform icon set (task 0.22, design.md D0.19). Full-bleed 1024x1024 opaque square with no rounded corners, because iOS applies its own mask; the glyph sits inside the 160 px clear-space inset. Tile, glyph and accent are the exact values of the fixed brand tokens --app-mark-tile, --app-mark-glyph and --app-mark-accent, which resolve through --color-brand-tile/--color-brand-glyph/--color-brand-accent to the --color-orange-700, --color-neutral-0 and --color-orange-200 primitives in src/styles/primitives.css. The hex is inlined because a platform icon is rasterised outside the document and cannot read a CSS custom property. Regenerate with: bun run tauri icon src-tauri/icons/app-mark.svg</desc>
+  <rect width="1024" height="1024" fill="#c2410c"/>
+  <g fill="#ffffff">
+    <ellipse cx="438" cy="330" rx="66" ry="150" transform="rotate(-14 438 330)"/>
+    <ellipse cx="586" cy="330" rx="66" ry="150" transform="rotate(14 586 330)"/>
+    <circle cx="512" cy="640" r="200"/>
+  </g>
+  <g fill="#fed7aa">
+    <ellipse cx="438" cy="330" rx="30" ry="92" transform="rotate(-14 438 330)"/>
+    <ellipse cx="586" cy="330" rx="30" ry="92" transform="rotate(14 586 330)"/>
+  </g>
+</svg>

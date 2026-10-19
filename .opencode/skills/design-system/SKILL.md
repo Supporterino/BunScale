@@ -975,3 +975,322 @@ bunx playwright screenshot --browser=webkit --viewport-size="1280,800" --wait-fo
 
 The `cargo` gate commands remain the release/test tasks' to run.
 
+---
+
+## Task 0.22 record — the app mark and the generated platform icon set
+
+> **Provenance.** Appended by `frontend-ui` in task 0.22 of
+> `add-shared-household-foundation`. It records the artwork the app-mark contract
+> above asked for and the platform set generated from it, replacing Tauri's
+> default iconset that task 0.1 shipped as a placeholder (D0.19). **No token
+> changed:** this task consumes `--app-mark-*`; it adds none and edits none. The
+> status line stays `frozen`.
+
+### The source artwork
+
+**`src-tauri/icons/app-mark.svg`** — 14 lines, hand-authored, committed, and
+hand-owned together with the icons it generates (D0.11 lists `src-tauri/icons/**`
+as hand-owned; putting the source beside its output is what makes a later
+regeneration a one-command operation, and it keeps a stylesheet directory a
+stylesheet directory).
+
+The mark is a flat rabbit head: two rotated ear ellipses behind a head circle,
+each ear carrying an accent inner ear. That is the direction above ("rabbit,
+care, a little playfulness"), reduced to four shapes so it survives 16 px.
+
+Geometry, all of it from the contract rather than from taste:
+
+| Property | Value | Where it comes from |
+|---|---|---|
+| canvas | 1024×1024, full-bleed, opaque | `--app-mark-source-size` |
+| corners | **no radius** — the source is a square and iOS masks it itself | `--app-mark-corner-radius` = `--radius-0` = `0` |
+| glyph box | 704×704 = **68.75 %** of the tile | the 160 px clear-space inset on each side (`--app-mark-glyph-inset`) |
+| glyph bounds | x 312–712, y 183.6–840 | inside the inset on all four sides; bounds centre ≈ (512, 512), optical centre ≈ (512, 504) |
+
+**The glyph bounds are the shapes' own extremes, not an axis-aligned rectangle
+around the rotated ellipses.** The two ears sit at `cy 330`, `rx 66`, `ry 150`,
+rotated ±14°, so the topmost point of either is
+
+```
+330 − √((150·cos 14°)² + (66·sin 14°)²) ≈ 330 − 146.4 = 183.6
+```
+
+which is the `y` in the row above; an earlier `168.5` was an axis-aligned
+over-estimate of the same extent, not the ellipse's extreme. The bottom
+`840` is the head circle (`cy 640`, `r 200`), and the `x` pair is the same
+circle (`512 ± 200`), which is wider than either ear. Every bound clears the
+160 px inset **either way**, so the inset conclusion does not depend on which
+figure is used — the corrected one is simply the true one. Read back from
+`src-tauri/icons/app-mark.svg`, whose `rect`, `circle` and four `ellipse`
+elements are the whole artwork.
+
+Colours are the **exact** token values, followed through all three layers:
+
+| Role | Component token | Semantic | Primitive | Value |
+|---|---|---|---|---|
+| tile | `--app-mark-tile` | `--color-brand-tile` | `--color-orange-700` | `#c2410c` |
+| glyph | `--app-mark-glyph` | `--color-brand-glyph` | `--color-neutral-0` | `#ffffff` |
+| accent | `--app-mark-accent` | `--color-brand-accent` | `--color-orange-200` | `#fed7aa` |
+
+The hex is **inlined in the SVG** and that is correct rather than drift: resvg
+rasterises the file outside the document, so a platform icon cannot read a CSS
+custom property, and the brand trio is the one group deliberately fixed across
+light and dark. Provenance is stated in the file's own `<desc>`, which names all
+nine token names — an XML comment cannot, because `--` is illegal inside one and
+the first generator run failed on exactly that (`SVG data parsing failed cause
+comment at 2:3 contains '--'`).
+
+**Where it lives, and the permission it needed.** `src-tauri/icons/**` is not in
+`frontend-ui`'s edit allow-list in `.opencode/agents/frontend-ui.md` (the file
+lists `src/components/*`, `src/features/*/components/*`, `src/styles/*`,
+`src/*.css` and this skill). The write was refused there
+(`write src-tauri/icons/app-mark.svg` → `Permission denied: edit`), so the first
+pass authored the artwork at the writable fallback `src/styles/app-mark.svg` and
+reported the trade rather than bypassing the guardrail through a `bun run`
+script. The orchestrator then granted a narrow `edit` allow for
+`src-tauri/icons/*.svg` — **narrowed from a first draft of `src-tauri/icons/*`
+for a reason worth keeping**: only the **hand-authored source artwork** is the
+agent's to write, while every raster beside it (`*.png`, `*.icns`, `*.ico`) is
+the icon CLI's output and is regenerated, never hand-edited (D0.11) — the
+narrower glob is what keeps the grant from also covering the generator's
+products. It is recorded in that file with its reason, the artwork moved to
+`src-tauri/icons/app-mark.svg`, the `src/styles/` copy was unlinked, and the
+generator was re-run from the new path — so the command recorded here is the
+command that produced the committed set.
+
+**Why one `.svg` grant can produce a whole set of rasters.** The grant is a
+single path, and the generation that followed it replaced **34 tracked files**
+across `src-tauri/icons/` and
+`src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/` and created the new
+`src-tauri/icons/android/**` directory. That is not a contradiction, and the
+reason is the part a later reader would otherwise trip over: **`tauri icon`
+writes its output from the CLI's own subprocess, not through any agent's `edit`
+permission.** The command in "Generation" below ran under `bun run`, and the 18
+regenerated files under the iOS asset catalog, the 16 replaced files at
+`src-tauri/icons/` and the new `android/**` tree were all written by that
+subprocess. No hand edit was made to any generated file, before or after; the
+`.svg` allow covers exactly the one file a hand edit can touch.
+
+### Generation
+
+```
+bun run tauri icon src-tauri/icons/app-mark.svg
+```
+
+resolves `node_modules/.bin/tauri` through the `package.json` script
+(`"tauri": "tauri"`) — **`tauri-cli 2.12.3`**, the exactly pinned
+`@tauri-apps/cli` dev dependency task 0.13 established. **No global install**
+(no `cargo install tauri-cli`, no `cargo tauri`), **no new dependency** (rule 6,
+TOOL-8) and **no new Tauri capability permission** — no capability, entitlement
+or scope was added, and `src-tauri/capabilities/**`, `src-tauri/tauri.conf.json`
+and the CSP are untouched (rule 8: those change only via `tauri-security`). That
+is a different thing from the harness grant described above: the
+`src-tauri/icons/*.svg` edit allow is an **agent-file permission**, granted to
+this agent by the orchestrator, not a Tauri permission the app asks the
+operating system for. The clause means the latter, and the two passages are
+consistent — the CLI needed no new capability to rasterise a local SVG.
+
+SVG is a documented input, not a guess: `tauri icon --help` reads
+`[INPUT] Path to the source icon (squared PNG or SVG file with transparency)`.
+The command was run twice — once from the fallback path, once after the move —
+and printed the same file list both times, i.e. the rasterisation does not depend
+on where the source sits.
+
+The generator's own output, verbatim categories: 10 `Appx` files, `icon.icns`,
+`icon.ico`, 5 `PNG` sizes, 18 `iOS` files and 17 `Android` entries — 15 PNGs
+plus 2 XML resources, counted from the directory, not from the CLI's summary
+line.
+
+### Before and after
+
+| Location | Before (task 0.1 defaults) | After |
+|---|---|---|
+| `src-tauri/icons/` top level | 16 files, all Tauri's default template | **18 files** — the same 16 regenerated, plus `64x64.png` and `app-mark.svg` |
+| `src-tauri/icons/android/**` | absent | 15 PNGs in 5 densities + `mipmap-anydpi-v26/ic_launcher.xml` + `values/ic_launcher_background.xml` |
+| `src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/` | 18 default PNGs + `Contents.json` | the same 18 filenames, regenerated from our mark; `Contents.json` untouched |
+
+`git diff --stat` names **34 replaced tracked files** — 18 in the iOS catalog and
+16 in `src-tauri/icons/` — with no Tauri default mark left in either. Sizes moved
+accordingly (a flat two-colour mark compresses far better): `icon.png`
+49 979 → 7 793 bytes, `icon.icns` 277 003 → 46 632, `icon.ico` 37 710 → 8 158,
+the App Store `AppIcon-512@2x.png` 121 323 → 17 698.
+
+**The two files that appeared, and what they are for:**
+
+- **`src-tauri/icons/64x64.png`** — a desktop PNG size the 0.1 template did not
+  carry; the generator's PNG list is 32/64/128/256(`@2x`)/512, so a plain
+  regeneration adds it. It is **not** referenced by `bundle.icon`, and its
+  presence does not invalidate that list (see the verification record).
+- **`src-tauri/icons/android/**`** — 15 PNGs (5 densities × launcher, round
+  launcher, adaptive foreground) plus two XML resources: the adaptive-icon
+  descriptor and the background-colour resource. It is written
+  because the CLI always emits the Android set and **`src-tauri/gen/android/`
+  does not exist**, so it falls back to the `icons` output directory. Android is
+  not a Phase-1 platform (AGENTS.md). Kept rather than deleted, because a set
+  deleted by hand is not what a plain regeneration produces (D0.11: regenerate,
+  never hand-edit) — flagged here as the one consequence of the default
+  invocation, for the orchestrator to keep or for a later task to narrow.
+  `values/ic_launcher_background.xml` carries `#FFFFFF`, the CLI's own default
+  (`--ios-color` defaults to `#fff`; we pass no manifest with an `android_bg`),
+  so the *adaptive background* is not the tile colour — it is only reachable
+  where the opaque full-bleed foreground does not cover the mask, and it was
+  never rendered on a device.
+
+### How the generated pixels were checked against the tokens
+
+Not by eyeballing. A scratch probe (Bun + `node:zlib`, deleted afterwards)
+decoded the PNGs — inflate, PNG unfilter, 8-bit RGBA — and read pixels back:
+
+- **desktop set** `32x32`, `64x64`, `128x128`, `128x128@2x`, `icon.png`,
+  `StoreLogo.png`, `Square150x150Logo.png`
+- **all 18 slots** in the asset catalog — the 17 below the marketing size
+  (20×20 up to 83.5×83.5) plus `AppIcon-512@2x` — which resolve to **13 distinct
+  raster sizes**: 12 below 1024, plus the 1024×1024 marketing slot. Counted from
+  `Contents.json`'s 18 `images` entries (their `size` × `scale`) and the 18 PNGs
+  beside it, not from a filename count: several slots share one raster size, and
+  three names carry a `-1` suffix for a duplicate `size`/`scale` pair, which is
+  why 18 slots are fewer than 18 distinct pixels sizes
+- the **8 PNGs embedded in `icon.icns`** and the **6 entries in `icon.ico`**,
+  located by PNG signature and decoded in place
+
+Result, at every size: corner pixel exactly `#c2410c`, head-centre exactly
+`#ffffff`, inner-ear exactly `#fed7aa`, alpha 255 — the three token values, not
+colours that look close.
+
+| Asset | Dimensions observed | Container contents observed |
+|---|---|---|
+| `src-tauri/icons/icon.png` | **512×512** (not 1024 — the CLI's Linux/512 size) | — |
+| `32x32` / `64x64` / `128x128` / `128x128@2x` | 32 / 64 / 128 / 256 | — |
+| `StoreLogo.png` / `Square150x150Logo.png` | 50×50 / 150×150 | — |
+| `icon.icns` | — | 8 embedded PNGs: **1024**, 512, 512, 256, 256, 128, 64, 32 |
+| `icon.ico` | — | 6 entries at 32 bpp: 16, 24, 32, 48, 64, 256 — **all PNG-encoded** (the signature scan found all six) |
+| iOS `AppIcon-512@2x.png` | **1024×1024** (the App Store size) | — |
+| iOS `AppIcon-20x20@1x` … `AppIcon-83.5x83.5@2x` | 17 slots resolving to **12 distinct rasters**: 20, 29, 40, 58, 60, 76, 80, 87, 120, 152, 167, 180 | — |
+
+**Two honest exceptions:** the 16×16 and 24×24 ICO entries sample `#fee8cf` and
+`#fed9af` at the inner-ear point — the accent sliver is sub-pixel at those sizes
+and is blended by downsampling, not recoloured. Every other size, including
+32×32, is exact. And the Android `ic_launcher.png` / `ic_launcher_round.png`
+carry transparent margins (31 % of pixels) around the mark, which is the
+adaptive-icon shape rather than a mismatch.
+
+Also read as images, not only as pixels: the generated `icon.png` and the iOS
+`AppIcon-60x60@3x.png` (180×180) show the source mark exactly — full-bleed
+orange tile, square corners, white ears and head, peach inner ears, glyph inset
+by a clear margin. At 32×32 the silhouette is still legible; the accent nearly
+vanishes there, which is expected of a detail at that size.
+
+### Screenshots
+
+**`0.22-compact.png`** (390×844, dsf 3 → 1170×2532) and
+**`0.22-expanded.png`** (1280×800, dsf 2 → 2560×1600), both WebKit, in
+`.artifacts/screens/` (gitignored evidence, not committed).
+
+**Two, not four.** 0.22's requirement is the mark at the two baselines, and
+unlike 0.21 there is no second route surface to capture: 0.21's four were its two
+baselines times (preview, not-found). The count is stated rather than padded.
+
+The icon files are not viewport-sized surfaces, so the honest reading is a
+harness that renders the mark **from the tokens**: the four layer files were read
+from `src/styles/` and inlined, and the harness drew the tile with
+`background: var(--app-mark-tile)`, the ears' inner shapes with
+`fill: var(--app-mark-accent)`, the glyph with `fill: var(--app-mark-glyph)` and
+the corner with `border-radius: var(--app-mark-corner-radius)`, on a
+`--color-background` page using `--layout-viewport-height`, `--spacing-inline`
+and the `--space-*` scale. The values were then read **back out of the browser**,
+which is what makes the render the tokens rather than a copy of the SVG:
+
+```
+--app-mark-tile=#c2410c --app-mark-glyph=#ffffff --app-mark-accent=#fed7aa
+--app-mark-glyph-inset=160px --app-mark-corner-radius=0
+computed: tile rgb(194, 65, 12), radius 0px, glyph rgb(255, 255, 255),
+          accent rgb(254, 215, 170)          glyph box 193.05² (390×844) / 396² (1280×800)
+```
+
+What the two images show, as observed: a uniform warm off-white
+`--color-background` page; a centred **square** tile in `#c2410c` with **no
+corner rounding**; the white rabbit glyph inside the clear margin, ears above a
+round head, each ear carrying the peach accent; and a caption set from
+`--text-caption-2-size`/`--color-text-secondary` printing the resolved values.
+The tile is 281×281 CSS px at 390×844 and 576×576 at 1280×800 (0.72 of the
+shorter edge), so the same mark is seen at both baselines without the harness
+being a mock of either screen.
+
+The harness script was scratch and is gone; the screenshots predate the artwork's
+move, and remain valid because the harness renders `src/styles/**`, which the
+move did not touch — and the post-move regeneration produced the same mark (same
+sampled pixels, above), so the assets the screenshots describe did not change
+either.
+
+### Verification record (task 0.22)
+
+All run **after** the artwork moved to its final path:
+
+- `bun run lint` — **exit 0**, "Checked 47 files … No diagnostics". 47 before the
+  task and 47 after: the artwork sits outside Biome's `files.includes`, so this
+  task adds **no** checked file. (While the artwork was temporarily at
+  `src/styles/app-mark.svg`, inside `src/**`, the count read 48 — the SVG is
+  counted but has no Biome rule to break; the two scratch probes took it to 50
+  mid-run, and both are deleted.)
+- `bun run typecheck` — exit 0.
+- `bun run build` — **exit 0**, 189 modules transformed,
+  `dist/assets/index-WTOvhpH6.css` **44.94 kB (gzip 7.81 kB)** — byte-for-byte the
+  0.21 figures, so nothing entered the bundle: the source artwork is an asset the
+  toolchain never imports.
+- `src-tauri/tauri.conf.json` — **untouched** (`git diff --exit-code` clean;
+  `tauri-security` owns it and no change was needed). Its `bundle.icon` list is
+  `icons/32x32.png`, `icons/128x128.png`, `icons/128x128@2x.png`,
+  `icons/icon.icns`, `icons/icon.ico`, and all five exist in the post-generation
+  listing of `src-tauri/icons/` — cross-checked against the directory, not
+  assumed.
+- `bun run gen:bindings` — exit 0, silent; then
+  `git diff --exit-code src/bindings.ts src/routeTree.gen.ts` — **exit 0, no
+  diff**.
+- `bun run test` — still **red**, and expected to be: "No test files found,
+  exiting with code 1". The first specs are tasks 0.23/0.24/0.25's; this task adds
+  none.
+- `cargo *` — outside this agent's shell allow-list, so the four Rust gate
+  commands were **not** run and are not claimed (`gen:bindings` is the one script
+  that runs cargo, and it was run).
+- **No scratch file left behind.** Three temporary files existed
+  (`src/components/icon-probe.ts`, `src/components/mark-screenshot.ts`,
+  `src/components/verify-probe.ts` and two self-deleting cleanup scripts) and
+  each was unlinked by a `bun run` script that printed the directory afterwards:
+  `src/styles/` is back to exactly `base.css`, `components.css`, `index.css`,
+  `primitives.css`, `semantic.css`, `ui.css`, and `src/components/` holds only
+  the 0.21 primitives (`ui/*.tsx` plus `class-names.ts`, `field-parts.tsx`,
+  `navigation.ts`).
+- **`git status --short` could not be run:** the shell allow-list grants
+  `git diff *` but not `git status`. The substitutions used, and stated as
+  substitutions: `git diff --stat` for tracked changes, and
+  `git diff --no-index /dev/null <path>` for the two new files it can express
+  (`src/styles/app-mark.svg` before the move, `src-tauri/icons/64x64.png`); the
+  new directory `src-tauri/icons/android/**` has no `git diff` form, so its
+  contents are evidenced by a directory listing.
+
+### Not verified
+
+- **The mark as iOS masks it.** The source is a full-bleed square with radius 0
+  *by design*, and the contract's point is that iOS supplies the mask. No device
+  or Simulator rasterises it here, so the rounded-squircle result, its clipping
+  of the tile's corners, and the Home screen's own scale and zoom treatment are
+  all unverified. A desktop WebKit window cannot show any of it.
+- **The icon where a user actually meets it:** a real Home screen, the macOS
+  Dock, Finder's icon view and the app switcher were never opened. Q15 records
+  that the **iOS half of task 0.27's manual boot check is blocked by CoreSimulator
+  in this environment**; the macOS half of that check is 0.27's to run, not this
+  task's. Nothing here claims the icon looks right on either platform's chrome —
+  only that the rasters are the mark and the build still succeeds.
+- **The containers as the operating system loads them.** `icon.icns` and
+  `icon.ico` were verified by parsing their embedded PNGs, not by asking macOS or
+  Windows to decode them; no Dock or Explorer render was observed.
+- **Android's adaptive icon** was read (XML plus PNGs) but never rendered, and
+  Android is not a Phase-1 platform; the white `ic_launcher_background` is
+  recorded as an observation, not as tested behaviour.
+- **The generator's own size decisions** are the CLI's — which sizes, which
+  containers, which entries — and are recorded as observed rather than asserted
+  as choices this task made.
+- **The `--ios-color` / `--fit` options and a manifest-based invocation** were
+  not used; the plain command the task specifies was, and its defaults are what
+  the set reflects.
+

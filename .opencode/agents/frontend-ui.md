@@ -42,6 +42,14 @@ permissions:
   - action: edit
     resource: ".opencode/skills/design-system/*"
     effect: allow
+  # Narrow grant for task 0.22: the iconset is hand-owned (design.md D0.11) and that
+  # task owns producing it, including the committed source artwork, which belongs
+  # beside the assets it generates rather than in the stylesheet directory. Limited
+  # to SVG on purpose: only the hand-authored source is this agent's to write. The
+  # generated rasters are the icon CLI's to write, not something to hand-edit.
+  - action: edit
+    resource: "src-tauri/icons/*.svg"
+    effect: allow
   - action: shell
     resource: "bun run *"
     effect: allow
