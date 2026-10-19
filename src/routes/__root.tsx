@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, Outlet } from '@tanstack/react-router';
+import { NotFoundScreen } from '../features/design-preview/components/NotFoundScreen';
 
 /*
  * The root of the file-based route tree: every route under `src/routes/` is a
@@ -9,11 +10,9 @@ import { createRootRouteWithContext, Outlet } from '@tanstack/react-router';
  * route reading `context.queryClient` cannot be written before the cache exists.
  *
  * `NotFoundScreen` is the root-level not-found surface that
- * `tanstack-router-conventions` requires. It is deliberately unstyled, semantic
- * markup only: it is a scaffolding placeholder, and `frontend-ui` owns its
- * presentation (the design tokens are task 0.20, the primitives 0.21). No
- * `errorComponent` or `pendingComponent` is declared yet because no route has a
- * `loader` — the conventions attach those two to routes that do.
+ * `tanstack-router-conventions` requires; it lives in the design-preview
+ * feature. No `errorComponent` or `pendingComponent` is declared yet because no
+ * route has a `loader` — the conventions attach those two to routes that do.
  */
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   {
@@ -29,13 +28,4 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
  */
 function RootLayout() {
   return <Outlet />;
-}
-
-function NotFoundScreen() {
-  return (
-    <main>
-      <h1>Not found</h1>
-      <p>This screen does not exist.</p>
-    </main>
-  );
 }

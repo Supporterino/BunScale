@@ -1,0 +1,1205 @@
+/*
+ * BunScale design system — the primitives' stylesheet.
+ *
+ * Every rule here belongs to a component in `src/components/ui/` (plus the
+ * scaffold-only preview layout at the end). Values come from the tokens:
+ * `components.css` for a component decision, `semantic.css` for a purpose, and
+ * `primitives.css` for the layer-1 scales that carry no meaning to
+ * reinterpret — spacing, radius, border width, size, duration and easing. That
+ * is the layer rule in full in `semantic.css`; colours and type roles always
+ * arrive through the two layers above, because those are the names a theme
+ * redefines. There are no raw colours, font sizes, radii or durations below —
+ * if a value is missing, it is added to the token layers first and recorded in
+ * the design-system skill, never written here.
+ *
+ * The order is the cascade: type roles and copy first, then the frame (Screen,
+ * AppShell), then the controls, then the surfaces and states. Several components
+ * read their own `--<component>-*` type tokens in a rule that also carries a
+ * shared `--text-*` role class; the component rule is written later on purpose,
+ * so the component's decision wins over the generic role it is built on.
+ *
+ * Mobile first: base rules are the compact layout, and every width-dependent
+ * arrangement is a `min-width` query. The only breakpoint used is 768px, the
+ * `--breakpoint-medium` literal that `--layout-breakpoint-navigation` resolves
+ * to (media queries cannot read custom properties, so both statements must move
+ * together).
+ */
+
+/* ---------------------------------------------------------------------------
+ * Type roles
+ *
+ * The thirteen text styles of the semantic layer, each read by more than one
+ * primitive: `Text` and `Heading` pick one by variant, `Button` uses the button
+ * role, a `ListSection` header the section-header role.
+ * ------------------------------------------------------------------------ */
+
+.bs-type--large-title {
+  font-size: var(--text-large-title-size);
+  line-height: var(--text-large-title-line-height);
+  font-weight: var(--text-large-title-weight);
+  letter-spacing: var(--text-large-title-tracking);
+}
+
+.bs-type--title-1 {
+  font-size: var(--text-title-1-size);
+  line-height: var(--text-title-1-line-height);
+  font-weight: var(--text-title-1-weight);
+  letter-spacing: var(--text-title-1-tracking);
+}
+
+.bs-type--title-2 {
+  font-size: var(--text-title-2-size);
+  line-height: var(--text-title-2-line-height);
+  font-weight: var(--text-title-2-weight);
+  letter-spacing: var(--text-title-2-tracking);
+}
+
+.bs-type--title-3 {
+  font-size: var(--text-title-3-size);
+  line-height: var(--text-title-3-line-height);
+  font-weight: var(--text-title-3-weight);
+  letter-spacing: var(--text-title-3-tracking);
+}
+
+.bs-type--headline {
+  font-size: var(--text-headline-size);
+  line-height: var(--text-headline-line-height);
+  font-weight: var(--text-headline-weight);
+  letter-spacing: var(--text-headline-tracking);
+}
+
+.bs-type--body {
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-line-height);
+  font-weight: var(--text-body-weight);
+  letter-spacing: var(--text-body-tracking);
+}
+
+.bs-type--callout {
+  font-size: var(--text-callout-size);
+  line-height: var(--text-callout-line-height);
+  font-weight: var(--text-callout-weight);
+  letter-spacing: var(--text-callout-tracking);
+}
+
+.bs-type--subheadline {
+  font-size: var(--text-subheadline-size);
+  line-height: var(--text-subheadline-line-height);
+  font-weight: var(--text-subheadline-weight);
+  letter-spacing: var(--text-subheadline-tracking);
+}
+
+.bs-type--footnote {
+  font-size: var(--text-footnote-size);
+  line-height: var(--text-footnote-line-height);
+  font-weight: var(--text-footnote-weight);
+  letter-spacing: var(--text-footnote-tracking);
+}
+
+.bs-type--caption-1 {
+  font-size: var(--text-caption-1-size);
+  line-height: var(--text-caption-1-line-height);
+  font-weight: var(--text-caption-1-weight);
+  letter-spacing: var(--text-caption-1-tracking);
+}
+
+.bs-type--caption-2 {
+  font-size: var(--text-caption-2-size);
+  line-height: var(--text-caption-2-line-height);
+  font-weight: var(--text-caption-2-weight);
+  letter-spacing: var(--text-caption-2-tracking);
+}
+
+.bs-type--button {
+  font-size: var(--text-button-size);
+  line-height: var(--text-button-line-height);
+  font-weight: var(--text-button-weight);
+  letter-spacing: var(--text-button-tracking);
+}
+
+.bs-type--section-header {
+  font-size: var(--text-section-header-size);
+  line-height: var(--text-section-header-line-height);
+  font-weight: var(--text-section-header-weight);
+  letter-spacing: var(--text-section-header-tracking);
+  text-transform: var(--text-section-header-transform);
+}
+
+/* ---------------------------------------------------------------------------
+ * Text and Heading
+ * ------------------------------------------------------------------------ */
+
+.bs-text {
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  /* A text element is copy: it never carries a fixed height, so a large
+     preferred text size wraps it and grows the container. */
+  text-wrap: pretty;
+}
+
+.bs-heading {
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  text-wrap: balance;
+}
+
+.bs-text--secondary {
+  color: var(--color-text-secondary);
+}
+
+.bs-text--tertiary {
+  color: var(--color-text-tertiary);
+}
+
+.bs-text--danger {
+  color: var(--color-danger);
+}
+
+/* ---------------------------------------------------------------------------
+ * VisuallyHidden
+ *
+ * Clipped, not removed: the text stays in the accessibility tree and in the
+ * reading order, and it can never take a tap, a click or focus.
+ * ------------------------------------------------------------------------ */
+
+.bs-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Skip link (rendered by AppShell as the first focusable element)
+ *
+ * Off-screen until it is focused, then a real 44 pt control in the top-left
+ * corner, over the safe area rather than under it.
+ * ------------------------------------------------------------------------ */
+
+.bs-skip-link {
+  position: absolute;
+  top: var(--safe-area-inset-top);
+  left: var(--safe-area-inset-left);
+  z-index: 1;
+  padding-block: var(--space-3);
+  padding-inline: var(--space-4);
+  border-end-end-radius: var(--radius-control);
+  border-end-start-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: var(--text-button-size);
+  font-weight: var(--text-button-weight);
+  line-height: var(--text-button-line-height);
+  transform: translateY(-200%);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.bs-skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* ---------------------------------------------------------------------------
+ * Screen
+ *
+ * The scroll region of a screen. It reserves what the bars and the keyboard
+ * take, so no content or control is left underneath them.
+ * ------------------------------------------------------------------------ */
+
+.bs-screen {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  padding-block-start: var(--space-4);
+  /* The keyboard inset is the app shell's single measurement of the software
+     keyboard — reserved here, assigned by the first real form screen (task
+     4.1), `0px` until then (`semantic.css` says the same at the token). */
+  padding-block-end: calc(var(--space-8) + var(--keyboard-inset));
+  /*
+   * The screen is flush to the viewport on both inline edges in the compact
+   * arrangement, so it adds both horizontal safe-area insets; in the expanded
+   * one the sidebar owns the leading edge and the shell drops that half (see
+   * the 768px block below). `env(..., 0px)` means neither moves on a device
+   * that has no insets.
+   */
+  padding-inline-start: calc(
+    var(--spacing-inline) +
+    var(--safe-area-inset-left)
+  );
+  padding-inline-end: calc(
+    var(--spacing-inline) +
+    var(--safe-area-inset-right)
+  );
+  overscroll-behavior: contain;
+  scroll-padding-block-end: calc(
+    var(--layout-tab-bar-height) +
+    var(--keyboard-inset)
+  );
+}
+
+.bs-screen--scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bs-screen--fixed {
+  overflow: hidden;
+}
+
+.bs-screen__content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+  width: 100%;
+  max-width: var(--layout-content-max);
+  margin-inline: auto;
+}
+
+.bs-screen__content--full {
+  max-width: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * AppShell
+ *
+ * Compact is the base: one column, the sidebar out of the layout and out of the
+ * accessibility tree, the tab bar in the flow below the scrolling main region.
+ * ------------------------------------------------------------------------ */
+
+.bs-app-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: var(--layout-viewport-height);
+  overflow: hidden;
+  background: var(--color-background);
+}
+
+/*
+ * Compact is the base arrangement: the sidebar leaves the layout and the
+ * accessibility tree, the tab bar is the bottom bar. Compound selector on
+ * purpose — it outranks the primitive's own `display: flex` (see `.bs-sidebar`),
+ * so a `Sidebar` is a self-contained column anywhere it is used and only the
+ * shell decides which arrangement is on screen at which width.
+ */
+.bs-app-shell .bs-app-shell__sidebar {
+  display: none;
+}
+
+.bs-app-shell__main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/*
+ * Medium and expanded: the same DOM, the other arrangement. The tab bar leaves
+ * the layout, the sidebar becomes the 260 pt navigation column with the top safe
+ * area of its own, and the content column widens through the tokens.
+ *
+ * Both rules keep the shell's own compound selector (`.bs-app-shell` plus the
+ * slot) so they outrank the primitives' base `display` declarations — the
+ * primitives stay self-contained components and the shell owns the arrangement.
+ */
+@media (min-width: 768px) {
+  .bs-app-shell {
+    flex-direction: row;
+  }
+
+  .bs-app-shell .bs-app-shell__sidebar {
+    display: flex;
+    flex: none;
+    width: var(--sidebar-width);
+    overflow-y: auto;
+    padding-block-start: var(--safe-area-inset-top);
+    /*
+     * In this arrangement the sidebar is the box flush to the viewport's
+     * leading edge, so the leading inset is added here — to its padding, not to
+     * the shell's, so its own surface still reaches the edge while the 44 pt
+     * rows clear a landscape phone's sensor housing.
+     */
+    padding-inline-start: calc(
+      var(--sidebar-padding) +
+      var(--safe-area-inset-left)
+    );
+    border-inline-end: var(--border-width-hairline) solid
+      var(--sidebar-border-color);
+    overscroll-behavior: contain;
+  }
+
+  /*
+   * The content column's leading edge abuts the sidebar, not the viewport, so
+   * the navigation bar and the screen drop the leading inset they carry in the
+   * compact arrangement. Without this, a device with a leading inset would have
+   * it counted twice — once by the sidebar, once by everything beside it.
+   */
+  .bs-app-shell .bs-app-shell__main .bs-nav-bar,
+  .bs-app-shell .bs-app-shell__main .bs-screen {
+    padding-inline-start: var(--spacing-inline);
+  }
+
+  .bs-app-shell .bs-app-shell__tab-bar {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * NavigationBar
+ *
+ * The screen's `h1`. A minimum height, never a fixed one: at a large preferred
+ * text size the title wraps and the bar grows instead of clipping.
+ * ------------------------------------------------------------------------ */
+
+.bs-nav-bar {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  min-height: calc(var(--nav-bar-height) + var(--safe-area-inset-top));
+  padding-block-end: var(--space-2);
+  padding-block-start: calc(var(--space-2) + var(--safe-area-inset-top));
+  /*
+   * The bar is the topmost box, flush to both inline edges in the compact
+   * arrangement, so it adds both horizontal insets; the expanded arrangement
+   * drops the leading half because the sidebar is the box on that edge (see the
+   * 768px block below). The padding, not the bar's width, carries them, so the
+   * bar background still covers the notch area.
+   */
+  padding-inline-start: calc(
+    var(--spacing-inline) +
+    var(--safe-area-inset-left)
+  );
+  padding-inline-end: calc(
+    var(--spacing-inline) +
+    var(--safe-area-inset-right)
+  );
+  border-block-end: var(--border-width-hairline) solid
+    var(--nav-bar-border-color);
+  background: var(--nav-bar-background);
+}
+
+.bs-nav-bar__leading,
+.bs-nav-bar__trailing {
+  display: flex;
+  flex: none;
+  /*
+   * A slot holds up to two `IconButton`s, which are adjacent targets: the gap is
+   * `--size-touch-spacing` (8 px), the same token that sets the minimum distance
+   * between touch targets, rather than the 4 px step used for the bar's own
+   * internal rhythm.
+   */
+  gap: var(--size-touch-spacing);
+  align-items: center;
+  /* The slots keep the title optically centred whether or not an action is
+     present, without a magic constant: one 44 pt control wide. */
+  min-width: var(--size-touch-target);
+}
+
+.bs-nav-bar__trailing {
+  justify-content: flex-end;
+}
+
+.bs-nav-bar__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--nav-bar-title-color);
+  font-family: var(--font-family-ui);
+  font-size: var(--nav-bar-title-font-size);
+  font-weight: var(--nav-bar-title-font-weight);
+  line-height: var(--nav-bar-title-line-height);
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* ---------------------------------------------------------------------------
+ * TabBar (compact) and Sidebar (medium and up)
+ * ------------------------------------------------------------------------ */
+
+.bs-tab-bar {
+  flex: none;
+  background: var(--tab-bar-background);
+}
+
+.bs-tab-bar__list {
+  display: flex;
+  align-items: stretch;
+  min-height: var(--tab-bar-height);
+  /* The bar sits at the bottom edge, so it reserves the home indicator. */
+  padding-block-end: var(--safe-area-inset-bottom);
+  padding-inline: var(--safe-area-inset-left) var(--safe-area-inset-right);
+  border-block-start: var(--border-width-hairline) solid
+    var(--tab-bar-border-color);
+}
+
+.bs-tab-bar__item {
+  display: flex;
+  flex: 1 1 0;
+  min-width: var(--tab-bar-item-min-width);
+}
+
+.bs-tab-bar__link {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: center;
+  justify-content: center;
+  /* The content box is the 49 pt tab-bar row; the safe-area padding above sits
+     outside it, and every item already exceeds the 44 pt baseline. */
+  min-height: var(--layout-tab-bar-content-height);
+  padding-block: var(--space-1);
+  padding-inline: var(--space-2);
+  color: var(--tab-bar-item-inactive-color);
+  font-size: var(--tab-bar-label-font-size);
+  font-weight: var(--tab-bar-label-font-weight);
+  line-height: var(--tab-bar-label-line-height);
+  text-align: center;
+  transition: var(--control-transition);
+}
+
+.bs-tab-bar__link[aria-current="page"] {
+  color: var(--tab-bar-item-active-color);
+}
+
+.bs-tab-bar__link:active {
+  background: var(--tab-bar-item-pressed-background);
+}
+
+.bs-tab-bar__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tab-bar-icon-size);
+  height: var(--tab-bar-icon-size);
+}
+
+.bs-tab-bar__label {
+  max-width: 100%;
+}
+
+.bs-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--sidebar-padding);
+  background: var(--sidebar-background);
+}
+
+.bs-sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sidebar-item-gap);
+}
+
+.bs-sidebar__link {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--sidebar-item-height);
+  padding-inline: var(--sidebar-item-padding-inline);
+  border-radius: var(--sidebar-item-radius);
+  color: var(--sidebar-item-inactive-foreground);
+  font-size: var(--text-body-size);
+  font-weight: var(--text-weight-medium);
+  line-height: var(--text-body-line-height);
+  transition: var(--control-transition);
+}
+
+.bs-sidebar__link[aria-current="page"] {
+  background: var(--sidebar-item-active-background);
+  color: var(--sidebar-item-active-foreground);
+  font-weight: var(--text-weight-semibold);
+}
+
+.bs-sidebar__link:active {
+  background: var(--color-surface-sunken);
+}
+
+.bs-sidebar__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--sidebar-icon-size);
+  height: var(--sidebar-icon-size);
+}
+
+/*
+ * Hover and pointer affordances, on a fine pointer only. Touch gets the pressed
+ * state above, so nothing here is the only way to discover or reach anything.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .bs-tab-bar__link:hover,
+  .bs-sidebar__link:hover {
+    background: var(--color-surface-sunken);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Button
+ *
+ * `--button-height` (50 px) is a minimum, not a height: with a large preferred
+ * text size the label wraps and the button grows past the 44 pt baseline instead
+ * of clipping. The pressed state is colour plus a transform, never a layout
+ * shift, and reduced motion disables the transform at the token.
+ * ------------------------------------------------------------------------ */
+
+.bs-button {
+  display: inline-flex;
+  gap: var(--button-gap);
+  align-items: center;
+  justify-content: center;
+  min-height: var(--button-height);
+  padding-block: var(--button-padding-block);
+  padding-inline: var(--button-padding-inline);
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--button-radius);
+  font-family: var(--font-family-ui);
+  font-size: var(--button-font-size);
+  font-weight: var(--button-font-weight);
+  line-height: var(--button-line-height);
+  text-align: center;
+  transition: var(--control-transition);
+}
+
+.bs-button--primary {
+  background: var(--button-primary-background);
+  color: var(--button-primary-foreground);
+}
+
+.bs-button--secondary {
+  border-color: var(--button-secondary-border-color);
+  background: var(--button-secondary-background);
+  color: var(--button-secondary-foreground);
+}
+
+.bs-button--plain {
+  background: var(--button-plain-background);
+  color: var(--button-plain-foreground);
+}
+
+.bs-button--destructive {
+  background: var(--button-destructive-background);
+  color: var(--button-destructive-foreground);
+}
+
+.bs-button--primary:active {
+  background: var(--button-primary-background-pressed);
+}
+
+.bs-button--secondary:active {
+  background: var(--button-secondary-background-pressed);
+}
+
+.bs-button--plain:active {
+  background: var(--button-plain-background-pressed);
+}
+
+.bs-button--destructive:active {
+  background: var(--button-destructive-background-pressed);
+}
+
+.bs-button:active {
+  transform: scale(var(--control-press-scale));
+}
+
+/*
+ * A compact button is denser, not smaller: it keeps the 44 pt minimum height, so
+ * the fine-pointer treatment never shrinks the touch target.
+ */
+.bs-button--compact {
+  min-height: var(--button-min-height);
+  padding-block: var(--space-2);
+  padding-inline: var(--space-4);
+}
+
+.bs-button--full-width {
+  width: 100%;
+}
+
+/*
+ * Disabled is the platform's `disabled`, and it is the only state exempt from
+ * contrast: the text stays in the accessibility tree and the control stays
+ * labelled, it simply cannot be activated.
+ */
+.bs-button:disabled {
+  border-color: transparent;
+  background: var(--button-disabled-background);
+  color: var(--button-disabled-foreground);
+  transform: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * IconButton
+ * ------------------------------------------------------------------------ */
+
+.bs-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  padding: 0;
+  border-radius: var(--icon-button-radius);
+  background: var(--icon-button-background);
+  color: var(--icon-button-foreground);
+  transition: var(--control-transition);
+}
+
+.bs-icon-button:active {
+  background: var(--icon-button-background-pressed);
+}
+
+/* The toggle state is styled from the state it exposes, not from a second flag. */
+.bs-icon-button[aria-pressed="true"] {
+  background: var(--icon-button-background-pressed);
+}
+
+.bs-icon-button:disabled {
+  color: var(--icon-button-disabled-foreground);
+}
+
+/* ---------------------------------------------------------------------------
+ * FormField and TextField
+ * ------------------------------------------------------------------------ */
+
+.bs-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--field-gap);
+}
+
+.bs-field__label {
+  color: var(--field-label-color);
+  font-size: var(--field-label-font-size);
+  font-weight: var(--field-label-font-weight);
+  line-height: var(--field-label-line-height);
+}
+
+.bs-field__required-mark {
+  margin-inline-start: var(--space-0-5);
+  color: var(--field-required-color);
+}
+
+.bs-field__hint {
+  color: var(--field-hint-color);
+  font-size: var(--field-hint-font-size);
+  line-height: var(--field-hint-line-height);
+}
+
+.bs-field__error {
+  color: var(--field-error-color);
+  font-size: var(--field-error-font-size);
+  line-height: var(--field-error-line-height);
+}
+
+.bs-text-field {
+  width: 100%;
+  min-height: var(--input-height);
+  padding-block: var(--input-padding-block);
+  padding-inline: var(--input-padding-inline);
+  border: var(--input-border-width) solid var(--input-border-color);
+  border-radius: var(--input-radius);
+  background: var(--input-background);
+  color: var(--input-foreground);
+  font-family: var(--font-family-ui);
+  font-size: var(--input-font-size);
+  line-height: var(--input-line-height);
+}
+
+.bs-text-field::placeholder {
+  color: var(--input-placeholder-color);
+}
+
+.bs-text-field::selection {
+  background: var(--input-selection-background);
+  color: var(--input-selection-foreground);
+}
+
+/*
+ * Focus is both the global ring (`src/styles/base.css` — the outline is never
+ * removed, only ever added to) and the field's own border colour, because a text
+ * field is the one control where the boundary itself is the affordance.
+ */
+.bs-text-field:focus-visible {
+  border-color: var(--input-border-focus-color);
+}
+
+.bs-text-field[aria-invalid="true"] {
+  border-color: var(--input-border-invalid-color);
+}
+
+.bs-text-field:disabled {
+  background: var(--input-disabled-background);
+  color: var(--input-disabled-foreground);
+}
+
+/* ---------------------------------------------------------------------------
+ * SegmentedControl
+ *
+ * Real radios, visually hidden but focusable; their ring is drawn on the visible
+ * segment body, which is why the clipped input's own outline is turned off *and
+ * replaced* one rule below.
+ * ------------------------------------------------------------------------ */
+
+.bs-segmented {
+  display: flex;
+  align-items: stretch;
+  padding: var(--segmented-padding);
+  border-radius: var(--segmented-radius);
+  background: var(--segmented-background);
+}
+
+.bs-segmented__segment {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: var(--size-touch-target);
+  min-height: var(--segmented-min-height);
+}
+
+.bs-segmented__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bs-segmented__input:focus-visible {
+  outline: none;
+}
+
+.bs-segmented__body {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  padding-block: var(--space-2);
+  padding-inline: var(--segmented-segment-padding-inline);
+  border-radius: var(--segmented-segment-radius);
+  color: var(--segmented-unselected-foreground);
+  font-size: var(--segmented-font-size);
+  font-weight: var(--segmented-font-weight);
+  line-height: var(--text-subheadline-line-height);
+  text-align: center;
+  transition: var(--control-transition);
+}
+
+/* Selected is not colour alone: the raised surface and the shadow carry it too. */
+.bs-segmented__segment--selected .bs-segmented__body {
+  background: var(--segmented-selected-background);
+  color: var(--segmented-selected-foreground);
+  box-shadow: var(--segmented-shadow);
+}
+
+.bs-segmented__segment:active .bs-segmented__body {
+  opacity: var(--control-pressed-opacity);
+}
+
+.bs-segmented__input:focus-visible + .bs-segmented__body {
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
+}
+
+/* ---------------------------------------------------------------------------
+ * List, ListSection, ListRow
+ * ------------------------------------------------------------------------ */
+
+.bs-list {
+  overflow: hidden;
+  border-radius: var(--list-radius);
+  background: var(--list-background);
+}
+
+/*
+ * The section's own gap is the header-to-list distance, which is the ordinary
+ * small stack rhythm, not a list-specific distance: the space *between* two
+ * sections belongs to the screen's layout (`--spacing-section`), which is why no
+ * `--list-section-*` gap token exists here. A component token that named the
+ * screen's rhythm would be a second name for one decision.
+ */
+.bs-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-sm);
+}
+
+.bs-list-section__header {
+  padding-inline: var(--list-inset);
+  color: var(--list-section-header-color);
+  font-size: var(--list-section-header-font-size);
+  font-weight: var(--list-section-header-font-weight);
+  letter-spacing: var(--list-section-header-tracking);
+  line-height: var(--list-section-header-line-height);
+  text-transform: var(--list-section-header-transform);
+}
+
+.bs-list-row {
+  position: relative;
+  display: flex;
+}
+
+.bs-list-row__target {
+  display: flex;
+  flex: 1 1 auto;
+  gap: var(--list-row-gap);
+  align-items: center;
+  min-height: var(--list-row-min-height);
+  padding-block: var(--list-row-padding-block);
+  padding-inline: var(--list-row-padding-inline);
+  background: none;
+  color: inherit;
+  font-family: var(--font-family-ui);
+  text-align: start;
+  transition: var(--control-transition);
+}
+
+.bs-list-row__target:active {
+  background: var(--list-row-background-pressed);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .bs-list-row__target:hover {
+    background: var(--list-row-background-pressed);
+  }
+}
+
+.bs-list-row__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.bs-list-row__title {
+  color: var(--list-row-title-color);
+  font-size: var(--list-row-title-font-size);
+  font-weight: var(--text-weight-medium);
+  line-height: var(--list-row-title-line-height);
+}
+
+.bs-list-row__detail {
+  color: var(--list-row-detail-color);
+  font-size: var(--list-row-detail-font-size);
+  line-height: var(--list-row-detail-line-height);
+}
+
+.bs-list-row__control,
+.bs-list-row__accessory {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.bs-list-row__accessory {
+  color: var(--list-row-chevron-color);
+}
+
+/*
+ * Separators are pseudo-elements: decorative by construction, out of the
+ * accessibility tree, and inset so they line up with the row text rather than
+ * with the list's rounded edge.
+ */
+.bs-list-row + .bs-list-row::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: var(--list-inset);
+  border-block-start: var(--border-width-hairline) solid
+    var(--list-row-separator-color);
+}
+
+/* ---------------------------------------------------------------------------
+ * Card and Divider
+ * ------------------------------------------------------------------------ */
+
+.bs-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--card-gap);
+  padding: var(--card-padding);
+  border: var(--card-border-width) solid var(--card-border-color);
+  border-radius: var(--card-radius);
+  background: var(--card-background);
+  box-shadow: var(--card-shadow);
+}
+
+.bs-divider {
+  border-block-start: var(--border-width-hairline) solid var(--color-border);
+}
+
+/* ---------------------------------------------------------------------------
+ * Notice, Badge
+ * ------------------------------------------------------------------------ */
+
+.bs-notice {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--notice-padding);
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--notice-radius);
+}
+
+.bs-notice--info {
+  border-color: var(--notice-info-border-color);
+  background: var(--notice-info-background);
+  color: var(--notice-info-foreground);
+}
+
+.bs-notice--success {
+  border-color: var(--notice-success-border-color);
+  background: var(--notice-success-background);
+  color: var(--notice-success-foreground);
+}
+
+.bs-notice--warning {
+  border-color: var(--notice-warning-border-color);
+  background: var(--notice-warning-background);
+  color: var(--notice-warning-foreground);
+}
+
+.bs-notice--danger {
+  border-color: var(--notice-danger-border-color);
+  background: var(--notice-danger-background);
+  color: var(--notice-danger-foreground);
+}
+
+.bs-notice__icon {
+  display: flex;
+  flex: none;
+}
+
+.bs-notice--info .bs-notice__icon {
+  color: var(--notice-info-icon-color);
+}
+
+.bs-notice--success .bs-notice__icon {
+  color: var(--notice-success-icon-color);
+}
+
+.bs-notice--warning .bs-notice__icon {
+  color: var(--notice-warning-icon-color);
+}
+
+.bs-notice--danger .bs-notice__icon {
+  color: var(--notice-danger-icon-color);
+}
+
+.bs-notice__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--notice-gap);
+  min-width: 0;
+}
+
+.bs-notice__title {
+  color: inherit;
+  font-size: var(--notice-title-font-size);
+  font-weight: var(--notice-title-font-weight);
+  line-height: var(--notice-line-height);
+}
+
+.bs-notice__text {
+  font-size: var(--notice-font-size);
+  line-height: var(--notice-line-height);
+}
+
+.bs-notice__action {
+  display: flex;
+}
+
+.bs-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--badge-min-height);
+  padding-block: var(--badge-padding-block);
+  padding-inline: var(--badge-padding-inline);
+  border-radius: var(--badge-radius);
+  font-size: var(--badge-font-size);
+  font-weight: var(--badge-font-weight);
+  line-height: var(--badge-line-height);
+  white-space: nowrap;
+}
+
+.bs-badge--neutral {
+  background: var(--badge-neutral-background);
+  color: var(--badge-neutral-foreground);
+}
+
+.bs-badge--success {
+  background: var(--badge-success-background);
+  color: var(--badge-success-foreground);
+}
+
+.bs-badge--warning {
+  background: var(--badge-warning-background);
+  color: var(--badge-warning-foreground);
+}
+
+.bs-badge--danger {
+  background: var(--badge-danger-background);
+  color: var(--badge-danger-foreground);
+}
+
+.bs-badge--info {
+  background: var(--badge-info-background);
+  color: var(--badge-info-foreground);
+}
+
+/* ---------------------------------------------------------------------------
+ * EmptyState and ErrorState
+ * ------------------------------------------------------------------------ */
+
+.bs-empty-state,
+.bs-error-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--state-gap);
+  align-items: center;
+  padding-block: var(--state-padding-block);
+  padding-inline: var(--state-padding-inline);
+  text-align: center;
+}
+
+.bs-empty-state__icon {
+  display: flex;
+  color: var(--color-text-tertiary);
+}
+
+.bs-error-state__icon {
+  display: flex;
+  color: var(--color-danger);
+}
+
+.bs-empty-state__title,
+.bs-error-state__title {
+  color: var(--color-text);
+  font-size: var(--state-title-font-size);
+  font-weight: var(--state-title-font-weight);
+  line-height: var(--state-title-line-height);
+}
+
+.bs-empty-state__body,
+.bs-error-state__body {
+  max-width: var(--layout-form-max);
+  color: var(--state-body-color);
+  font-size: var(--state-body-font-size);
+  line-height: var(--state-body-line-height);
+}
+
+.bs-empty-state__action,
+.bs-error-state__action {
+  display: flex;
+  gap: var(--state-action-gap);
+  justify-content: center;
+}
+
+.bs-error-state__reference {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+  font-size: var(--text-caption-1-size);
+  line-height: var(--text-caption-1-line-height);
+}
+
+/* ---------------------------------------------------------------------------
+ * LoadingIndicator
+ *
+ * The rotation is one revolution per `calc(var(--duration-slow) * 3)` — about a
+ * second — so reduced motion (which zeroes every duration) cannot leave a
+ * zero-length infinite animation behind, and it is gated behind `no-preference`
+ * as well: with motion reduced, a static ring and the label still say what is
+ * happening.
+ * ------------------------------------------------------------------------ */
+
+.bs-loading-indicator {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+}
+
+.bs-loading-indicator--screen {
+  flex-direction: column;
+  padding-block: var(--state-padding-block);
+}
+
+.bs-loading-indicator__ring {
+  flex: none;
+  width: var(--loading-indicator-size);
+  height: var(--loading-indicator-size);
+  /* The system's 2 px border stroke is `--border-width-focus`; the ring is the
+     same weight as a focus ring, which is the only 2 px stroke there is. */
+  border: var(--border-width-focus) solid var(--loading-indicator-track-color);
+  border-block-start-color: var(--loading-indicator-foreground);
+  border-radius: var(--radius-pill);
+}
+
+.bs-loading-indicator__label {
+  color: var(--loading-label-color);
+  font-size: var(--loading-label-font-size);
+  line-height: var(--loading-label-line-height);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bs-loading-indicator__ring {
+    animation-name: bs-loading-indicator-spin;
+    animation-duration: calc(var(--duration-slow) * 3);
+    animation-iteration-count: infinite;
+    animation-timing-function: var(--ease-linear);
+  }
+}
+
+@keyframes bs-loading-indicator-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Placeholder screen layout — task 0.21 only
+ *
+ * The scaffolding of `src/features/design-preview/components/`, not a primitive:
+ * a stack and a wrapping row for a gallery, plus the Intro spacing. It is
+ * deleted with the screen when the first real screens land. Those screens compose
+ * their own layouts from `Screen`, `Card`, `ListSection` and the spacing tokens.
+ * ------------------------------------------------------------------------ */
+
+.bs-preview__intro {
+  margin-block-end: var(--spacing-section);
+}
+
+.bs-preview__section {
+  margin-block-start: var(--spacing-section);
+}
+
+.bs-preview__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+  margin-block-start: var(--spacing-stack-md);
+}
+
+.bs-preview__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}

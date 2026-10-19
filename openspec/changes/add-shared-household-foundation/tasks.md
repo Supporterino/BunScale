@@ -118,6 +118,35 @@ because no styled surface exists until 0.21 — the token layers carry no elemen
 so importing them restyles nothing, and the build emitting a 22.18 kB stylesheet is evidence of the
 chain resolving, not of a visual result. The record lives in the skill rather than as a new `D0.x`
 because D0.10 already fixes that as the design system's home.
+Task 0.21 built the primitives and gave the product its first rendered surface. `src/components/ui/` holds
+the 23 inventory primitives (plus three internal modules that are not inventory entries), built only from
+the frozen tokens, and the placeholder screen lives in `src/features/design-preview/` — which is what
+let the two route files stay thin, as `tanstack-router-conventions` requires: `src/routes/index.tsx` is
+now a `createFileRoute` plus an imported component, and `src/routes/__root.tsx` imports the not-found
+surface instead of declaring it inline. Both of those files are `frontend-logic`'s, so this task's commit
+carries a deliberate cross-owner step, recorded here the way Q17 records the same arrangement: the screens
+were built by `frontend-ui`, and the two imports that make them reachable were written by
+`frontend-logic`. The measurement that proves the wiring is the build: **161 modules before, 189 after**,
+with a 16.47 kB lazy route chunk — the primitives were simply not in the bundle until the routes pointed
+at them, which is also why the first screenshot pass showed the old scaffold and was re-taken.
+Evidence is measured rather than asserted, because a screenshot cannot answer what the requirement asks:
+25 visible interactive elements at each baseline, every one **≥ 44pt in both dimensions**, the smallest
+exactly 44; the adaptive arrangement verified from `getComputedStyle` and visibility rather than by eye —
+tab bar laid out and sidebar `display: none` at 390×844, the reverse at 1280×800, and at the 844×390
+landscape band the sidebar arrangement too, which is what made a safe-area hole reachable; the safe-area
+insets applied at every box flush to a viewport edge on the inline axis as well as the block axis, since
+only the top and bottom insets were applied until the review caught the horizontal pair; and 24 rendered
+foreground/background pairs read off live elements, all matching their token value, with the only pair
+below 4.5:1 being the disabled button — exempt, and still labelled. Two claims are stated carefully
+rather than loosely, because the review found both overstated. The `navigation` landmarks are **two in the
+DOM and exactly one laid out** at each width: the attribute says which landmark is which, not which one is
+on screen, and under jsdom there is no CSS pipeline at all, so a component test sees both — the
+arrangement assertion belongs in E2E, where Playwright's viewports are real (noted in 0.25). And the
+keyboard inset is **defined and reserved but not yet assigned**: `Screen` consumes it while nothing sets
+it, there is no `visualViewport` code anywhere, and the app-shell assignment is deferred to task 4.1, the
+first screen with a real keyboard (Q21). Four screenshots sit in `.artifacts/screens/` — the preview and the not-found surface at both baselines —
+gitignored as evidence rather than committed, per `definition-of-done`. The build stays at 47 linted files
+and the route set is unchanged, so `src/routeTree.gen.ts` needed no regeneration.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -417,7 +446,7 @@ file's header).
   rendered surface exists yet at this point, so `.artifacts/screens/` evidence is not applicable to
   this task; the first screenshots come from 0.21. iOS-first, both platforms (TOOL-6).
 
-- [ ] 0.21 [frontend-ui] Build the `src/components/ui/` design-system primitives from that
+- [x] 0.21 [frontend-ui] Build the `src/components/ui/` design-system primitives from that
   inventory (touch targets ≥ 44pt, safe areas, keyboard inset, AA contrast, screen-reader labels, no
   hover-only affordance) and a placeholder route that renders them. Screenshots at 390×844 and
   1280×800 in `.artifacts/screens/`. Both platforms (TOOL-6). This task also owns the two unstyled
@@ -530,7 +559,13 @@ file's header).
   a type error in them fails `bun run typecheck`, not just the run. The component specs must use the
   baseline helper task 0.23 adds (TOOL-5's first two scenarios are that requirement, and nothing else
   declares the two baselines for the component layer), rather than each spec setting its own window
-  size. The two E2E projects are
+  size. **Assert the adaptive navigation arrangement in the E2E layer, not the component layer**, and
+  note why in the spec: `vitest.config.ts` is jsdom with no CSS pipeline, so the `display: none` that
+  hides one of the two navigation landmarks never applies, both are in the DOM, and a component test's
+  role query finds two. Task 0.21 gave each landmark a `data-navigation-arrangement` attribute so the
+  assertion does not depend on class names — but the attribute says which landmark *is which*, not which
+  one is laid out, so either scope by the attribute and assert the computed `display`, or keep the
+  arrangement assertion in Playwright, where the viewports are real. The two E2E projects are
   `webkit-compact` (390×844, `deviceScaleFactor` 3, touch) and `webkit-expanded` (1280×800,
   `deviceScaleFactor` 2), one per baseline so a failure names its baseline and `--project=…` runs one.
   The suite needs no native device: it drives the frontend against the app's own dev server, which
@@ -678,7 +713,12 @@ file's header).
 
 - [ ] 4.1 [frontend-ui] Build the first-run household creation screen: name field, blank and
   whitespace-only rejection with an inline prompt, submit creating and activating the household
-  (HS-1, HS-2). Screenshots at 390×844 and 1280×800 in `.artifacts/screens/`.
+  (HS-1, HS-2). Screenshots at 390×844 and 1280×800 in `.artifacts/screens/`. This is also the task that
+  **first assigns `--keyboard-inset`**, which task 0.21 defined and `Screen` already consumes but nothing
+  sets (Q21): this is the change's first screen with a real keyboard, so it owns the `visualViewport`
+  measurement that writes the token, and it must confirm on a simulator that a focused field is not left
+  behind the keyboard — the token cannot be exercised by a desktop WebKit window, where `env()` and the
+  keyboard inset both resolve to zero.
 - [ ] 4.2 [frontend-ui] Build the dashboard shell with the gear-shaped control opening Settings &
   Profile as its own screen, laid out for 390×844 first and 1280×800 second (SET-1). Screenshots at
   390×844 and 1280×800 in `.artifacts/screens/`.

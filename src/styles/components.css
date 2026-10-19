@@ -147,7 +147,6 @@
   --list-row-separator-color: var(--color-border);
   --list-row-background-pressed: var(--color-surface-sunken);
   --list-row-chevron-color: var(--color-text-tertiary);
-  --list-section-gap: var(--spacing-section);
   --list-section-header-font-size: var(--text-section-header-size);
   --list-section-header-line-height: var(--text-section-header-line-height);
   --list-section-header-font-weight: var(--text-section-header-weight);

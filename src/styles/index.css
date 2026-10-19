@@ -2,20 +2,23 @@
  * BunScale design system — entry point.
  *
  * Import order is the layer order: primitives define values, semantic tokens
- * assign purpose, component tokens name the decisions a primitive reads.
- * There is no base/reset here on purpose; task 0.21 owns element-level styles
- * (`body`, focus defaults, form controls, scroll behaviour), and the token
- * layers must stay visually inert until then.
+ * assign purpose, component tokens name the decisions a primitive reads. The
+ * element layer comes after all three, because it is the only one that may
+ * restyle an element, and it may do so only with the tokens above it; the
+ * primitives' own classes come last, so a component decision outranks the
+ * type role it is built on.
  *
  * Consuming this file:
  *   import './styles/index.css';
  *
- * That import lives in `src/main.tsx` and nowhere else, so the token layers
- * go through the bundler with the rest of the app instead of shipping
- * unvalidated. The layers remain visually inert: custom properties alone
- * restyle nothing, and there are no element selectors or reset here.
- * `src/styles/base.css` and the element-level styles belong to task 0.21.
+ * That import lives in `src/main.tsx` and nowhere else, so the whole chain goes
+ * through the bundler with the rest of the app instead of shipping unvalidated.
+ * It is still the single style entry point: `ui.css` is imported here rather
+ * than from the components, so nothing in `src/components/` has a second graph
+ * edge to the stylesheet.
  */
 @import "./primitives.css";
 @import "./semantic.css";
 @import "./components.css";
+@import "./base.css";
+@import "./ui.css";

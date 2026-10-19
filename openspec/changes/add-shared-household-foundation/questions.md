@@ -17,7 +17,8 @@ actually find. Q19 corrects a completeness claim in task 0.18's own text — the
 just the frontend plus Rust — and records the measured boundary decision (D0.25) rather than leaving it
 to be rediscovered. Q20 records what task 0.19 deliberately did not cover — the dated graphify snapshots
 and the generator-owned `src-tauri/gen/schemas/` — together with the one path it added beyond its list
-on evidence. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+on evidence. Q21 records the keyboard inset's missing assignment and hands it to task 4.1, the first
+surface with a real keyboard. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -296,6 +297,25 @@ the pinned `@tanstack/router-generator` creates lazily as per-session scratch sp
 defaults to `.tanstack/tmp`). It is empty today, and git reports an empty directory nowhere — which is
 exactly why covering it matters: the first scratch file it holds would otherwise appear as untracked and
 be swept in by a later `git add -A`.
+
+### Q21 — the keyboard inset has no owner until the first real form screen (resolved by assignment, 2026-10-21)
+
+Raised by the task 0.21 review. The design system defines `--keyboard-inset` and `Screen` consumes it
+(adds it to `padding-block-end` and `scroll-padding-block-end`), so the convention "the keyboard inset is
+reserved by the scroll region" holds — but **nothing assigns it**: there is no `visualViewport` code
+anywhere in `src/`, so it resolves to `0px` in every context, and no task owned writing it. The record had
+asserted "set once by the app shell from `visualViewport`", which was false, and the task text lists the
+keyboard inset among the conventions that task was to implement. It is the same class of hole the task
+text itself warns about for reachable screens: a convention that reads as implemented because the token
+exists.
+
+**Resolution, recorded rather than deferred silently:** the token stays, the record now says it is defined
+and reserved but unassigned, and **task 4.1** — the first-run household creation screen, the first surface
+in this change with a real keyboard — is named as the owner of the `visualViewport` measurement that writes
+it, with a simulator check that a focused field is not left behind the keyboard. The reason it cannot be
+settled inside the design system is the record's own rule: no primitive may measure the keyboard itself, so
+assignment belongs to the app shell and therefore to a screen-level task. Nothing here blocks 0.21, which
+is why the finding is a correction to the record rather than a blocked task.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 

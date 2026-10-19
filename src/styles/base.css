@@ -1,0 +1,188 @@
+/*
+ * BunScale design system — element layer.
+ *
+ * Imported by `src/styles/index.css` AFTER the three token layers, so every rule
+ * here can read a token and nothing here is a token definition.
+ *
+ * This is the only stylesheet with element selectors. The split is deliberate
+ * and is what task 0.20 recorded as this task's own missing piece:
+ *
+ *   - `primitives.css` / `semantic.css` / `components.css` define values and are
+ *     visually inert — importing them restyles nothing;
+ *   - this file is the reset plus the document-level defaults (body background
+ *     and text, the system UI font, font smoothing, `color-scheme`, the default
+ *     focus ring, scroll behaviour);
+ *   - `ui.css` holds the design-system primitives' classes.
+ *
+ * Rules for this file: element selectors and the document only. A rule that one
+ * primitive needs belongs in `ui.css`; a value belongs in a token layer.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /*
+   * The UA canvas, the scrollbars and the native form controls follow the same
+   * system preference the semantic colour tokens do. This is a base-layer
+   * declaration on purpose: it changes how the engine paints things, which is
+   * not a token.
+   */
+  color-scheme: light dark;
+  height: 100%;
+  /*
+   * iOS text inflation would scale type in landscape separately from the
+   * `--text-scale` multiplier the semantic layer applies to every text style, so
+   * the two would fight. Text scales through the tokens or not at all.
+   */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/*
+ * Smooth scrolling is an enhancement, so it is opted into rather than opted out
+ * of: `no-preference` is the only way to say "scroll smoothly" without also
+ * overriding a user who never expressed a preference.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--text-body-size);
+  font-weight: var(--text-body-weight);
+  line-height: var(--text-body-line-height);
+  letter-spacing: var(--text-body-tracking);
+  /*
+   * The system UI font is designed to be rendered with smoothing on; without it
+   * the warm neutral text renders heavier than the AA measurements assume.
+   */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /*
+   * The app owns its scroll regions (`Screen`), so the document itself must not
+   * rubber-band behind them and scroll-chaining must not drag the page.
+   */
+  overscroll-behavior: none;
+  /*
+   * iOS flashes a grey box over every tapped control. The primitives draw their
+   * own pressed state from the tokens, so the platform flash is suppressed
+   * rather than doubled — and the pressed state is never the only feedback.
+   */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The mount node (index.html). The shell fixes its own viewport-height frame. */
+#root {
+  min-height: var(--layout-viewport-height);
+}
+
+/* Element reset: spacing is the app's to decide, not the browser's. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * List markers are reset, not list semantics: a `List` renders a real `<ul>`, and
+ * a screen reader still announces it as a list of however many items.
+ */
+li {
+  list-style: none;
+}
+
+img,
+picture,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+/*
+ * Form controls inherit the app's typography, and the native button appearance is
+ * removed so the primitives can paint their own background, radius and pressed
+ * state. `-webkit-appearance` stays for the iOS 15.0 floor, where the unprefixed
+ * property is not honoured yet; neither removes the focus ring, which is
+ * declared below.
+ */
+button,
+input,
+select,
+textarea {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+}
+
+button,
+input {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+button {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: inherit;
+}
+
+/*
+ * Links take the accent as their text colour and are not underlined by default:
+ * the app's links are navigation rows and bars, where an underline reads as a
+ * different kind of element. The accessible name is the text itself, and the
+ * keyboard focus ring below is what marks the focused link.
+ */
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  text-decoration-skip-ink: auto;
+}
+
+hr {
+  margin: 0;
+  border: 0;
+}
+
+::selection {
+  background: var(--color-selection-background);
+  color: var(--color-text);
+}
+
+/*
+ * The default focus ring: keyboard focus is always visible, on every element,
+ * with no exception list. It is `:focus-visible` rather than `:focus` so a touch
+ * or mouse press does not leave a ring behind, and there is deliberately no rule
+ * anywhere in the app that removes an outline — an element that needs a
+ * different ring shape moves this one, it does not delete it.
+ */
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}

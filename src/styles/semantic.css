@@ -3,14 +3,30 @@
  *
  * Purpose, not raw values. Every colour, size, radius and duration here
  * resolves to a primitive from `primitives.css`, so a theme is a change to
- * this file only. Components must consume this layer (or `components.css`,
- * which resolves to it) and never a primitive directly.
+ * this file only.
+ *
+ * What a component may read directly (the rule `src/styles/ui.css` is written
+ * under):
+ *   - **colour and type roles** come through this layer or `components.css`.
+ *     Those are the names a theme redefines — `prefers-color-scheme` swaps the
+ *     colours, reduced motion the durations — so a component that reached for
+ *     `--color-orange-700` or `--font-size-17` would be a light-mode-only
+ *     component;
+ *   - the **layer-1 scales** — spacing, radius, border width, size, duration
+ *     and easing — may be read directly. A scale step carries no meaning to
+ *     reinterpret: `--space-2` is 8 px in both themes and at every width, so
+ *     aliasing each step into a semantic name would add names without adding a
+ *     decision. A value specific to one component still belongs in
+ *     `components.css`.
  *
  * This file also owns the platform facts that must not be re-invented per
  * component:
  *   - safe-area insets (`env(safe-area-inset-*)`) for fixed bars;
- *   - the keyboard inset (`--keyboard-inset`), set once by the app shell from
- *     `visualViewport` when the iOS keyboard is up (no logic lives here);
+ *   - the keyboard inset (`--keyboard-inset`), defined here and reserved by the
+ *     layout primitives; **nothing assigns it yet** — no `visualViewport`
+ *     measurement exists in `src/` — and the app-shell code that will set it is
+ *     deferred to the first real form screen, task 4.1 (first-run household
+ *     creation). No UI component ever measures the keyboard itself;
  *   - the preferred-text-size multiplier (`--text-scale`), applied to every
  *     type token so Dynamic Type / a preferred reading size scales text;
  *   - AA contrast pairs (verified in the project record in the design-system
@@ -226,10 +242,12 @@
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
 
   /*
-   * The software keyboard's overlap with the visual viewport. The default is
-   * 0; an app-level hook sets this on the document element from
-   * `visualViewport` when the iOS keyboard is up. UI consumes it and never
-   * measures the keyboard itself.
+   * The software keyboard's overlap with the visual viewport. The token is
+   * defined and consumed here and in `ui.css` — `Screen` pads its bottom and its
+   * scroll padding by it — but **nothing assigns it today**: its value is `0px`
+   * and the app shell's `visualViewport` measurement is deferred to the first
+   * real form screen (task 4.1, first-run household creation). Until then this
+   * reserves nothing; UI consumes it and never measures the keyboard itself.
    */
   --keyboard-inset: 0px;
 
