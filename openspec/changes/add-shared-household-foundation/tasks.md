@@ -203,6 +203,39 @@ stopped during this task (`18674` and `17814`, both this repository's Vite; the 
 screenshot work, the second appearing later and most likely started by an agent for screenshots), and Q23
 records the hazard plus the mitigating fixture task 0.25 must now supply — one shared assertion, not a
 per-spec convention.
+Task 0.24 made `bun run test` green for the first time since 0.17 — **6 spec files, 27 tests, exit 0** —
+and it is the task where the scaffold's invariants stop being prose. Six areas, each asserting something
+observable rather than restating a requirement: bindings reproducibility (read, export, read, compare
+bytes — no `git` needed for the stability half); the hand-edit case, which appends a marker and runs the
+gate's own `git diff --exit-code`, asserting a non-zero exit that names the file, then regenerates and
+asserts the original bytes are back, with the restore in a `finally` so a failing assertion cannot leave a
+hand-edited generated file behind; route-tree reproducibility (read, build, read, compare); exact pins in
+**both** manifests with the expectations **parsed from D0.8's tables** rather than hard-coded, so a
+legitimate bump changes one place, plus the paired-crate rule; the `tauri.conf.json` ↔ `vite.config.ts`
+agreement task 0.14 warns about, including `server.host` still wired to `TAURI_DEV_HOST`; and the design
+system's token invariants — every `var()` resolving, no cycles, no duplicate inside one cascade context,
+and all 25 documented AA pairs in both themes within 0.02 of their recorded ratio. That last one is the
+assertion that matters most, for a reason worth stating: Vite does not resolve custom properties, so a
+typo in a token name is emitted verbatim, the build stays green and the browser silently falls back —
+nothing else in the gate would catch it.
+Two things about that suite are worth keeping in the record beyond the pass. It carries **negative tests of
+its own checkers** — a spec that feeds every checker a bad input and asserts it fails — because a
+green checks-suite that cannot fail is the same problem as a lint config that matches nothing; and every
+high-value assertion was demonstrated **failing** under perturbation before being accepted, with the exact
+messages recorded (a caret pin, an unresolvable `var()`, a same-context duplicate, an orange-500 palette
+dropping two pairs below AA, a 1421 port against a 1420 `devUrl`, and a marker line in the bindings). The
+review then found one hole worth naming, because it is the kind that hides behind green: the Cargo reader
+silently skipped a `[dependencies.name]` sub-table that carried no `version`, so a crate declared by `git`
+or `path` alone entered neither manifest map and passed both the extra-key and the missing-key checks — a
+demonstration against the pre-fix code showed zero issues for exactly that input. It now throws, the
+sub-table stays in scope until the next header, and two negative tests cover both that shape and a field
+appearing after `version`; the residual blind spots (dotted-key declarations, a duplicated `version` key)
+are listed in the module rather than left implicit. Three
+TOOL scenarios are deliberately outside a bun test and are recorded as such rather than dropped: the stale
+route tree cannot be provoked because the gate builds before it diffs, so the gate step implements it
+(0.9's CI, evidenced at 0.15, run by 0.26), and "both platforms are supported" is a constraint on adding a
+dependency rather than a manifest property, enforced by D0.8's per-dependency review. What is still red is
+`bun run test:e2e` alone, which 0.25 owns.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -555,7 +588,7 @@ file's header).
   precedent). The baseline helper above lives in `src/test/`, which `test-engineer` does own. This task must
   land **before 0.25**, because 0.25's E2E specs cannot render the app until the mock file exists.
 
-- [ ] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target
+- [x] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target
   (`src-tauri/tests/library_surface.rs`, the harness task 0.12 created) runs,
   `bun run gen:bindings` leaves `src/bindings.ts` unchanged, and a build leaves
   `src/routeTree.gen.ts` unchanged. Cover TOOL-3's other two scenarios as well rather than leaving
@@ -601,6 +634,21 @@ file's header).
   worth stating: Vite does not resolve custom properties, so a typo in a name is emitted verbatim, the
   build stays green, and the browser silently falls back — nothing else in the gate would catch it. The
   skill's project record already promises that a later test can do this; this is that test. (TOOL-6).
+  Three scenarios are **deliberately not** covered by a bun test, and are recorded here so they are not
+  read as oversights later. The first is the first line of this task — "the Rust integration target
+  (`src-tauri/tests/library_surface.rs`) runs" — which **the gate's own `cargo test` step owns**: running
+  it again from the bun step would duplicate a command that has already run earlier in the same gate, and
+  `cargo test` reports its three tests by name. The second is TOOL-4's "a stale route tree fails the
+  build", which cannot be provoked from a test because the gate builds *before* it diffs, so a hand-edited
+  tree is regenerated before the check runs — the case that actually bites is "routes changed and the
+  regenerated tree was not committed", which is implemented by the gate step itself (task 0.9's CI runs
+  `bun run build` then `git diff --exit-code src/routeTree.gen.ts`) and evidenced at 0.15, and 0.26 runs it
+  on a clean checkout. The third is TOOL-8's "both platforms are supported", a constraint on *adding* a
+  dependency rather than a property a manifest can state, enforced by the per-dependency review recorded
+  in D0.8. Also note the suite carries its own negative tests — a spec file that feeds each of the four
+  decision checkers a bad input and asserts it fails, with the three remaining exported helpers covered
+  positively in the specs that exercise them — because a green
+  checks-suite that cannot fail is the same problem as a lint config that matches nothing.
 
 - [ ] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
   1280×800, asserting the adaptive navigation arrangement rather than only that content rendered.
