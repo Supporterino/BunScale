@@ -11,11 +11,11 @@
 //! the display unit, 2.12 diagnostics, 2.13 the two status commands) edit one file without touching
 //! a sibling's.
 //!
-//! **Eight of the eleven bodies are implemented; the other three are placeholders.** [`settings`]'s
-//! pair (2.10), [`diagnostics`]'s command (2.12), [`household`]'s four (2.1, 2.2) and [`sync`]'s
-//! `load_household` (2.5) are written and never return the placeholder key, while the two status
-//! commands in [`sync`] (2.13) and [`identity`] (2.9) still return `Err` through the contract's
-//! single failure surface, [`CommandError`], built by
+//! **Nine of the eleven bodies are implemented; the other two are placeholders.** [`settings`]'s
+//! pair (2.10), [`diagnostics`]'s command (2.12), [`household`]'s four (2.1, 2.2), [`sync`]'s
+//! `load_household` (2.5) and [`identity`]'s command (2.9) are written and never return the
+//! placeholder key, while the two status commands in [`sync`] (2.13) still return `Err` through the
+//! contract's single failure surface, [`CommandError`], built by
 //! [`failure`](super::failure)'s constructors and never field by field. Such a failure is
 //! [`CommandError::not_implemented`] — the cause `unknown`, `retryable: false` and the
 //! **placeholder key** `error.not_implemented` — carrying the command's `RequestId` where the

@@ -823,7 +823,7 @@ file's header).
 - [x] 2.8 [rust-backend] Implement absolute-instant timestamps: default to the creation moment,
   store an explicitly supplied instant unchanged, and round-trip independently of the device offset
   (DM-6).
-- [ ] 2.9 [rust-backend] Implement identity resolution: account display name when it resolves, the
+- [x] 2.9 [rust-backend] Implement identity resolution: account display name when it resolves, the
   locally known member name as first fallback, and an unresolved marker that does not disturb
   callers (SET-2).
 - [x] 2.10 [rust-backend] Implement the per-device display weight-unit preference, its regional

@@ -180,12 +180,22 @@ export const commands = {
 	/**
 	 *  The current person's account id and name, resolved with SET-2's fallback chain (task 2.9).
 	 * 
+	 *  The account's display name when the account tier resolves, otherwise the locally known member
+	 *  name for that account, otherwise no name. The account id is the one the app's state was built
+	 *  with; P0 has no sign-in flow (Q25), so the running app has none and this read answers the
+	 *  unresolved marker. An account known without a display name still reports its id and falls back
+	 *  to the local name, with `resolved: false`.
+	 * 
 	 *  An unresolved identity returns normally (`resolved: false`, `display_name: None`): it must not
-	 *  fail the command or block the rest of Settings (SET-2's scenario).
+	 *  fail the command or block the rest of Settings (SET-2's scenario). The final "You"-style
+	 *  placeholder is frontend copy (task 3.7), so this command reports "no name known" instead of
+	 *  inventing one.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `unknown` for an unclassifiable internal failure. The stub returns `unknown` until task 2.9.
+	 *  None is reachable: the read is local, and an unresolved identity is the contract's normal
+	 *  outcome rather than a failure. The signature keeps the shared `CommandError` surface for the
+	 *  frozen contract, but no path in this body produces one.
 	 */
 	getIdentity: () => typedError<Identity, CommandError>(__TAURI_INVOKE("get_identity")),
 	/**

@@ -21,11 +21,19 @@
 //! be tested without a service, a clock or an app, while the write path is exercised against the
 //! scripted transport.
 //!
+//! [`identity`] fixes the other question the household model raises: whose name Settings & Profile
+//! shows. It implements SET-2's chain — the account's display name, then the locally known member
+//! name for the same account, then the unresolved marker — so one place decides the name, an
+//! unattributable local name is never borrowed, and an unresolved identity is a normal value rather
+//! than a failure that could block the screen.
+//!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.
 
 pub mod create;
 pub mod household;
+pub mod identity;
 
 pub use create::{CREATE_HOUSEHOLD_RPC, create_household};
 pub use household::{HouseholdBook, HouseholdName, HouseholdRecord, validate_name};
+pub use identity::{local_member_name, resolve_identity};
