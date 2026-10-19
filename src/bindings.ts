@@ -181,10 +181,15 @@ export const commands = {
 	 *  A redacted summary of the diagnostics sink: counts and timestamps, never content (NFR-3).
 	 * 
 	 *  P0 defines it for support diagnostics only — no P0 screen shows it — and P3 reuses it unchanged.
+	 *  It reports how many records the sink holds and when its oldest and newest held records were
+	 *  recorded; an empty sink answers `None` for both instants, never a defaulted one. No rabbit name,
+	 *  note text, photo content or weight value can appear here (NFR-3).
 	 * 
 	 *  # Errors
 	 * 
-	 *  `unknown` for an unclassifiable internal failure. The stub returns `unknown` until task 2.12.
+	 *  `unknown` only when the sink itself cannot be read — its lock was left poisoned by a panic in
+	 *  another thread — reported through the single failure surface. This read is idempotent and takes
+	 *  no `RequestId`, so the failure carries `request_id: None`.
 	 */
 	getDiagnosticsSummary: () => typedError<DiagnosticsSummary, CommandError>(__TAURI_INVOKE("get_diagnostics_summary")),
 };

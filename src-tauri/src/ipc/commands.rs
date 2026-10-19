@@ -11,16 +11,19 @@
 //! the display unit, 2.12 diagnostics, 2.13 the two status commands) edit one file without touching
 //! a sibling's.
 //!
-//! **Every body is a placeholder.** Each one returns `Err` through the contract's single failure
-//! surface, [`CommandError`], built by [`failure`](super::failure)'s constructors and never field by
-//! field: [`CommandError::not_implemented`] — the cause `unknown`, `retryable: false` and the
-//! **placeholder key** `error.not_implemented`, with the command's `RequestId` where the command has
-//! one. `unknown` is the only honest cause a stub can name, because the frozen list admits no "not
-//! implemented" variant (D0.6); the placeholder key is what keeps the stub distinct from a
-//! *classified* `unknown` failure, which is [`CommandError::unknown`] and names `error.unknown`. The
-//! placeholder is a state of the surface, not a second cause — one cause owns one key (NFR-8), and
-//! no P0 screen can see a stub, because section 4 builds the surfaces against section 2's
-//! implementations.
+//! **Three of the eleven bodies are implemented; the other eight are placeholders.** [`settings`]'s
+//! pair (2.10) and [`diagnostics`]'s command (2.12) are written and never return the placeholder
+//! key, while every body in [`household`] (2.1, 2.2), [`sync`] (2.5, 2.13) and [`identity`] (2.9)
+//! still returns `Err` through the contract's single failure surface, [`CommandError`], built by
+//! [`failure`](super::failure)'s constructors and never field by field. Such a failure is
+//! [`CommandError::not_implemented`] — the cause `unknown`, `retryable: false` and the
+//! **placeholder key** `error.not_implemented` — carrying the command's `RequestId` where the
+//! command has one. `unknown` is the only honest cause a stub can name, because the frozen list
+//! admits no "not implemented" variant (D0.6); the placeholder key is what keeps the stub distinct
+//! from a *classified* `unknown` failure, which is [`CommandError::unknown`] and names
+//! `error.unknown`. The placeholder is a state of the surface, not a second cause — one cause
+//! owns one key (NFR-8) — and no P0 screen can see a stub, because section 4 builds the
+//! surfaces against section 2's implementations.
 //!
 //! **The frontend reaches these commands only through `src/features/*/api.ts`** — wrappers over the
 //! generated `src/bindings.ts` (project hard rule 2). No route, component or hook imports the

@@ -832,7 +832,7 @@ file's header).
   command returns a `CommandError` with a specific `SaveCause`, a `retryable` flag, a message key and
   the command's `request_id` as the operation's identity — no bare "something went wrong" path
   (NFR-8, D0.14).
-- [ ] 2.12 [rust-backend] Implement the redacted diagnostics sink: identifiers, counts and outcomes
+- [x] 2.12 [rust-backend] Implement the redacted diagnostics sink: identifiers, counts and outcomes
   only; no rabbit names, note text, photo content or weight values; assert no third-party analytics
   transport exists (NFR-3).
 - [ ] 2.13 [rust-backend] Implement reachability re-evaluation hooks for both platform lifecycles:
