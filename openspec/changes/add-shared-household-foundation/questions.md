@@ -464,6 +464,35 @@ change (which would extend section 4 beyond its current screen list) or an expli
 named later change, with the P0 onboarding entry point (task 4.1) gated the same way HS-2 gates
 household creation.
 
+### Q26 — the device region is readable on macOS but not on iOS, and SET-4's default unit depends on it (open, `rust-backend`, 2026-10-19)
+
+Raised by the task 2.10 review. SET-4's scenario "Default unit follows the device region" is
+implemented by deriving the region in Rust, and the derivation reads the process environment
+(`LC_ALL` → `LC_MEASUREMENT` → `LANG`) and, **on macOS only**, the system global preference
+`AppleLocale` through `/usr/bin/defaults read -g AppleLocale`. Neither source exists on **iOS**: a
+sandboxed app has no shell environment carrying those variables and no access to the global
+preference domain, so on iOS — Phase 1's primary platform — the default answers the canonical unit
+(grams) rather than the device's region. A person's own stored choice is unaffected and still wins
+everywhere. The implementation states this limit in its own module docs; this entry exists so the
+limit is recorded where the change's record lives rather than only in a source comment.
+
+**What is decided.** The derivation order (a stored choice first; then, absent a choice, the region
+if it can be read; otherwise the canonical unit), that an unreadable or unstated region answers the
+canonical unit rather than guessing, and that the conversion itself is total and unaffected. D0.4
+and the "Rules held here" block already fix that the preference is per device and never enters a
+household collection.
+
+**What is not.** No owner and no phase exist for a *native* region source on iOS — an `apple-native`
+plugin reading `NSLocale`, or a plugin such as `tauri-plugin-os` (which supports iOS and macOS)
+would close it, and project rule 6 requires any such dependency to support both Phase 1 platforms.
+The gap does not block 2.10: it changes a default, never a stored value, and never a requirement's
+correctness on its own terms.
+
+**Needed:** a task or change that owns the native region read, and — until it lands — a note in
+task 5.11's brief that its assertion for "Default unit follows the device region" pins the *rule*
+(choice wins; region when readable; canonical otherwise) rather than a device read the gate cannot
+perform on iOS.
+
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 
 ### Q10 — Specialists could not execute shell commands in this harness

@@ -149,26 +149,32 @@ export const commands = {
 	 *  The effective per-device display unit (SET-4).
 	 * 
 	 *  The person's own choice when there is one, otherwise the unit derived from the device's regional
-	 *  settings (task 2.10). It is a display preference only: no stored value is read or written in
-	 *  that unit (D0.4).
+	 *  settings. It is a display preference only — no stored value is read or written in that unit
+	 *  (D0.4) — and it belongs to the device rather than to a household, so this read touches no
+	 *  household collection (D0.2) and does not fail because the shared service is unreachable.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `unknown` for an unclassifiable local-storage failure. The stub returns `unknown` until task
-	 *  2.10.
+	 *  `unknown` for a local-storage failure: the preference file cannot be read, or it holds content
+	 *  this version cannot interpret. A device on which no unit has been chosen yet is not a failure —
+	 *  it answers the unit the region states.
 	 */
 	getDisplayWeightUnit: () => typedError<WeightUnit, CommandError>(__TAURI_INVOKE("get_display_weight_unit")),
 	/**
 	 *  Store the per-device display unit and return the effective unit (SET-4).
 	 * 
 	 *  The change is local to this device and never rewrites a stored value (D0.4): conversion happens
-	 *  only where a weight is entered or displayed. `request_id` is the operation's identity, re-used
-	 *  if the surface offers a retry (D0.14).
+	 *  only where a weight is entered or displayed, so what is stored here is a unit and never a
+	 *  weight, and per-device preferences never enter a household collection (D0.2). `request_id` is the
+	 *  operation's identity, re-used if the surface offers a retry (D0.14).
+	 * 
+	 *  The returned unit is read back from what the change left on the device rather than echoed from
+	 *  `unit`, so a write that did not land is never reported as stored.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `unknown` for an unclassifiable local-storage failure. The stub returns `unknown` until task
-	 *  2.10.
+	 *  `unknown` for a local-storage failure: the preference file cannot be written, or what it now
+	 *  holds cannot be read back.
 	 */
 	setDisplayWeightUnit: (unit: WeightUnit, requestId: RequestId) => typedError<WeightUnit, CommandError>(__TAURI_INVOKE("set_display_weight_unit", { unit, requestId })),
 	/**

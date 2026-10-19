@@ -826,7 +826,7 @@ file's header).
 - [ ] 2.9 [rust-backend] Implement identity resolution: account display name when it resolves, the
   locally known member name as first fallback, and an unresolved marker that does not disturb
   callers (SET-2).
-- [ ] 2.10 [rust-backend] Implement the per-device display weight-unit preference, its regional
+- [x] 2.10 [rust-backend] Implement the per-device display weight-unit preference, its regional
   default, and the conversion boundary that applies it only on entry/display (SET-4).
 - [x] 2.11 [rust-backend] Implement the single failure-reporting surface: every state-changing
   command returns a `CommandError` with a specific `SaveCause`, a `retryable` flag, a message key and
