@@ -820,7 +820,7 @@ file's header).
 - [x] 2.7 [rust-backend] Enforce the storage-boundary invariants: an item belongs to exactly one
   household and is never readable from another, a canonical value is stored only in its canonical
   form, and a write to an entity marked immutable is refused (NFR-10).
-- [ ] 2.8 [rust-backend] Implement absolute-instant timestamps: default to the creation moment,
+- [x] 2.8 [rust-backend] Implement absolute-instant timestamps: default to the creation moment,
   store an explicitly supplied instant unchanged, and round-trip independently of the device offset
   (DM-6).
 - [ ] 2.9 [rust-backend] Implement identity resolution: account display name when it resolves, the

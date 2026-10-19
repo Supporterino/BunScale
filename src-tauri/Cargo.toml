@@ -25,3 +25,4 @@ specta = "=2.0.0-rc.25"
 specta-typescript = "=0.0.12"
 tauri = { version = "=2.12.4", features = [] }
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
+time = { version = "=0.3.55", features = ["parsing", "formatting"] }

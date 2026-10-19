@@ -65,6 +65,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-specta",
+ "time",
 ]
 
 [[package]]

@@ -263,6 +263,7 @@ are the same kind of housekeeping dependency.
 | `tauri-specta` | `=2.0.0-rc.25` | Generates the typed bindings from the Rust contract, which is what keeps `src/bindings.ts` generated rather than hand-written (TOOL-3, D0.9), with its `typescript` feature (which gates the `specta-typescript` dependency — see the module shape below). |
 | `specta` | `=2.0.0-rc.25` | The type-introspection crate `tauri-specta` is built on; pinned equal to it by that crate's own exact requirement. |
 | `specta-typescript` | `=0.0.12` | The TypeScript exporter `Builder::export` is called with, named **directly** by `src-tauri/src/ipc/` because `tauri-specta` does not re-export `specta_typescript::Typescript`; pinned explicitly so the manifest stays exact. |
+| `time` | `=0.3.55` | Absolute-instant handling at the storage boundary (DM-6, D0.5): RFC 3339 parsing and formatting of those instants, with the `parsing` and `formatting` features only — **never** `local-offset`, whose `num_threads` dependency broke the iOS build (Q14). `time` is already in the graph through `cookie`/`plist`, so the pin adds no new platform constraint and it builds for `aarch64-apple-ios` and macOS. |
 
 | Package | Pin | Role and one-line justification (rule 6) |
 |---|---|---|
