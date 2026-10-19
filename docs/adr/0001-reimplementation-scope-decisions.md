@@ -118,6 +118,15 @@ and record why. It has to satisfy:
 
 No vendor is named or recommended here; that decision is explicitly deferred to that design.
 
+### Closure note (2026-10-19) — D6 is resolved by ADR 0002
+
+`docs/adr/0002-shared-service-mechanism.md` now holds the mechanism: the self-hosted,
+product-operated Supabase stack, together with the connectivity-required write model and the
+loaded-data read model. The five follow-ups above are answered there and criterion-by-criterion in
+`openspec/changes/add-shared-household-foundation/design.md` (D0.7). The history above is kept as
+written: the statements that D6 "remains open" (Consequences) and that the mechanism was deferred
+describe the state on 2026-10-15, and D6 is closed as of this note.
+
 ## Alternatives considered
 
 | Alternative | Outcome |

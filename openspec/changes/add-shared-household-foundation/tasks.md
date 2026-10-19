@@ -766,7 +766,7 @@ file's header).
   (D0.14). Reject any candidate that cannot report the SYNC-2 cause list distinctly, or that cannot
   deduplicate a re-issued request by its key. Record the alternatives rejected and why. Confirm it
   supports both iOS and macOS with a one-line dependency justification.
-- [ ] 1.2 [architect] Record the mechanism, the connectivity-required write model (D1/D0.1) and the
+- [x] 1.2 [architect] Record the mechanism, the connectivity-required write model (D1/D0.1) and the
   loaded-data read model (D0.2) in `docs/adr/0002-shared-service-mechanism.md`.
 - [x] 1.3 [architect] Define the P0 IPC contract in `src-tauri/src/ipc/`: the commands, events,
   `ServiceStatus`, `SaveCause`, `CommandError`, `Household`, `Member`, `Identity`, `WeightUnit` and

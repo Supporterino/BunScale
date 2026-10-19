@@ -67,8 +67,8 @@ safe, because the shared service deduplicates on it.
 
 The capability specs in this change name only "the shared service" and "the account" (D6). The
 concrete mechanism — one shared collection per household, per-item last-write-wins and per-device
-local caching — was selected by `architect` in task 1.1 and will be recorded in
-`docs/adr/0002-shared-service-mechanism.md` by task 1.2 (`0001` is taken by the settled scope
+local caching — was selected by `architect` in task 1.1 and is recorded in
+`docs/adr/0002-shared-service-mechanism.md` (task 1.2; `0001` is taken by the settled scope
 decisions, `docs/adr/0001-reimplementation-scope-decisions.md`).
 
 **Selected: a self-hosted Supabase stack operated by the product.** PostgreSQL with row-level
