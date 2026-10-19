@@ -13,7 +13,9 @@ the explicit `es2021` build target, and the generated route tree's style against
 need an owner, neither blocks 0.14). Q17 and Q18 are implementation findings rather than ambiguities,
 recorded because they change what later tasks must do: Q17 hands the git half of TOOL-4's drift check to
 the orchestrator, which made it meaningful in task 0.15's commit, and Q18 measures what task 0.18 will
-actually find. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+actually find. Q19 corrects a completeness claim in task 0.18's own text — the checkable surface is not
+just the frontend plus Rust — and records the measured boundary decision (D0.25) rather than leaving it
+to be rediscovered. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -245,6 +247,28 @@ Attribution from `--reporter=summary` and `--reporter=github`:
   `src/routes/__root.tsx` fired on the first run and was fixed by ordering the imported names, and the
   next run confirmed it gone. Every `format` diagnostic in the repository is 0.18's to settle in one
   pass, whichever way it settles them.
+
+### Q19 — task 0.18's "every remaining format diagnostic" clause assumed a repository that is frontend plus Rust (resolved by measurement, `frontend-logic` + orchestrator, 2026-10-19)
+
+Task 0.18 says "Every remaining `format` diagnostic in the repository is this task's to settle in the
+same pass". That clause reads as though the checkable surface were the frontend tree plus Rust, which
+`cargo fmt` covers. It is not: `src-tauri/` carries two first-party **hand-owned JSON** files that Biome
+2.5.15 can parse — `tauri.conf.json` (D0.11 makes it hand-owned, task 0.5 set it) and
+`capabilities/default.json` (hand-owned, hardened by task 0.6 per D0.21) — and neither is Rust nor
+generated, so the allow-list's completeness claim was false as first written.
+
+Measured by temporarily listing both and running `bun run lint` (`Checked 14 files`, proving they were
+genuinely checked, then reverted byte-for-byte): `tauri.conf.json` is **Biome-clean**;
+`capabilities/default.json` has **one `format` diagnostic and no lint diagnostic**, wanting its two
+short arrays collapsed to inline (`["main"]`, `["iOS", "macOS"]`).
+
+**Resolution recorded as decision D0.25, not left as an omission:** `src-tauri/**` stays outside the
+allow-list, on ownership (`capabilities/default.json` is `tauri-security`'s, hardened so its permission
+diff is reviewable, and a frontend-owned formatter rewriting a security file is the cross-ownership
+hazard D0.11 prevents) and on remit (Tauri's `$schema` and its capability validation are a stronger
+correctness signal for those files than JSON formatting). `opencode.jsonc` remains the third
+checkable-but-unlisted file, a known one-line follow-up. The task text has been corrected accordingly,
+so no later task inherits the false completeness claim.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 

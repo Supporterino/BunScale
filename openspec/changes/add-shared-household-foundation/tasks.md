@@ -72,6 +72,22 @@ owns the baseline helper TOOL-5's first two scenarios depend on. Its decisions a
 including why the test layer deliberately does not reuse the app's Vite config: that config carries the
 router plugin, which renders the tracked `src/routeTree.gen.ts`, and a test run must never rewrite a
 generated file the gate checks.
+Task 0.18 closed the last gate command that was red for want of configuration: `bun run lint` is green,
+and its script body is the only one of the eight task 0.18 changed — it now passes
+`--error-on-warnings`, because `biome check` exits 0 on a warning-only tree while the recommended rule
+set contains warn-severity rules and `suspicious/noExplicitAny` is warn by default, so without the flag
+the gate's single lint command could print a diagnostic and still pass. The other seven bodies stand as
+task 0.13 fixed them, and `.github/workflows/ci.yml` needed no edit because it invokes the script. The
+checked set is an allow-list rather than an exclude-list, which is the opposite failure mode on purpose:
+with no config the command checked 1512 files and reported 1502 errors at 0.13, and 1526 files / 5090
+errors was the no-config state this task inherited (Q18); with the list it checks **12 first-party
+files** cleanly. Both generated files are
+excluded — the route tree because it attracts a `format` diff and a `noExplicitAny` from the generator's
+own `} as any)`, and `src/bindings.ts` because it is clean today but becomes the long emitted line Biome
+would want to break once task 1.3 adds commands, so the exclusion is a decision about what those files
+become as much as about what they are. Nothing was reformatted to satisfy the tool: the config matches
+the repository's existing style, so the diff is the config plus one script line. Its decisions are
+recorded as D0.25, and D0.8's `lint` row was corrected with it.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -312,7 +328,7 @@ file's header).
   CI reusing a server someone else started) rather than supplying anything the local run lacks. Both
   platforms (TOOL-5).
 
-- [ ] 0.18 [frontend-logic] Add the lint/format tooling so `bun run lint` exists and passes, using
+- [x] 0.18 [frontend-logic] Add the lint/format tooling so `bun run lint` exists and passes, using
   **Biome** for both linting and formatting (D0.17). A second linter and a separate formatter
   (Prettier) are NOT added **as dependencies**: `cargo fmt` already covers Rust, and an extra JS tool
   would churn the exactly pinned dependency set TOOL-8 requires. Because the gate command is
@@ -338,7 +354,16 @@ file's header).
   to settle in the same pass, including the ones on `package.json`, `tsconfig.json`, `vite.config.ts`
   and the five files task 0.15 adds. Consider `--error-on-warnings`, since Biome's warnings do not fail
   `check` by default and the gate has exactly one lint command to carry both jobs. Both platforms
-  (TOOL-1).
+  (TOOL-1). The boundary is the frontend tree and its root configs, and it is stated as a decision
+  rather than left as an omission: `src-tauri/**` is deliberately outside the allow-list. The two
+  hand-owned JSON files there were measured by temporarily listing them — `src-tauri/tauri.conf.json`
+  is Biome-clean, and `src-tauri/capabilities/default.json` would need one cosmetic `format` change
+  (collapsing `["main"]` and `["iOS", "macOS"]` to inline). They stay out on ownership and remit:
+  `capabilities/default.json` is `tauri-security`'s, hardened by task 0.6 so its permission diff is
+  reviewable, and a frontend-owned formatter rewriting a security file is the cross-ownership hazard
+  D0.11 exists to prevent; and Tauri's own `$schema` and capability validation is a stronger
+  correctness signal for those files than JSON formatting. `opencode.jsonc` is likewise a known
+  one-line follow-up rather than an oversight. D0.25 records all of it.
 
 - [ ] 0.19 [frontend-logic] Extend the root `.gitignore` to cover everything this change's own gate
   commands and tools write — `node_modules/`, `src-tauri/target/`, `dist/` (`bun run build`),

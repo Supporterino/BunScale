@@ -5,7 +5,7 @@
   "scripts": {
     "gen:bindings": "cargo run --manifest-path src-tauri/Cargo.toml --example export_bindings",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check .",
+    "lint": "biome check --error-on-warnings .",
     "test": "vitest run",
     "test:e2e": "VITE_E2E_MOCK=1 playwright test",
     "dev": "vite",

@@ -201,7 +201,7 @@ The eight script bodies, as the task fixed them in prose:
 |---|---|
 | `gen:bindings` | `cargo run --manifest-path src-tauri/Cargo.toml --example export_bindings` |
 | `typecheck` | `tsc --noEmit` |
-| `lint` | `biome check .` |
+| `lint` | `biome check --error-on-warnings .` |
 | `test` | `vitest run` |
 | `test:e2e` | `VITE_E2E_MOCK=1 playwright test` |
 | `dev` | `vite` |
@@ -211,7 +211,14 @@ The eight script bodies, as the task fixed them in prose:
 `gen:bindings` stays the bare command, so `cargo run`'s exit status **is** the script's and nothing
 is printed on success — the "propagates a non-zero exit" property D0.9 requires. `lint` is Biome's
 **single** entry point, which lints **and** format-checks: that is how one gate command carries
-D0.17's two jobs without a second tool. `test` is `vitest run`, never watch. `test:e2e` sets the mock
+D0.17's two jobs without a second tool. Since task 0.18 it also passes `--error-on-warnings`,
+because `check` exits 0 on a warning-only tree while the recommended set contains warn-severity
+rules (`style/useConst`) and `suspicious/noExplicitAny` is warn **by default** — so without the flag
+the gate's only lint command could print a diagnostic and still pass; with it a warning fails the
+run, at a measured cost of **zero** warnings across the checked set today. No CI edit follows,
+because `.github/workflows/ci.yml` invokes `bun run lint` and the flag reaches it through
+`package.json`. This is the **only** one of the eight bodies task 0.18 changed; the other seven
+stand as task 0.13 fixed them. `test` is `vitest run`, never watch. `test:e2e` sets the mock
 flag the E2E IPC layer keys on (TOOL-5). `tauri` resolves to `node_modules/.bin/tauri` — the pinned
 `@tauri-apps/cli` — and **not** to task 0.1's global `cargo install`, which installs `cargo-tauri`
 and no bare `tauri`, so the pinned CLI is what runs; that is what D0.22's assertion and task 0.22's
@@ -1429,6 +1436,96 @@ was observed end to end — the script sets the variable, the dev server hands i
 `import.meta.env.VITE_E2E_MOCK`, the injected env object carries the key when set and lacks it when
 unset, and the mock installs only when it is `1`. The browser binary is installed by
 `playwright install webkit`, which is what CI runs before the E2E step (D0.22).
+
+No ADR number is taken: section 0 takes none (D0.8).
+
+### D0.25 — Task 0.18: Biome's checked set is an allow-list, and the two generated files are excluded
+
+**The checked set is an allow-list, not an exclude-list, so "excluded" means "not listed."**
+`biome.json`'s `files.includes` lists exactly `src/**`, `e2e/**`, `index.html`, `package.json`,
+`tsconfig.json`, `vite.config.ts`, `vitest.config.ts` and `playwright.config.ts` (the two D0.24
+records), plus `biome.json`, then negates the two generated files below. The consequence a later
+reader needs is the opposite failure mode from an exclude-list: a new root-level file is **not
+checked until someone adds it**, where an exclude-list would check it by default and fail on the
+trees that must stay out. That trade was made deliberately, because those trees are many and keep
+growing — `node_modules/`, `src-tauri/target/**`, `src-tauri/gen/**`, `graphify-out/**`,
+`.opencode/skills/**`, `dist/**`, `test-results/**` and `playwright-report/**` — and an exclude-list
+would have to name every one of them as it appears. The measured weight of the problem is recorded:
+`biome check .` with **no config** checked **1512 files and reported 1502 errors** — the original
+task-0.13 measurement — while the no-config state task 0.18 inherited was **1526 files / 5090
+errors** (3083 warnings, 170 infos; Q18), grown between the two as files were added and as
+`dist/assets/*.js` entered the scan. A post-`bun run build` measurement taken while preparing 0.18
+read **1528 files / 5092 errors**. With the config, **12 first-party files** are checked and the run
+is clean — and that clean run is not hollow: a deliberately bad file (unsorted imports, an `any`, an
+unused parameter, a long double-quoted string) produced `format`, `assist/source/organizeImports`
+and `lint/suspicious/noExplicitAny` **errors** plus a `lint/correctness/noUnusedFunctionParameters`
+**warning**, the run ended "Some warnings were emitted while running checks" and **exited 1**, and
+deleting the file returned it to `Checked 12 files` clean. That last step is the flag earning its
+place: a warn-severity rule alone would not have failed the gate.
+
+**Both generated files are excluded, and they are in opposite states — which is why the decision is
+forward-looking rather than present-tense.** `src/routeTree.gen.ts` attracts **two** diagnostics: a
+`format` diff and a `lint/suspicious/noExplicitAny` from the generator's own `} as any)`. Under this
+repository's style that format diff is **only** the semicolons, since the generator already emits
+single quotes; `src/bindings.ts` attracts **nothing today**, being one comment line over the empty
+command and event set (D0.9), and it only becomes the long emitted line Biome would want to break
+once task 1.3 adds commands. The exclusion is therefore a decision about what those files **become**
+as much as about what they are now.
+
+**Matching the generator instead was rejected.** It would mean `semicolons: off` repository-wide,
+reformatting every first-party file to satisfy one artefact, and it would still leave `} any)`
+failing: matching the generator's *linter* output is impossible without editing generated output,
+which the project forbids. Excluding is what keeps TOOL-4's "regeneration produces no diff" and this
+gate command's "lint passes" (D0.9) from fighting, and that agreement is verified rather than
+asserted — a build followed by `git diff --exit-code` on both generated files exits 0.
+
+**The repository's existing style wins over Biome's defaults, and that is a decision.** `biome.json`
+sets `indentStyle` `space`, `indentWidth` 2, `lineWidth` 80, `lineEnding` `lf`,
+`javascript.formatter.quoteStyle` `single` and `semicolons` `always`, so no first-party file was
+rewritten to satisfy the formatter and the diff is the config plus genuine fixes. The rejected
+alternative — adopt Biome's defaults and reformat every first-party file — would swamp a scaffolding
+task's diff, touch files later tasks are reading, and still not rescue the generated route tree.
+`lineEnding: lf` is Biome's default, written out as documentation rather than a change. So is the
+`assist` block: `assist` is on by default in Biome 2.x, `biome check` fails on assist diagnostics and
+`assist/source/organizeImports` is emitted as an **error**, so naming it documents a default — while
+JSX attribute ordering (`useSortedAttributes`) is deliberately **not** imposed, which matters to
+`frontend-ui`.
+
+**`preset: "recommended"` documents a default, and the explicit `noExplicitAny: "error"` is defence
+in depth rather than a second gate.** `linter.rules.recommended` is `true` **by default** in 2.5.15,
+so `preset: "recommended"` is explicit documentation in the same way as the `assist` block above,
+not a load-bearing switch. With the gate command now `biome check --error-on-warnings .` (D0.8), a
+**warn**-severity `noExplicitAny` already fails the run, so the `"error"` override is not what puts
+`any` behind the gate; it keeps the rule failing for a bare `biome check`/`biome lint` invocation
+that does not pass the flag — someone running the tool directly, or an editor integration — and it
+documents the intent. The default-versus-gate fact the flag rests on is recorded in D0.8 and
+cross-referenced here rather than repeated.
+
+**What is deliberately not covered, and why.** Markdown and YAML cannot be checked by Biome 2.5.15
+at all: the schema's language sections are `css, graphql, grit, html, javascript, json`, so
+`docs/**`, `SETUP.md`, `AGENTS.md` and `openspec/**` are uncovered by format support rather than by
+choice. Rust is `cargo fmt`/`clippy` territory by D0.17. `src-tauri/**` stays deliberately outside
+the frontend allow-list: `*.rs` is D0.17's and `src-tauri/gen/**` is generated, so the two hand-owned
+JSON files are the ones in question, and they stay out on two grounds. **Ownership:**
+`capabilities/default.json` is hand-owned and task 0.6 hardened it so its permission diff stays
+reviewable (D0.21); including it either forces a cosmetic rewrite of a `tauri-security` file inside
+a frontend task or leaves the gate permanently red, and a frontend-owned `biome check --write .` or
+format-on-save would silently reformat a security file — the cross-ownership hazard D0.11 exists to
+prevent. **Remit:** Biome is the frontend toolchain here (`src/**`, `e2e/**`, the frontend build
+configs); the correctness of `tauri.conf.json` and `capabilities/default.json` is enforced by Tauri
+itself — their `$schema` pointers and the capability validation `tauri build` performs — a stronger
+signal than JSON formatting, so a formatter pass adds no correctness signal. Measured: adding both
+to `files.includes` reported `Checked 14 files`, with `tauri.conf.json` **Biome-clean** and
+`capabilities/default.json` attracting **one `format` diagnostic, no lint diagnostic** — two short
+arrays Biome would collapse (`"windows": ["main"]`, `"platforms": ["iOS", "macOS"]`), pure
+line-layout churn. Including only `tauri.conf.json` would churn nothing today, but that is
+coincidence rather than a guarantee, and a split boundary makes the allow-list harder to reason
+about for almost no gain; one stated boundary is the more defensible record. `opencode.jsonc` is
+also out because it sits outside the frontend tree — a known one-line follow-up rather than an
+omission, since listing it risks a red gate on a file this task may not fix. The conclusion a later
+reader should draw: the covered set is the frontend tree plus its root configs; `src-tauri/**` is
+deliberately out and validated by Tauri tooling; `opencode.jsonc` is out because it is outside the
+frontend tree.
 
 No ADR number is taken: section 0 takes none (D0.8).
 
