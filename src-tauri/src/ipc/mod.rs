@@ -2,8 +2,9 @@
 //!
 //! Owns the single `tauri-specta` builder that both the running app and the headless bindings
 //! export are built from (D0.9), and the export function the export example calls. It holds no
-//! domain logic: [`types`] fixes the shared shapes, [`events`] fixes the two P0 event names, and
-//! [`commands`] holds typed stubs whose bodies section 2 replaces.
+//! domain logic: [`types`] fixes the shared shapes, [`events`] fixes the two P0 event names,
+//! [`commands`] holds typed stubs whose bodies section 2 replaces, and [`failure`] is the one place
+//! a [`types::CommandError`] is built from (task 2.11).
 //!
 //! The P0 contract was frozen by task 1.3. `src/bindings.ts` is generated from exactly this
 //! builder, so the frontend reaches every command only through `src/features/*/api.ts` wrappers
@@ -23,6 +24,7 @@ use tauri_specta::{Builder, collect_commands, collect_events};
 
 pub mod commands;
 pub mod events;
+pub mod failure;
 pub mod types;
 
 pub use events::{HouseholdChangeKind, HouseholdChanged};
@@ -47,20 +49,28 @@ const BINDINGS_PATH: &str = "../src/bindings.ts";
 /// [`Builder::typ`] because P0 freezes the member model (D0.3) but no P0 command returns it yet —
 /// P3's member list is its first consumer, and exporting it now is what keeps that shape one
 /// frozen definition rather than two.
+///
+/// Each command is named by its **defining** area module — `commands::household::create_household`
+/// and so on — not by [`commands`]'s re-export of it. `collect_commands!` expands to tauri's
+/// `generate_handler!` and specta's `collect_functions!`, and both resolve a hidden wrapper macro at
+/// the path they are handed (`__cmd__<name>` and `__specta__fn__<name>` respectively, in place of
+/// the function's own name), while a `pub use` of the function re-exports the function alone. The
+/// names the frontend sees are unaffected: both macros take the command's name from the function's
+/// own identifier, so `src/bindings.ts` is the same file either way.
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
-            commands::create_household,
-            commands::list_households,
-            commands::get_active_household,
-            commands::set_active_household,
-            commands::load_household,
-            commands::get_service_status,
-            commands::check_service_reachability,
-            commands::get_identity,
-            commands::get_display_weight_unit,
-            commands::set_display_weight_unit,
-            commands::get_diagnostics_summary,
+            commands::household::create_household,
+            commands::household::list_households,
+            commands::household::get_active_household,
+            commands::household::set_active_household,
+            commands::sync::load_household,
+            commands::sync::get_service_status,
+            commands::sync::check_service_reachability,
+            commands::identity::get_identity,
+            commands::settings::get_display_weight_unit,
+            commands::settings::set_display_weight_unit,
+            commands::diagnostics::get_diagnostics_summary,
         ])
         .events(collect_events![
             events::HouseholdChanged,

@@ -828,7 +828,7 @@ file's header).
   callers (SET-2).
 - [ ] 2.10 [rust-backend] Implement the per-device display weight-unit preference, its regional
   default, and the conversion boundary that applies it only on entry/display (SET-4).
-- [ ] 2.11 [rust-backend] Implement the single failure-reporting surface: every state-changing
+- [x] 2.11 [rust-backend] Implement the single failure-reporting surface: every state-changing
   command returns a `CommandError` with a specific `SaveCause`, a `retryable` flag, a message key and
   the command's `request_id` as the operation's identity — no bare "something went wrong" path
   (NFR-8, D0.14).

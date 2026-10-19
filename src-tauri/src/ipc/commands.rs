@@ -1,10 +1,26 @@
-//! The P0 command surface: one typed stub per command the frontend needs in this phase.
+//! The P0 command surface, split by area so section 2 can replace one body per task (task 2.11).
 //!
-//! **Every body here is a placeholder.** Each one returns `Err` through the contract's single
-//! failure surface ([`CommandError`]) with the cause `unknown`, `retryable: false` and the message
-//! key `error.not_implemented`. Task 1.3 freezes the shapes; the behaviour belongs to section 2
-//! (tasks 2.1–2.13 replace the bodies one by one). No domain logic lives here, and no stub touches
-//! `tauri::State`, the storage boundary or the shared service.
+//! The eleven commands of the frozen contract (task 1.3) are grouped by the area that owns their
+//! behaviour — [`household`], [`sync`], [`settings`], [`identity`], [`diagnostics`]. Each area file
+//! owns its commands' doc comments, imports and bodies; this file owns the grouping and the
+//! re-exports below, which exist for Rust callers so that `ipc::commands::<name>` keeps resolving.
+//! The IPC builder does **not** use that path: it registers every command through the defining area
+//! module, because `collect_commands!` resolves a hidden wrapper macro at the path it is handed —
+//! [`super::builder`] records why, and why a re-export path cannot serve. That split is what lets a
+//! section-2 task (2.1 and 2.2 the household commands, 2.5 the collection read, 2.9 identity, 2.10
+//! the display unit, 2.12 diagnostics, 2.13 the two status commands) edit one file without touching
+//! a sibling's.
+//!
+//! **Every body is a placeholder.** Each one returns `Err` through the contract's single failure
+//! surface, [`CommandError`], built by [`failure`](super::failure)'s constructors and never field by
+//! field: [`CommandError::not_implemented`] — the cause `unknown`, `retryable: false` and the
+//! **placeholder key** `error.not_implemented`, with the command's `RequestId` where the command has
+//! one. `unknown` is the only honest cause a stub can name, because the frozen list admits no "not
+//! implemented" variant (D0.6); the placeholder key is what keeps the stub distinct from a
+//! *classified* `unknown` failure, which is [`CommandError::unknown`] and names `error.unknown`. The
+//! placeholder is a state of the surface, not a second cause — one cause owns one key (NFR-8), and
+//! no P0 screen can see a stub, because section 4 builds the surfaces against section 2's
+//! implementations.
 //!
 //! **The frontend reaches these commands only through `src/features/*/api.ts`** — wrappers over the
 //! generated `src/bindings.ts` (project hard rule 2). No route, component or hook imports the
@@ -13,232 +29,33 @@
 //!
 //! Every command is `async`: what sits behind it does network and storage I/O, so the async
 //! signature is part of the contract rather than a detail of the placeholder. Every command that
-//! changes product data takes a `RequestId`; the reads and the reachability probe take none, so
+//! changes product data takes a [`RequestId`]; the reads and the reachability probe take none, so
 //! their failure carries `request_id: None` (they are idempotent — see
 //! [`CommandError::request_id`]).
+//!
+//! **Why the area files take the shared types as a glob.** `use super::super::types::*` in an area
+//! file does two things that both outlive section 2: the area's implementation can name any contract
+//! type without an import edit that could race its siblings, and the frozen command doc comments
+//! link names their signature does not use — the household reads link [`ServiceStatus`] — which
+//! rustdoc can only resolve from a name that is in scope.
+//!
+//! [`CommandError`]: super::types::CommandError
+//! [`CommandError::not_implemented`]: super::types::CommandError::not_implemented
+//! [`CommandError::request_id`]: super::types::CommandError::request_id
+//! [`CommandError::unknown`]: super::types::CommandError::unknown
+//! [`RequestId`]: super::types::RequestId
+//! [`ServiceStatus`]: super::types::ServiceStatus
 
-use super::types::{
-    CommandError, DiagnosticsSummary, Household, HouseholdCollection, HouseholdId,
-    HouseholdSummary, Identity, RequestId, SaveCause, ServiceStatus, WeightUnit,
+pub mod diagnostics;
+pub mod household;
+pub mod identity;
+pub mod settings;
+pub mod sync;
+
+pub use diagnostics::get_diagnostics_summary;
+pub use household::{
+    create_household, get_active_household, list_households, set_active_household,
 };
-
-/// Create a household with a non-blank name; the creator becomes its first member and it becomes
-/// the active household (HS-1, HS-2).
-///
-/// The operation is **idempotent on `request_id`** (D0.14, task 2.1): re-issuing it with the same
-/// value returns the household that already exists instead of creating a second one. That is what
-/// makes the retry SYNC-2 offers safe and closes R6's duplicated-household risk.
-///
-/// # Errors
-///
-/// `validation` for an empty or whitespace-only name, which is treated as blank (HS-1). A valid
-/// name reaches the write path, so its causes are also reachable here — `connectivity`,
-/// `no_account`, `allowance_exceeded`, `rate_limited` and `timeout` (D0.12, D0.13) — because this
-/// is P0's only state-changing command that writes to the shared service. The stub returns
-/// `unknown` until task 2.1 implements the body.
-#[tauri::command]
-#[specta::specta]
-pub async fn create_household(
-    name: String,
-    request_id: RequestId,
-) -> Result<Household, CommandError> {
-    // Named for the generated bindings; task 2.1 validates the value.
-    let _ = name;
-    Err(not_implemented(Some(request_id)))
-}
-
-/// Every household the person holds, with the active one indicated (HS-3, HS-4, DM-3).
-///
-/// Served from the locally kept data first (D0.2). An empty list is **not** proof that the person
-/// holds no household: it cannot distinguish "no household" from "nothing was ever loaded and the
-/// service is unreachable" (SYNC-3). The list is what HS-2's route guard reads at launch, so the
-/// guard may start first-run onboarding only when a fresh [`ServiceStatus`] reports
-/// `state: reachable` and `account_valid: true`; while that status is `unknown` or `unreachable`,
-/// the guard shows the connectivity-required state and does not start onboarding (task 3.3
-/// consumes this rule; task 3.4 holds the status).
-///
-/// # Errors
-///
-/// The read path's causes (`validation`, `unknown`). Unreachability is a status fact
-/// (`get_service_status`), not a read failure. The stub returns `unknown` until task 2.2.
-#[tauri::command]
-#[specta::specta]
-pub async fn list_households() -> Result<Vec<HouseholdSummary>, CommandError> {
-    Err(not_implemented(None))
-}
-
-/// The person's active household, or `None` when they hold none (HS-2, HS-3, DM-3).
-///
-/// `None` is the onboarding trigger — HS-2 presents household creation in that state and never once
-/// a household exists — but it is a *conclusion*, not an absence of data: `None` also covers a
-/// device with no local copy and an unreachable service. It may be read as "no household" only when
-/// a fresh [`ServiceStatus`] reports `state: reachable` and `account_valid: true`; while that status
-/// is `unknown` or `unreachable`, the guard shows the connectivity-required state instead of
-/// onboarding (SYNC-3, D0.2). At most one household is active (DM-3).
-///
-/// # Errors
-///
-/// The read path's causes (`validation`, `unknown`); "no household" is `Ok(None)`. The stub returns
-/// `unknown` until task 2.2.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_active_household() -> Result<Option<Household>, CommandError> {
-    Err(not_implemented(None))
-}
-
-/// Switch the active household and return the household that is active afterwards (HS-3, HS-4,
-/// DM-3).
-///
-/// The result is the post-state rather than an echo of the argument: DM-3 re-elects an active
-/// household when the previous one is no longer held, so what the screens must show is the active
-/// household after the call. A re-issued call with the same `request_id` is deduplicated rather
-/// than applied twice (D0.14).
-///
-/// # Errors
-///
-/// `validation` for a household the person does not hold, plus the write path's causes (D0.7
-/// criterion 4). The stub returns `unknown` until task 2.2.
-#[tauri::command]
-#[specta::specta]
-pub async fn set_active_household(
-    household_id: HouseholdId,
-    request_id: RequestId,
-) -> Result<Household, CommandError> {
-    let _ = household_id;
-    Err(not_implemented(Some(request_id)))
-}
-
-/// One household's collection, resolved against the locally kept copy first (D0.2, SYNC-1,
-/// SYNC-3).
-///
-/// Unreachability is deliberately not an error here: [`HouseholdCollection`]'s `source` and
-/// `loaded_at` report the three SYNC-3 states, so "nothing was ever loaded and the service is
-/// unreachable" keeps its own surface and is never shown as an empty collection.
-///
-/// # Errors
-///
-/// `validation` for an unknown household id, `unknown` for an unclassifiable internal failure. The
-/// stub returns `unknown` until task 2.5.
-#[tauri::command]
-#[specta::specta]
-pub async fn load_household(
-    household_id: HouseholdId,
-) -> Result<HouseholdCollection, CommandError> {
-    let _ = household_id;
-    Err(not_implemented(None))
-}
-
-/// The last observed service/account status, with the time it was observed (NFR-1).
-///
-/// Returns `state: unknown` with no observation instead of a value carried over from an earlier
-/// session (R3); the status store keeps that state until a fresh outcome arrives (task 3.4).
-///
-/// # Errors
-///
-/// `unknown` for an unclassifiable internal failure. The stub returns `unknown` until task 2.13.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_service_status() -> Result<ServiceStatus, CommandError> {
-    Err(not_implemented(None))
-}
-
-/// Run a fresh reachability probe and return its outcome (SYNC-2, NFR-1).
-///
-/// The probe checks the service and the account separately (D0.7 criterion 4), is bounded by
-/// `REACHABILITY_PROBE_TIMEOUT` = 5 s, and reports `unreachable` only after
-/// `OFFLINE_FAILURE_THRESHOLD` = 3 consecutive failures without an intervening success (D0.13). A
-/// fresh outcome is what `service:status-changed` publishes.
-///
-/// # Errors
-///
-/// `unknown` for an unclassifiable internal failure; an unreachable service is a *status*, not an
-/// error. The stub returns `unknown` until task 2.13.
-#[tauri::command]
-#[specta::specta]
-pub async fn check_service_reachability() -> Result<ServiceStatus, CommandError> {
-    Err(not_implemented(None))
-}
-
-/// The current person's account id and name, resolved with SET-2's fallback chain (task 2.9).
-///
-/// An unresolved identity returns normally (`resolved: false`, `display_name: None`): it must not
-/// fail the command or block the rest of Settings (SET-2's scenario).
-///
-/// # Errors
-///
-/// `unknown` for an unclassifiable internal failure. The stub returns `unknown` until task 2.9.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_identity() -> Result<Identity, CommandError> {
-    Err(not_implemented(None))
-}
-
-/// The effective per-device display unit (SET-4).
-///
-/// The person's own choice when there is one, otherwise the unit derived from the device's regional
-/// settings (task 2.10). It is a display preference only: no stored value is read or written in
-/// that unit (D0.4).
-///
-/// # Errors
-///
-/// `unknown` for an unclassifiable local-storage failure. The stub returns `unknown` until task
-/// 2.10.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_display_weight_unit() -> Result<WeightUnit, CommandError> {
-    Err(not_implemented(None))
-}
-
-/// Store the per-device display unit and return the effective unit (SET-4).
-///
-/// The change is local to this device and never rewrites a stored value (D0.4): conversion happens
-/// only where a weight is entered or displayed. `request_id` is the operation's identity, re-used
-/// if the surface offers a retry (D0.14).
-///
-/// # Errors
-///
-/// `unknown` for an unclassifiable local-storage failure. The stub returns `unknown` until task
-/// 2.10.
-#[tauri::command]
-#[specta::specta]
-pub async fn set_display_weight_unit(
-    unit: WeightUnit,
-    request_id: RequestId,
-) -> Result<WeightUnit, CommandError> {
-    let _ = unit;
-    Err(not_implemented(Some(request_id)))
-}
-
-/// A redacted summary of the diagnostics sink: counts and timestamps, never content (NFR-3).
-///
-/// P0 defines it for support diagnostics only — no P0 screen shows it — and P3 reuses it unchanged.
-///
-/// # Errors
-///
-/// `unknown` for an unclassifiable internal failure. The stub returns `unknown` until task 2.12.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_diagnostics_summary() -> Result<DiagnosticsSummary, CommandError> {
-    Err(not_implemented(None))
-}
-
-/// The message key every stub failure carries.
-///
-/// Section 2 replaces each body with the cause-specific keys task 3.7's scaffold resolves. The
-/// placeholder is still a *specific* key rather than a bare message, so a stub failure cannot be
-/// mistaken for a production failure path.
-const NOT_IMPLEMENTED_MESSAGE_KEY: &str = "error.not_implemented";
-
-/// The placeholder failure shared by every stub (see the module documentation).
-///
-/// `SaveCause::Unknown` is the only honest cause available: the frozen cause list (D0.6) admits no
-/// "not implemented" variant, and adding one would contradict it. `retryable` is `false` because
-/// retrying a missing implementation cannot succeed.
-fn not_implemented(request_id: Option<RequestId>) -> CommandError {
-    CommandError {
-        cause: SaveCause::Unknown,
-        retryable: false,
-        message_key: NOT_IMPLEMENTED_MESSAGE_KEY.to_owned(),
-        request_id,
-    }
-}
+pub use identity::get_identity;
+pub use settings::{get_display_weight_unit, set_display_weight_unit};
+pub use sync::{check_service_reachability, get_service_status, load_household};

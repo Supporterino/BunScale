@@ -1751,8 +1751,10 @@ Rust (src-tauri/)                                  Frontend (src/)
   src-tauri/src/ipc/            contract: commands, events, shared types  → src/bindings.ts (generated)
   src-tauri/src/domain/         household, member, ownership, invariants
   src-tauri/src/storage/        storage boundary: household isolation, canonical
-                                representation, immutability, absolute instants
-  src-tauri/src/sync/           reachability gate, loaded copy, refresh, LWW merge
+                                representation, immutability, absolute instants, and
+                                the device's loaded copy (storage/local.rs, task 2.3)
+  src-tauri/src/sync/           reachability gate, refresh orchestration, LWW merge
+                                (replaces the loaded copy in storage/, holds none itself)
   src-tauri/src/settings/       per-device preferences (display weight unit)
   src-tauri/src/diagnostics/    redacted diagnostics sink
   src-tauri/capabilities/       permissions (tauri-security owns)
@@ -1807,10 +1809,17 @@ explicitly with `Builder::typ` (no P0 command returns it yet — see the reconci
 section 0's "nothing may be implemented against these names until 1.3 is done" expired with task 1.3:
 the running app registers exactly what the export writes.
 
-**Every body is a typed stub.** Each command in `src-tauri/src/ipc/commands.rs` returns
-`Err(CommandError)` with `cause: unknown`, `retryable: false` and the message key
+**Every body is a typed stub.** Each command in `src-tauri/src/ipc/commands/` returns
+`Err(CommandError)` with `cause: unknown`, `retryable: false` and the placeholder message key
 `error.not_implemented`; section 2 replaces the bodies (2.1–2.13), and no domain logic lives in the
 contract surface.
+
+**The placeholder key is deliberately not the production key.** The per-cause failure constructors in
+`src-tauri/src/ipc/failure.rs` own **one distinct message key per `SaveCause`** (NFR-8; 5.10 asserts
+that distinctness), so a real unclassified failure reports `error.unknown` while a stub reports
+`error.not_implemented`. Keeping the two apart is deliberate: a stub failure stays recognisable as
+"this body is not implemented yet" in a test or a log and can never be read as a genuine `unknown`
+failure of a real operation.
 
 ### Commands
 
@@ -1819,6 +1828,18 @@ All are `async`, registered in `collect_commands![]`, and return `Result<T, Comm
 `set_display_weight_unit` — **takes a client-generated `RequestId`**; the reads and the
 reachability probe take none. The table names the Rust parameters; the generated wrappers expose
 them in camelCase (`requestId`, `householdId`), which is Tauri's default command-argument casing.
+
+**Where the commands are defined (task 2.11).** `src-tauri/src/ipc/commands.rs` is the module root and
+the commands live in per-area children: `commands/household.rs`, `commands/sync.rs`,
+`commands/settings.rs`, `commands/identity.rs`, `commands/diagnostics.rs`. `collect_commands![]`
+therefore names the **defining** module — `commands::household::create_household`, … — and never a
+re-export of it: `tauri-macros` resolves its `__cmd__<name>` macro and specta's resolves
+`__specta__fn__<name>` on the path *prefix* the list gives, so a `pub use` re-export declared in the
+root satisfies neither. The root cannot be `commands/mod.rs` either — `commands.rs` beside
+`commands/mod.rs` is E0761, and the harness refuses the rename that would produce it — so
+`commands.rs` stays the root and holds the module declarations. The split changes nothing the frontend
+sees: the same **eleven commands, in the same order, with the same names and signatures**, which is why
+`src/bindings.ts` is byte-identical across it.
 
 | Command | Parameters | Returns (`T`) | Requirements |
 |---|---|---|---|
@@ -1853,6 +1874,17 @@ must not perform twice. `CommandError.request_id` carries exactly that value; it
 read's or the reachability probe's failure, because neither has an operation identity to
 deduplicate, so a retry is a fresh call. Mechanism selection is conditional on that support
 (task 1.1).
+
+**`retryable` is a per-cause policy, and `allowance_exceeded` is retryable** (ruling B, orchestrator).
+`retryable` is `true` for `connectivity`, `no_account`, `allowance_exceeded`, `rate_limited` and
+`timeout`, and `false` only for `validation` and `unknown`: those five are conditions in which
+re-issuing the *same* command can succeed, and the `request_id` makes the re-issue safe by
+construction (D0.14), while a refused input and an unclassified failure will not change by asking
+twice. `allowance_exceeded` is deliberately in the retryable set even though a retry cannot free space
+on its own: SYNC-2's "Save failure names its cause and offers a retry" covers all four service
+conditions — connectivity, no account, **allowance exceeded** and rate limiting — and an exhausted
+owner allowance can be freed by the owner between attempts, so the retry must be *offered* rather than
+withheld.
 
 **Reconciliations against the earlier proposal.** Task 1.3 changed these names and shapes; the
 tables above are the record.
@@ -1915,7 +1947,7 @@ transparent newtypes, so the generated TypeScript sees plain `string` aliases.
 | `Instant` | RFC 3339 string with an offset, normalised to UTC on store | D0.5, DM-6; absolute instants only, never local times |
 | `WeightUnit` | `grams \| kilograms` | display only; storage stays canonical (D0.4) |
 | `SaveCause` | `connectivity \| no_account \| allowance_exceeded \| rate_limited \| timeout \| validation \| unknown` | the frozen, exhaustive cause list (D0.6, D0.12, D0.13); one UI copy per cause (NFR-8) |
-| `CommandError` | `{ cause: SaveCause, retryable: bool, message_key: String, request_id?: RequestId }` | one failure surface for every operation; `request_id` is **semantic** — the operation's identity for the service's deduplication, which is what makes a retry safe — not a diagnostic field (D0.14); `None` only on a read's or the reachability probe's failure |
+| `CommandError` | `{ cause: SaveCause, retryable: bool, message_key: String, request_id?: RequestId }` | one failure surface for every operation; `request_id` is **semantic** — the operation's identity for the service's deduplication, which is what makes a retry safe — not a diagnostic field (D0.14); `None` only on a read's or the reachability probe's failure; `retryable` is `true` for `connectivity`, `no_account`, `allowance_exceeded`, `rate_limited` and `timeout`, and `false` only for `validation` and `unknown` |
 | `ServiceState` | `reachable \| unreachable \| unknown` | `unknown` until a fresh outcome exists (R3); P3 adds `syncing` |
 | `ServiceStatus` | `{ state: ServiceState, account_valid?: bool, cause?: SaveCause, observed_at?: Instant }` | the `service:status-changed` payload; the optional fields mean "no observation yet", never a default (R3) |
 | `Household` | `{ id, name, created_at, owner_member_id, is_active, is_owner }` | `is_owner` gates P3's delete control; ownership is recorded from P0 on (D0.3) |

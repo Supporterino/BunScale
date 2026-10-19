@@ -243,9 +243,14 @@ export type CommandError = {
 	/**  What went wrong (see [`SaveCause`]). */
 	cause: SaveCause,
 	/**
-	 *  Whether re-issuing the same command — with the same
-	 *  [`request_id`](CommandError::request_id) — can succeed. `false` for a refusal that a retry
-	 *  cannot change (a validation failure, an exhausted allowance until the owner frees space).
+	 *  Whether re-issuing this same command — with the same
+	 *  [`request_id`](CommandError::request_id) — can succeed, which is the signal the frontend uses
+	 *  to decide whether to offer a retry at all. `true` for the conditions a later attempt can
+	 *  clear: the four the service reports — `connectivity`, `no_account`, `allowance_exceeded` and
+	 *  `rate_limited` (SYNC-2 offers the retry for all four) — and `timeout`, whose re-issue the
+	 *  shared service deduplicates (D0.14). `false` for `validation`, whose refusal is a property of
+	 *  the input rather than of the attempt, and for `unknown`, about which no outcome can be
+	 *  promised.
 	 */
 	retryable: boolean,
 	/**
