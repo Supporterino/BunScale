@@ -153,28 +153,44 @@ export const commands = {
 	 */
 	loadHousehold: (householdId: HouseholdId) => typedError<HouseholdCollection, CommandError>(__TAURI_INVOKE("load_household", { householdId })),
 	/**
-	 *  The last observed service/account status, with the time it was observed (NFR-1).
+	 *  The last observed service/account status, with the time it was observed (NFR-1, R3).
 	 * 
-	 *  Returns `state: unknown` with no observation instead of a value carried over from an earlier
-	 *  session (R3); the status store keeps that state until a fresh outcome arrives (task 3.4).
+	 *  Returns the tracker's last fresh outcome. Before any probe has completed in this session it is
+	 *  `state: unknown` with `account_valid`, `cause` and `observed_at` all absent — never a defaulted
+	 *  observation and never a value carried over from an earlier session (R3). A foreground return on
+	 *  iOS, a window regaining focus on macOS, and `check_service_reachability` all record a fresh
+	 *  outcome on the same tracker; this command itself makes no network call, so reading it cannot
+	 *  change what it reports.
+	 * 
+	 *  The frontend may treat the status as a current observation only while `observed_at` is present;
+	 *  while the state is `unknown` the household reads prove nothing on their own (SYNC-3).
 	 * 
 	 *  # Errors
 	 * 
-	 *  `unknown` for an unclassifiable internal failure. The stub returns `unknown` until task 2.13.
+	 *  None is reachable: the status is local state, so this is always `Ok`. The `Result` is the
+	 *  contract's uniform shape rather than a failure this command can produce.
 	 */
 	getServiceStatus: () => typedError<ServiceStatus, CommandError>(__TAURI_INVOKE("get_service_status")),
 	/**
-	 *  Run a fresh reachability probe and return its outcome (SYNC-2, NFR-1).
+	 *  Run a fresh reachability probe, record it, publish it, and return it (SYNC-2, NFR-1).
 	 * 
-	 *  The probe checks the service and the account separately (D0.7 criterion 4), is bounded by
-	 *  `REACHABILITY_PROBE_TIMEOUT` = 5 s, and reports `unreachable` only after
-	 *  `OFFLINE_FAILURE_THRESHOLD` = 3 consecutive failures without an intervening success (D0.13). A
-	 *  fresh outcome is what `service:status-changed` publishes.
+	 *  The probe checks the service and the account separately (D0.7 criterion 4), and each check is
+	 *  bounded by `REACHABILITY_PROBE_TIMEOUT` = 5 s: a check that gets no answer counts as a failed
+	 *  probe (D0.13). The outcome is recorded on the status tracker and published as
+	 *  `service:status-changed` before it returns, so a subscriber (task 3.6) sees exactly the status
+	 *  this command answers with.
+	 * 
+	 *  The offline threshold is applied in Rust: an answered probe — including a `401` or `429`, which
+	 *  prove the service is reachable even though the account is not usable — resets the
+	 *  consecutive-failure count, and `state: unreachable` is reported only after
+	 *  `OFFLINE_FAILURE_THRESHOLD` = 3 consecutive failed probes without an intervening success (D0.13).
+	 *  This is the same sequence a foreground return on iOS and a window regaining focus on macOS run
+	 *  (`sync::lifecycle`).
 	 * 
 	 *  # Errors
 	 * 
-	 *  `unknown` for an unclassifiable internal failure; an unreachable service is a *status*, not an
-	 *  error. The stub returns `unknown` until task 2.13.
+	 *  None is reachable: an unreachable service is a *status*, not a command failure (SYNC-3), and the
+	 *  probe is idempotent so it carries no `request_id`. The `Result` is the contract's uniform shape.
 	 */
 	checkServiceReachability: () => typedError<ServiceStatus, CommandError>(__TAURI_INVOKE("check_service_reachability")),
 	/**

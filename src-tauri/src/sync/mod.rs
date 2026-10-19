@@ -17,6 +17,7 @@
 //! | [`gate`] | The gated save: the one place a write to the shared service is admitted. |
 //! | [`read`] | The read path: the local copy first, a fresh-probe refresh, and the three SYNC-3 states (task 2.5). |
 //! | [`merge`] | The last-write-wins merge: one surviving version per item, with losing versions ignored rather than failed (task 2.6). |
+//! | [`lifecycle`] | The platform lifecycle's re-evaluation entry points: one fresh probe, recorded and published as `service:status-changed` (task 2.13). |
 //!
 //! [`ServiceStatus`]: crate::ipc::types::ServiceStatus
 //!
@@ -57,17 +58,21 @@
 //! clock and its formatting are 2.8's (which is why nothing here reads a clock — an instant that
 //! has to be recorded is supplied by the caller, exactly as `storage::local` does); the diagnostics
 //! sink is 2.12's; and the two status commands plus the platform lifecycle hooks are 2.13's, which
-//! consumes [`probe`] and [`StatusTracker`] rather than re-deriving either.
+//! consume [`probe`] and [`StatusTracker`] rather than re-deriving either.
 //!
 //! Task 2.5 implements that read path in [`read`]: the local copy is served first, a fresh probe
-//! decides whether a refresh is attempted, and the guarded load replaces the copy. The write-side
-//! rules above are unchanged by it.
+//! decides whether a refresh is attempted, and the guarded load replaces the copy. Task 2.13
+//! implements the status half in [`lifecycle`]: one fresh probe, recorded on the tracker and
+//! published as `service:status-changed`, for a foreground return on iOS, a window regaining focus
+//! on macOS and the `check_service_reachability` command alike. The write-side rules above are
+//! unchanged by both.
 
 use std::time::Duration;
 
 pub mod double;
 pub mod gate;
 pub mod http;
+pub mod lifecycle;
 pub mod merge;
 pub mod probe;
 pub mod read;
@@ -77,6 +82,7 @@ pub mod status;
 pub use double::ScriptedService;
 pub use gate::{SaveGate, SaveReceipt};
 pub use http::HttpService;
+pub use lifecycle::{StatusPublisher, current_status, handle_run_event, re_evaluate};
 pub use merge::{MergeOutcome, MergePath};
 pub use probe::{AccountOutcome, ProbeOutcome, probe};
 pub use read::ReadPath;

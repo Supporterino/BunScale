@@ -11,20 +11,15 @@
 //! the display unit, 2.12 diagnostics, 2.13 the two status commands) edit one file without touching
 //! a sibling's.
 //!
-//! **Nine of the eleven bodies are implemented; the other two are placeholders.** [`settings`]'s
-//! pair (2.10), [`diagnostics`]'s command (2.12), [`household`]'s four (2.1, 2.2), [`sync`]'s
-//! `load_household` (2.5) and [`identity`]'s command (2.9) are written and never return the
-//! placeholder key, while the two status commands in [`sync`] (2.13) still return `Err` through the
-//! contract's single failure surface, [`CommandError`], built by
-//! [`failure`](super::failure)'s constructors and never field by field. Such a failure is
-//! [`CommandError::not_implemented`] — the cause `unknown`, `retryable: false` and the
-//! **placeholder key** `error.not_implemented` — carrying the command's `RequestId` where the
-//! command has one. `unknown` is the only honest cause a stub can name, because the frozen list
-//! admits no "not implemented" variant (D0.6); the placeholder key is what keeps the stub distinct
-//! from a *classified* `unknown` failure, which is [`CommandError::unknown`] and names
-//! `error.unknown`. The placeholder is a state of the surface, not a second cause — one cause
-//! owns one key (NFR-8) — and no P0 screen can see a stub, because section 4 builds the
-//! surfaces against section 2's implementations.
+//! **All eleven bodies are implemented.** [`settings`]'s pair (2.10), [`diagnostics`]'s command
+//! (2.12), [`household`]'s four (2.1, 2.2), [`sync`]'s three (2.5, 2.13) and [`identity`]'s command
+//! (2.9) are written and never return the placeholder key. Failures still reach the frontend only
+//! through the contract's single failure surface, [`CommandError`], built by
+//! [`failure`](super::failure)'s constructors and never field by field. A genuine unclassifiable
+//! failure is [`CommandError::unknown`] and names `error.unknown`; the placeholder
+//! [`CommandError::not_implemented`] — the cause `unknown`, `retryable: false` and the key
+//! `error.not_implemented` — remains the distinct state a future not-yet-implemented command would
+//! return. It is not a second key for `unknown`: one cause owns one key (NFR-8).
 //!
 //! **The frontend reaches these commands only through `src/features/*/api.ts`** — wrappers over the
 //! generated `src/bindings.ts` (project hard rule 2). No route, component or hook imports the

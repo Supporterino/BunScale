@@ -526,6 +526,26 @@ review's remaining notes are recorded here rather than deferred silently:
 None of these changes a requirement's outcome today; each is a hardening item for the phase that
 first exercises it.
 
+### Q28 — macOS lifecycle re-evaluation observes a refocus, not connectivity returning while focused (open, `rust-backend` + orchestrator, 2026-10-19)
+
+NFR-1's `[macos]` scenario says a status is refreshed when connectivity is restored **while the
+product remains running**. Task 2.13 implements the macOS trigger as `WindowEvent::Focused(true)`
+(tao's `windowDidBecomeKey`), which fires when the window regains key focus — so connectivity
+restored while the window stays focused is not observed by that hook alone; the status updates on the
+next refocus, explicit `check_service_reachability`, or retry. iOS is covered by the window-level
+`WindowEvent::Resumed` (the proven foreground signal; the app-level `RunEvent::Resumed` arm is
+defensive and unproven on the pinned wry).
+
+**Not decided here:** whether P0 should add a bounded periodic re-check while the product runs, or
+whether refocus + explicit checks are the intended reading of "continues to run". Polling is a
+product/battery decision and the design fixes no interval, so none was invented. The alternative that
+would close it without polling is a connectivity-change signal from the platform (a native Apple
+surface), which P0 does not have.
+
+**Needed:** a decision on the macOS trigger (accept refocus + explicit checks as the P0 reading, or
+name a bounded re-check interval). Task 3.4's status store already treats "unknown" honestly until a
+fresh outcome, so no surface presents a stale status as current meanwhile.
+
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 
 ### Q10 — Specialists could not execute shell commands in this harness

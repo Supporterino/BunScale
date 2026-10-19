@@ -835,7 +835,7 @@ file's header).
 - [x] 2.12 [rust-backend] Implement the redacted diagnostics sink: identifiers, counts and outcomes
   only; no rabbit names, note text, photo content or weight values; assert no third-party analytics
   transport exists (NFR-3).
-- [ ] 2.13 [rust-backend] Implement reachability re-evaluation hooks for both platform lifecycles:
+- [x] 2.13 [rust-backend] Implement reachability re-evaluation hooks for both platform lifecycles:
   foreground return on iOS and continuation-while-running on macOS, both `cfg`-clean (NFR-1). Apply
   the fixed bounds of D0.13: a probe that receives no answer within the **5-second
   `REACHABILITY_PROBE_TIMEOUT`** counts as a failed probe, and the status is reported as offline only
