@@ -780,7 +780,7 @@ file's header).
   (D0.8), so adding `derive` here is a deliberate pin change rather than a discovery left to the
   implementer.
 
-- [ ] 1.4 [tauri-security] Declare the capability, CSP, scope and entitlement changes the chosen
+- [x] 1.4 [tauri-security] Declare the capability, CSP, scope and entitlement changes the chosen
   mechanism requires; keep them least-privilege, add no permission the phase does not use, and keep
   the iOS and macOS configurations in step. This task is also the **owner of the core permissions the
   P0 contract needs**, because section 0 deliberately ends with a capability that grants nothing

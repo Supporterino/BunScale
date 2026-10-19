@@ -1304,20 +1304,25 @@ following spellings are consequently load-bearing constraints on whoever edits t
 - **0.16 / asset protocol:** any task that enables `app.security.assetProtocol` or uses
   `convertFileSrc` — the change that first serves an image — must add `asset:` and
   `http://asset.localhost` to `img-src` (and `media-src` if it is used) in the same change.
-- **1.4:** the first commands widen this capability for whatever core or plugin APIs they actually
-  use; app commands need **no** entry (1.3 declares the core APIs the contract uses; 1.4 grants them).
-- **1.4 (owner) / 3.6 (first consumer):** the narrowest permissions the P0 event subscriptions require
-  are **`core:event:allow-listen`** and **`core:event:allow-unlisten`** (for the returned unlistener);
-  `core:event:default` is the set containing them, and it additionally grants `emit`/`emit-to`, so 1.4
-  grants the smallest thing that satisfies the contract. `plugin:event|*` is always ACL-checked, unlike
-  the app's own commands, and 3.6 is where `household:changed` and `service:status-changed` are first
-  subscribed to. Task 1.4 is the named owner of that entry in `tasks.md`. The same obligation covers
-  every other core module the frontend later imports: `path`, `window` and `app` are equally denied
-  today.
-- **1.4:** the shared service's origin is **not** a webview network surface. D0.7 makes the calls in
-  Rust (`reqwest`), so no `connect-src` entry is owed and 1.4 must not add one. If a future change
-  introduces a webview path to the service, this bullet reopens and that change owes the entry with
-  its own rule-4 line.
+- **1.4 (applied, task 1.4):** the capability now grants exactly **`core:event:allow-listen`** and
+  **`core:event:allow-unlisten`** — task 3.6's two subscriptions plus the unlistener `listen`
+  returns; `core:event:default` was rejected because it additionally grants `emit`/`emit-to`, which no
+  P0 consumer calls. `plugin:event|*` is always ACL-checked, unlike the app's own commands, which need
+  **no** entry. Every other core module stays denied: `core:path`, `core:window` and `core:app` have no
+  P0 consumer (`src/bindings.ts` imports only `@tauri-apps/api/core` and `@tauri-apps/api/event`, and
+  its `Window`/`Webview` reference is a type-only `import(…)` clause erased at compile time), and a
+  later task that calls `.emit()` from the webview owes `core:event:allow-emit` then. The same
+  obligation covers every core module a later task first imports.
+- **1.4 (applied): no other widening, and no app ACL manifest.** `src-tauri/permissions/` and an app
+  ACL manifest are **not** introduced: either would flip every custom command to ACL-gated in the same
+  change (D0.21's trap). No scopes are added — `core:event` carries none, and no `fs`, `shell` or
+  `http` plugin is used. Entitlements, `Info.plist` and `src-tauri/gen/apple/**` are unchanged: no
+  sandboxed build exists yet (see the bullet below), no privacy-gated API is called, and iOS ATS does
+  not apply to a rustls client, so no usage string and no ATS exception is owed.
+- **1.4 (applied):** the shared service's origin is **not** a webview network surface. D0.7 makes the
+  calls in Rust (`reqwest`), so no `connect-src` entry was added and the policy is unchanged. If a
+  future change introduces a webview path to the service, this bullet reopens and that change owes the
+  entry with its own rule-4 line.
 - **the change that first needs a signed or distributed macOS build:** the macOS App Sandbox
   entitlements set is owed there — authored by `tauri-security`, since AGENTS.md routes entitlements to
   that agent, and validated in that release flow — not carried as a standing obligation on a sibling
@@ -1325,8 +1330,10 @@ following spellings are consequently load-bearing constraints on whoever edits t
   (0.9) explicitly disclaims signing. The iOS half of the same set already has an owner in the form the
   decision takes: `src-tauri/Info.plist` deliberately does not exist yet, and its usage strings are
   owed by whichever task first calls a privacy-gated API. Both halves are release-time artefacts, not
-  scaffold ones — no entitlements file exists under `src-tauri/` and none is referenced, and inventing
-  a usage string would ship a permission granted for nothing. Task 0.8 added no iOS usage string, for
+  scaffold ones — no macOS App Sandbox entitlements are configured (`bundle.macOS.entitlements` is
+  unset) and `src-tauri/Info.plist` does not exist; the generated iOS entitlements plist the scaffold
+  ships is an empty `<dict/>`, referenced by the generated Xcode project — and inventing a usage
+  string would ship a permission granted for nothing. Task 0.8 added no iOS usage string, for
   exactly that reason (D0.16).
 
 No ADR number is taken: section 0 takes none (D0.8).
