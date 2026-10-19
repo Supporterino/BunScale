@@ -14,14 +14,30 @@
 //! - [`LocalCopy`] / [`LocalCopies`] — the device's copy of one household's collection and the
 //!   device's set of those copies, with the loaded-at marker the read path reports (SYNC-3).
 //!
+//! Task 2.7 adds the boundary's **guards** on top of that layout:
+//!
+//! - [`BoundaryRefusal`] — the typed outcome of a refused cross-household access, a non-canonical
+//!   value or a write to an immutable entity, so a caller can act on the reason rather than parse a
+//!   message;
+//! - [`GuardedStore`] — the device's copies behind checked read/write/load operations, with the
+//!   item-to-household claim and the immutable marker private; it is also what the running app keeps
+//!   behind its state mutex, so a command cannot reach a mutable [`LocalCopies`];
+//! - [`Canonical`] / [`CanonicalForm`] — the one admitted representation of a value whose type has a
+//!   single stored form. P0 ships no such value — P1's weight is the first — so the helper is what
+//!   that type will use rather than a weight model invented here.
+//!
+//! Task 2.8 adds the timestamp half of that boundary: [`AbsoluteInstant`] parses the frozen wire
+//! instant into canonical UTC, defaults to the creation moment only when no value was supplied,
+//! passes a supplied instant through unchanged, and refuses malformed text through [`InstantError`]
+//! instead of defaulting it (D0.5, DM-6).
+//!
 //! **What is deliberately absent, and who owns it.** This module holds no network call and no
 //! service concern: the shared-service client, the reachability gate and the gated save path are
 //! task 2.4's; the refresh orchestration that decides *when* a copy is replaced — startup, a
 //! foreground return, a reachable service — is task 2.5's; the last-write-wins comparator that
-//! decides *which* of two versions survives is 2.6's; the cross-household and immutability guards
-//! are 2.7's; timestamp parsing and formatting are 2.8's; and the failure surface those tasks report
-//! through is 2.11's. Keeping the layout here free of all of them is what lets the layout be tested
-//! without an app, a clock or a service.
+//! decides *which* of two versions survives is 2.6's; the failure surface those tasks report
+//! through is 2.11's. Keeping the boundary free of them is what lets its layout, guards and
+//! timestamps be tested without an app, a clock or a service.
 //!
 //! **No frozen wire type is duplicated.** [`CollectionItem`](crate::ipc::types::CollectionItem),
 //! [`HouseholdCollection`](crate::ipc::types::HouseholdCollection) and
@@ -29,7 +45,11 @@
 //! storage types convert to and from them instead of re-declaring their fields.
 
 pub mod collection;
+pub mod guards;
+pub mod instant;
 pub mod local;
 
 pub use collection::{StoredCollection, StoredItem};
+pub use guards::{BoundaryRefusal, Canonical, CanonicalForm, GuardedStore};
+pub use instant::{AbsoluteInstant, InstantError};
 pub use local::{LocalCopies, LocalCopy};

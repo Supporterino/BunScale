@@ -817,7 +817,7 @@ file's header).
 - [ ] 2.6 [rust-backend] Implement last-write-wins merge on the collection: exactly one surviving
   version per item, no duplicates, and no conflict surfaced to the person as a failure
   (SYNC-5, NFR-2).
-- [ ] 2.7 [rust-backend] Enforce the storage-boundary invariants: an item belongs to exactly one
+- [x] 2.7 [rust-backend] Enforce the storage-boundary invariants: an item belongs to exactly one
   household and is never readable from another, a canonical value is stored only in its canonical
   form, and a write to an entity marked immutable is refused (NFR-10).
 - [ ] 2.8 [rust-backend] Implement absolute-instant timestamps: default to the creation moment,
