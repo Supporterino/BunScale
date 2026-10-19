@@ -88,6 +88,19 @@ would want to break once task 1.3 adds commands, so the exclusion is a decision 
 become as much as about what they are. Nothing was reformatted to satisfy the tool: the config matches
 the repository's existing style, so the diff is the config plus one script line. Its decisions are
 recorded as D0.25, and D0.8's `lint` row was corrected with it.
+Task 0.19 closed section 0's file-writing surface. The root `.gitignore` now covers `node_modules`,
+`dist`, `src-tauri/target/`, `test-results/`, `playwright-report/`, `.artifacts/` and `.tanstack/tmp/`
+alongside the `graphify-out/cache` entry the graph tooling keeps there, and it does **not** match either
+generated file — which matters because both are *tracked*, and an ignore rule can only ever hide an
+untracked path: `src/bindings.ts` and `src/routeTree.gen.ts` stay committed, so the two drift checks
+keep biting rather than passing vacuously. Two things were found and deliberately not covered, both
+reported rather than silently swallowed: the dated `graphify-out/<date>/` snapshots (an earlier one is
+committed, so hiding new ones would end that convention while leaving the committed copy listed as
+modified forever, and graph-churn policy is not this task's), and `src-tauri/gen/schemas/`, which the
+generator's own `src-tauri/.gitignore` already covers — so no `src-tauri/gen/` pattern was added at
+root, because that would also hide the Xcode project task 0.8 deliberately commits. `.tanstack/tmp/` is
+the one path added beyond the task's list, on evidence: the pinned router generator creates that
+directory lazily as per-session scratch space.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -365,7 +378,7 @@ file's header).
   correctness signal for those files than JSON formatting. `opencode.jsonc` is likewise a known
   one-line follow-up rather than an oversight. D0.25 records all of it.
 
-- [ ] 0.19 [frontend-logic] Extend the root `.gitignore` to cover everything this change's own gate
+- [x] 0.19 [frontend-logic] Extend the root `.gitignore` to cover everything this change's own gate
   commands and tools write — `node_modules/`, `src-tauri/target/`, `dist/` (`bun run build`),
   `test-results/` and `playwright-report/` (Playwright: the first `test:e2e` run already left
   `test-results/.last-run.json` in the tree, before task 0.17's config existed), and `.artifacts/` —

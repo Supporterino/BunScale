@@ -15,7 +15,9 @@ recorded because they change what later tasks must do: Q17 hands the git half of
 the orchestrator, which made it meaningful in task 0.15's commit, and Q18 measures what task 0.18 will
 actually find. Q19 corrects a completeness claim in task 0.18's own text — the checkable surface is not
 just the frontend plus Rust — and records the measured boundary decision (D0.25) rather than leaving it
-to be rediscovered. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+to be rediscovered. Q20 records what task 0.19 deliberately did not cover — the dated graphify snapshots
+and the generator-owned `src-tauri/gen/schemas/` — together with the one path it added beyond its list
+on evidence. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -269,6 +271,31 @@ hazard D0.11 prevents) and on remit (Tauri's `$schema` and its capability valida
 correctness signal for those files than JSON formatting). `opencode.jsonc` remains the third
 checkable-but-unlisted file, a known one-line follow-up. The task text has been corrected accordingly,
 so no later task inherits the false completeness claim.
+
+### Q20 — who commits the dated graphify snapshots, and where a graph decision belongs (open, `frontend-logic` + orchestrator, 2026-10-19)
+
+Raised while implementing task 0.19. The root `.gitignore` must cover what this change's gate commands
+and tools write, while not swallowing the two generated files that must stay tracked. Two paths were
+found while checking for anything the task's own list missed, and neither was covered:
+
+- **`graphify-out/<date>/` snapshots.** `graphify-out/2026-10-16/` is **tracked** (it shows as modified),
+  while `2026-10-17/` and `2026-10-19/` are untracked and stay visible. Ignoring them was rejected: an
+  earlier snapshot is committed, so an ignore rule would end that convention while leaving the committed
+  copy listed as modified forever — a half-state — and snapshot policy is the graph tooling's, written
+  by the commit hook and `/graphify`, not by any gate command of this change. **Open:** who commits new
+  dated snapshots, and does the tooling intend one per day or one per graph rebuild? The orchestrator
+  refreshes the graph and commits it when the change is archived, which is where these currently land;
+  if that is not the intent, the tooling's owner should say so rather than each task rediscovering it.
+- **`src-tauri/gen/schemas/`** is already ignored by the generator's own `src-tauri/.gitignore`
+  (`/target/`, `/gen/schemas`), so no root entry was added. Deliberately **no** `src-tauri/gen/` pattern
+  exists at root either: that would also hide `src-tauri/gen/apple/`, the Xcode project task 0.8
+  recreates and commits on purpose (D0.11) so its bundle identifier and product name stay reviewable.
+
+One path was added beyond the task's list, on evidence rather than tidiness: **`.tanstack/tmp/`**, which
+the pinned `@tanstack/router-generator` creates lazily as per-session scratch space (its `tmpDir`
+defaults to `.tanstack/tmp`). It is empty today, and git reports an empty directory nowhere — which is
+exactly why covering it matters: the first scratch file it holds would otherwise appear as untracked and
+be swept in by a later `git add -A`.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 

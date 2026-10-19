@@ -1282,8 +1282,10 @@ no macOS job this phase does not need.
 task 0.12 made `cargo fmt --check` clean (that half is done — see the 0.12 outcome record in D0.9), and
 it cannot pass until 0.13 adds `package.json` and its scripts, 0.14–0.15 add the
 build and the route tree, 0.16 commits `src/bindings.ts`, 0.17–0.18 wire the tests and Biome, and
-0.19 **extends** the root `.gitignore` — it already exists, holding only the `graphify-out/cache`
-entry, so 0.19 adds `node_modules/`, `src-tauri/target/` and `.artifacts/` to it rather than
+0.19 **extends** the root `.gitignore` — it already exists, holding the `graphify-out/cache` entry,
+so 0.19 adds `src-tauri/target/`, `test-results/`, `playwright-report/` and `.artifacts/`, plus
+`.tanstack/tmp/` beyond its literal list (the pinned router generator creates that directory lazily),
+and commits the `node_modules` and `dist` lines the environment had already added, rather than
 creating it. So this file is the evidence for TOOL-7, and task 0.26's recorded full-gate run is the
 evidence for TOOL-1.
 
