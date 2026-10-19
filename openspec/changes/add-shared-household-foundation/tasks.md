@@ -804,7 +804,7 @@ file's header).
 - [x] 2.3 [rust-backend] Implement the household collection layout: stable opaque ids, per-item
   version/updated-at, and one collection per household that a second load cannot duplicate
   (SYNC-1).
-- [ ] 2.4 [rust-backend] Implement the reachability-gated save path: refuse writes without
+- [x] 2.4 [rust-backend] Implement the reachability-gated save path: refuse writes without
   reachability or a valid account, map each failure to its `SaveCause`, and never report success for
   a write that did not complete (SYNC-2, NFR-1). A save attempt that receives no outcome within the
   **15-second `SAVE_ATTEMPT_TIMEOUT`** is refused with the `timeout` cause — a real cause with a

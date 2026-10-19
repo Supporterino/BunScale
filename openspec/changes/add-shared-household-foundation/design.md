@@ -195,7 +195,9 @@ open-source and run on the deployment host; none is linked into the iOS or macOS
 no platform constraint to the app. On macOS, the App Sandbox set that ships with the first signed or
 distributed build must include `com.apple.security.network.client`; task 1.4 owns the entitlement
 surface and the change that enables the sandbox owes the entry then (D0.21's rule for the sandbox
-set).
+set). The feature names themselves are `reqwest` 0.12's own — the 0.13 line renamed the TLS feature
+(`rustls-tls` → `rustls`) — so the pin and the feature list are one decision: a bump re-checks the
+names before it lands rather than assuming they survive it.
 
 ##### Alternatives considered and rejected (task 1.1)
 
@@ -253,6 +255,7 @@ are the same kind of housekeeping dependency.
 
 | Crate | Pin | One-line justification (rule 6) |
 |---|---|---|
+| `reqwest` | `=0.12.28` | The HTTPS client the Rust sync layer calls the shared service with (D0.7): `default-features = false` with `rustls-tls` + `json`, so the TLS stack is pure Rust (bundled webpki roots) with no native/system TLS binding — it builds for `aarch64-apple-ios` and macOS, and the calls originate in Rust, so no Tauri plugin and no webview capability/CSP surface is added. |
 | `tauri` | `=2.12.4` | The v2 runtime the whole app is built on; `max_stable_version`, and the version the generated crate already resolves. |
 | `tauri-build` | `=2.7.3` | The v2 build script that emits the `mobile`/`desktop` cfg gates and the Tauri config for both platforms. |
 | `serde` | `=1.0.229` | Derives the (de)serialisation of every IPC payload type and shared type. |
@@ -1768,6 +1771,17 @@ Rules held here:
   bindings (project hard rule 2).
 - Per-device preferences (display unit; later language and reminders) live on the device and are
   never part of a household collection. Household-scoped data is never stored per device only.
+- The display unit's regional default is derived **in Rust**, and only as a fallback: a stored choice
+  wins; otherwise the region is read from the process environment (`LC_ALL` → `LC_MEASUREMENT` →
+  `LANG`) and, **on macOS only**, from the system global preference `AppleLocale` via
+  `/usr/bin/defaults read -g AppleLocale`; otherwise an unstated or unknown region answers the
+  canonical unit (grams) rather than guessing. **On iOS neither source is reachable** from the
+  sandboxed app, so the default there answers the canonical unit — recorded as **Q26** in
+  `questions.md`, which also names what would close it: an `apple-native` plugin reading `NSLocale`,
+  or a plugin such as `tauri-plugin-os`, either of which must support iOS **and** macOS per project
+  rule 6. The device-reading half is therefore **unverifiable in this change's gate**, so task 5.11's
+  "Default unit follows the device region" pins the *rule* — choice wins, region when readable,
+  canonical otherwise — not a device read.
 - The household collection is the only source of truth for household data; the local copy is a
   cache of it, never a competing record.
 - Reachability is a state the *product* derives (from a fresh outcome), not a value cached from a
@@ -1854,6 +1868,12 @@ sees: the same **eleven commands, in the same order, with the same names and sig
 | `get_display_weight_unit` | — | `WeightUnit` | SET-4 (2.10) |
 | `set_display_weight_unit` | `unit: WeightUnit`, `request_id: RequestId` | `WeightUnit` — the effective unit | SET-4 (2.10) |
 | `get_diagnostics_summary` | — | `DiagnosticsSummary` | NFR-3 (2.12) |
+
+`get_display_weight_unit` and `set_display_weight_unit` also take an injected
+**`app: tauri::AppHandle`** — a Tauri argument that resolves the device's own data directory,
+**not** a wire argument: `specta` emits no datatype for it and the generated wrapper takes none, so
+the wire contract and `src/bindings.ts` are unchanged by it. The Parameters column records only what
+crosses the boundary.
 
 **"No household" is a fresh-outcome conclusion, never an absence of data.** `Vec<HouseholdSummary>`
 and `Option<Household>` carry no source or loaded-at flag, so an empty list or `None` cannot by

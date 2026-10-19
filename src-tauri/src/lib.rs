@@ -3,8 +3,11 @@
 //! [`ipc`] owns the single builder constructor (D0.9); [`run`] mounts it, and the bindings export
 //! example calls it. Nothing here holds domain logic.
 
+pub mod diagnostics;
 pub mod ipc;
+pub mod settings;
 pub mod storage;
+pub mod sync;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
