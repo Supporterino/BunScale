@@ -1,20 +1,23 @@
 //! Household commands: creating a household, and holding and switching the active one (HS-1…HS-4,
 //! DM-3).
 //!
-//! Tasks 2.1 (`create_household`) and 2.2 (the other three) own these bodies. `create_household` is
-//! P0's only state-changing command that writes to the shared service, so the reachability-gated
-//! write path — and with it every reachable `SaveCause` — sits behind it (2.4, 5.4). The two reads
-//! carry D0.2's rule into the contract: an empty list and a `None` are conclusions the frontend may
-//! draw only from a fresh, reachable [`ServiceStatus`], never from the read itself (SYNC-3).
+//! `create_household` (task 2.1) is P0's only state-changing command that writes to the shared
+//! service, so the reachability-gated write path — and with it every reachable `SaveCause` — sits
+//! behind it (2.4, 5.4). The other three (task 2.2) read and write the process's household book and
+//! never reach the service, so their failure surface is narrower by construction.
 //!
-//! `create_household` is implemented (task 2.1): it validates the name, refuses honestly when no
-//! account exists (Q25), and otherwise goes through the domain and the reachability gate. The other
-//! three bodies are still **placeholders** that fail through [`CommandError::not_implemented`]: the
-//! cause `unknown`, `retryable: false` and the placeholder key `error.not_implemented`, carrying
-//! the command's `RequestId` where it has one. That key says "this command has no implementation
-//! yet"; it is not a cause in the frozen list, so a genuine unclassifiable failure is
-//! [`CommandError::unknown`] and names `error.unknown` instead (see the parent module's docs). The
-//! three stubs touch no `tauri::State`, the storage boundary or the shared service.
+//! **Switching the active household is local state, not a shared-collection write.** The active
+//! household is the person's selection over the households they hold, not an item of any household's
+//! collection, and P0's frozen service surface has no operation for it; D0.1's gate therefore does
+//! not apply. A switch assigns the book's one active id, adds no second write path, and its only
+//! failure is `validation` for a household the person does not hold. The contract still carries a
+//! `request_id` (frozen in 1.3), and it is carried on any failure like every state-changing
+//! command's; a re-issue is naturally idempotent because the operation assigns one field one value.
+//! [`crate::domain::household`] records the same decision beside the invariant it protects (DM-3).
+//!
+//! The two reads carry D0.2's rule into the contract: an empty list and a `None` are conclusions the
+//! frontend may draw only from a fresh, reachable [`ServiceStatus`], never from the read itself
+//! (SYNC-3).
 
 // The shared contract types, including the ones only the doc comments link (see the parent module's
 // docs for why this is a glob).
@@ -58,22 +61,28 @@ pub async fn create_household(
 
 /// Every household the person holds, with the active one indicated (HS-3, HS-4, DM-3).
 ///
-/// Served from the locally kept data first (D0.2). An empty list is **not** proof that the person
-/// holds no household: it cannot distinguish "no household" from "nothing was ever loaded and the
-/// service is unreachable" (SYNC-3). The list is what HS-2's route guard reads at launch, so the
-/// guard may start first-run onboarding only when a fresh [`ServiceStatus`] reports
-/// `state: reachable` and `account_valid: true`; while that status is `unknown` or `unreachable`,
-/// the guard shows the connectivity-required state and does not start onboarding (task 3.3
-/// consumes this rule; task 3.4 holds the status).
+/// Served from the process's household book, which is this device's local view (D0.2), in the order
+/// the person acquired the households. Siblings are separate records: no member or item of one
+/// household appears in another's row (HS-3), and exactly one row carries `is_active`, or none when
+/// the person holds no household (DM-3).
+///
+/// An empty list is **not** proof that the person holds no household: it cannot distinguish "no
+/// household" from "nothing was ever loaded and the service is unreachable" (SYNC-3). The list is
+/// what HS-2's route guard reads at launch, so the guard may start first-run onboarding only when a
+/// fresh [`ServiceStatus`] reports `state: reachable` and `account_valid: true`; while that status
+/// is `unknown` or `unreachable`, the guard shows the connectivity-required state and does not start
+/// onboarding (task 3.3 consumes this rule; task 3.4 holds the status).
 ///
 /// # Errors
 ///
-/// The read path's causes (`validation`, `unknown`). Unreachability is a status fact
-/// (`get_service_status`), not a read failure. The stub returns `unknown` until task 2.2.
+/// None is reachable: the read is local, so an empty book is `Ok(vec![])` rather than a failure.
+/// Unreachability is a status fact (`get_service_status`), not a read failure.
 #[tauri::command]
 #[specta::specta]
-pub async fn list_households() -> Result<Vec<HouseholdSummary>, CommandError> {
-    Err(CommandError::not_implemented(None))
+pub async fn list_households(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Vec<HouseholdSummary>, CommandError> {
+    Ok(state.list_households())
 }
 
 /// The person's active household, or `None` when they hold none (HS-2, HS-3, DM-3).
@@ -83,36 +92,54 @@ pub async fn list_households() -> Result<Vec<HouseholdSummary>, CommandError> {
 /// device with no local copy and an unreachable service. It may be read as "no household" only when
 /// a fresh [`ServiceStatus`] reports `state: reachable` and `account_valid: true`; while that status
 /// is `unknown` or `unreachable`, the guard shows the connectivity-required state instead of
-/// onboarding (SYNC-3, D0.2). At most one household is active (DM-3).
+/// onboarding (SYNC-3, D0.2). At most one household is active (DM-3), and the read is served from
+/// the same book as [`list_households`].
 ///
 /// # Errors
 ///
-/// The read path's causes (`validation`, `unknown`); "no household" is `Ok(None)`. The stub returns
-/// `unknown` until task 2.2.
+/// None is reachable: "no household" is `Ok(None)` and the read is local, so it makes no service
+/// request that could fail.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_active_household() -> Result<Option<Household>, CommandError> {
-    Err(CommandError::not_implemented(None))
+pub async fn get_active_household(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Option<Household>, CommandError> {
+    Ok(state.active_household())
 }
 
 /// Switch the active household and return the household that is active afterwards (HS-3, HS-4,
 /// DM-3).
 ///
-/// The result is the post-state rather than an echo of the argument: DM-3 re-elects an active
-/// household when the previous one is no longer held, so what the screens must show is the active
-/// household after the call. A re-issued call with the same `request_id` is deduplicated rather
-/// than applied twice (D0.14).
+/// The switch is **local state**: it changes this process's household book and never reaches the
+/// shared service, because the active household is a selection over the held households rather than
+/// an item of any household's collection (see [`crate::domain::household`]). The contract's
+/// `request_id` is therefore not a service idempotency key here; it is still carried on a failure,
+/// and re-issuing a call is naturally safe because the operation assigns one field one value.
+///
+/// DM-3 is enforced **per device/process** here: this book is the process's state, so two devices can
+/// each show a different active household for the same person while each keeps exactly one.
+/// Cross-device agreement would need a per-account selection stored by the shared service, which
+/// P0's frozen contract does not have.
+///
+/// The result is the post-state rather than an echo of the argument: it is read back from the book
+/// after the switch. This command never removes the active household — it refuses an id the person
+/// does not hold — so it cannot trigger DM-3's re-election, and the post-state is the requested
+/// household. Re-election happens when a household leaves the held set, through
+/// [`crate::domain::household::HouseholdBook::release`], which a held-set refresh uses. A refused
+/// switch changes nothing and the previously active household stays active.
 ///
 /// # Errors
 ///
-/// `validation` for a household the person does not hold, plus the write path's causes (D0.7
-/// criterion 4). The stub returns `unknown` until task 2.2.
+/// `validation` when the person does not hold the household. That is the only failure this command
+/// can observe: because nothing leaves the device, the service's conditions (`connectivity`,
+/// `no_account`, `allowance_exceeded`, `rate_limited`, `timeout`) are unreachable here, and a failed
+/// switch is never presented as a switched one.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_active_household(
     household_id: HouseholdId,
     request_id: RequestId,
+    state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Household, CommandError> {
-    let _ = household_id;
-    Err(CommandError::not_implemented(Some(request_id)))
+    state.set_active_household(household_id, request_id)
 }

@@ -24,7 +24,8 @@
 //!   path takes its own fresh probe and never consults a remembered status (D0.2, R3).
 //! * **The [`HouseholdBook`]**, behind a [`Mutex`]. It holds the process's view of the person's
 //!   households, including the operation ledger that makes a replayed create return the existing
-//!   household (task 2.1, D0.14); task 2.2 will read it for the household list and the active one.
+//!   household (task 2.1, D0.14). The list and active-household reads and the local switch are
+//!   served from it (task 2.2); none of them asks the shared service.
 //! * **The current account**, when one exists. P0 has no sign-in or account-acquisition flow (Q25),
 //!   so the running app is constructed with `None`; [`AppState::create_household`] then reports
 //!   `no_account` before anything is sent, rather than pretending a write could succeed. The slot is
@@ -37,9 +38,15 @@
 //! It is not a second write path, a queue or a cache of saved data. A create goes through
 //! [`crate::domain::create_household`] and therefore through the gate; the book is updated only
 //! after the gate returned a receipt, so nothing here can turn a refusal into a local success
-//! (SYNC-2, D0.1). The mutexes are `std::sync::Mutex` and every guard is dropped before an
-//! `.await`: the command locks the book only after the network call returns, and the status and
-//! copy guards are not held across one at all.
+//! (SYNC-2, D0.1). Switching the active household is the one book mutation that does **not** go
+//! through the gate, and deliberately so: the selection is local state over the held set, not a
+//! shared-collection write, and [`crate::domain::household`] records the full reasoning. That
+//! command therefore has no probe, no account check and no transport failure, and it adds no second
+//! path to the service.
+//!
+//! The mutexes are `std::sync::Mutex` and every guard is dropped before an `.await`: the command
+//! locks the book only after the network call returns, and the status and copy guards are not held
+//! across one at all.
 //!
 //! [`Arc<dyn SharedService>`]: std::sync::Arc
 //! [`HttpService`]: crate::sync::HttpService
@@ -50,7 +57,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::domain::{self, HouseholdBook, validate_name};
 use crate::ipc::types::{
     AccountUserId, CollectionSource, CommandError, Household, HouseholdCollection, HouseholdId,
-    Instant, RequestId,
+    HouseholdSummary, Instant, RequestId,
 };
 use crate::storage::{BoundaryRefusal, GuardedStore};
 use crate::sync::http::AccessTokenSource;
@@ -71,7 +78,7 @@ pub struct AppState {
     service: Arc<dyn SharedService>,
     /// The current account, or `None` while P0 has no sign-in flow (Q25).
     account: Option<AccountUserId>,
-    /// The process's household set and operation ledger (task 2.1; read by task 2.2).
+    /// The process's household set and operation ledger (tasks 2.1, 2.2).
     households: Mutex<HouseholdBook>,
     /// The device's guarded copies of the collections it has loaded (tasks 2.3, 2.5 and 2.7).
     copies: Mutex<GuardedStore>,
@@ -229,6 +236,59 @@ impl AppState {
         let is_active = households.is_active(stored.id());
 
         Ok(stored.to_wire(account, is_active))
+    }
+
+    /// Every household the person holds, with the active one marked (HS-3, HS-4, DM-3).
+    ///
+    /// The read is served from the process's household book and makes no service request, so it has
+    /// no failure of its own and an empty list is `Ok(vec![])`. It is still **not** proof that the
+    /// person holds no household: only a fresh reachable status may turn it into that conclusion
+    /// (SYNC-3, D0.2), which is the rule the command's doc comment carries to the frontend.
+    pub fn list_households(&self) -> Vec<HouseholdSummary> {
+        lock(&self.households).summaries(self.account.as_ref())
+    }
+
+    /// The process's active household, or `None` when none is held (HS-2, HS-3, DM-3).
+    ///
+    /// Served locally, like [`AppState::list_households`]; `None` is `Ok(None)` and is a conclusion
+    /// only beside a fresh reachable status (SYNC-3). At most one household is active because the
+    /// book holds one active id (DM-3).
+    pub fn active_household(&self) -> Option<Household> {
+        let households = lock(&self.households);
+
+        households
+            .active()
+            .map(|record| record.to_wire_for(self.account.as_ref(), true))
+    }
+
+    /// Make a held household the active one and return the post-state (HS-3, HS-4, DM-3).
+    ///
+    /// This is a **local** state change: it assigns the book's one active id and never reaches the
+    /// shared service, because the active household is a selection over the held set rather than an
+    /// item of a household collection (the reasoning is in [`crate::domain::household`]). It
+    /// therefore takes no probe and needs no account, and it is not a second write path.
+    ///
+    /// The returned household is read back from the book after the switch, so `is_active` is the
+    /// post-state rather than an echo of the argument. A refused switch leaves the previous active
+    /// household in place.
+    ///
+    /// # Errors
+    ///
+    /// `validation` when the person does not hold the household. That is the only condition this
+    /// operation can observe: because nothing leaves the device, the service's causes
+    /// (`connectivity`, `no_account`, `allowance_exceeded`, `rate_limited`, `timeout`) are
+    /// unreachable here.
+    pub fn set_active_household(
+        &self,
+        household_id: HouseholdId,
+        request_id: RequestId,
+    ) -> Result<Household, CommandError> {
+        let mut households = lock(&self.households);
+        let record = households
+            .set_active(&household_id)
+            .map_err(|_| CommandError::validation(Some(request_id)))?;
+
+        Ok(record.to_wire_for(self.account.as_ref(), true))
     }
 }
 
@@ -405,5 +465,76 @@ mod tests {
             state.households().active().expect("one is active").id(),
             &household.id
         );
+    }
+
+    #[test]
+    fn the_state_lists_every_held_household_and_switches_the_active_one() {
+        let service = Arc::new(ScriptedService::new().on_write([
+            accepted_answer("household-1"),
+            accepted_answer("household-2"),
+        ]));
+        let state = AppState::new(service.clone(), Some(account()));
+
+        block_on_ready(state.create_household("First".to_owned(), request_id("operation-1")))
+            .expect("the first create completed");
+        block_on_ready(state.create_household("Second".to_owned(), request_id("operation-2")))
+            .expect("the second create completed");
+
+        // Every call the two creates made: their probes and their writes. The switch must add none
+        // of them — no probe, no write and no read of any kind.
+        let calls_after_creates = service.calls();
+
+        let rows = state.list_households();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.iter().filter(|row| row.is_active).count(), 1);
+        assert!(!rows[0].is_active);
+        assert!(rows[1].is_active);
+        assert!(rows.iter().all(|row| row.is_owner));
+
+        let active = state.active_household().expect("one is active");
+        assert_eq!(active.id, household("household-2"));
+        assert!(active.is_active);
+
+        let switched = state
+            .set_active_household(household("household-1"), request_id("operation-3"))
+            .expect("the person holds household-1");
+
+        assert_eq!(switched.id, household("household-1"));
+        assert!(switched.is_active);
+        assert!(switched.is_owner);
+
+        let rows = state.list_households();
+        assert_eq!(rows.iter().filter(|row| row.is_active).count(), 1);
+        assert!(rows[0].is_active);
+        assert!(!rows[1].is_active);
+
+        // The switch is local state: it made no service call at all, so the observed calls are
+        // exactly the two creates' — a probe or read added to the switch would fail here.
+        assert_eq!(service.calls(), calls_after_creates);
+        assert_eq!(service.write_count(), 2);
+    }
+
+    #[test]
+    fn switching_to_a_household_the_person_does_not_hold_is_refused_and_changes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service, Some(account()));
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the create completed");
+
+        let request_id = request_id("operation-2");
+        let error = state
+            .set_active_household(household("household-2"), request_id.clone())
+            .expect_err("the person does not hold household-2");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+
+        let active = state
+            .active_household()
+            .expect("the previous active remains");
+        assert_eq!(active.id, household("household-1"));
     }
 }

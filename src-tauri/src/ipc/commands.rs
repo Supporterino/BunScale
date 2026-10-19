@@ -11,12 +11,11 @@
 //! the display unit, 2.12 diagnostics, 2.13 the two status commands) edit one file without touching
 //! a sibling's.
 //!
-//! **Four of the eleven bodies are implemented; the other seven are placeholders.** [`settings`]'s
-//! pair (2.10), [`diagnostics`]'s command (2.12) and [`household`]'s `create_household` (2.1) are
-//! written and never return the placeholder key, while [`household`]'s other three (2.2), [`sync`]
-//! (2.5, 2.13) and [`identity`] (2.9) still return `Err` through the contract's single failure
-//! surface, [`CommandError`], built by [`failure`](super::failure)'s constructors and never field
-//! by field. Such a failure is
+//! **Seven of the eleven bodies are implemented; the other four are placeholders.** [`settings`]'s
+//! pair (2.10), [`diagnostics`]'s command (2.12) and [`household`]'s four (2.1, 2.2) are written and
+//! never return the placeholder key, while [`sync`] (2.5, 2.13) and [`identity`] (2.9) still return
+//! `Err` through the contract's single failure surface, [`CommandError`], built by
+//! [`failure`](super::failure)'s constructors and never field by field. Such a failure is
 //! [`CommandError::not_implemented`] — the cause `unknown`, `retryable: false` and the
 //! **placeholder key** `error.not_implemented` — carrying the command's `RequestId` where the
 //! command has one. `unknown` is the only honest cause a stub can name, because the frozen list

@@ -37,18 +37,22 @@ export const commands = {
 	/**
 	 *  Every household the person holds, with the active one indicated (HS-3, HS-4, DM-3).
 	 * 
-	 *  Served from the locally kept data first (D0.2). An empty list is **not** proof that the person
-	 *  holds no household: it cannot distinguish "no household" from "nothing was ever loaded and the
-	 *  service is unreachable" (SYNC-3). The list is what HS-2's route guard reads at launch, so the
-	 *  guard may start first-run onboarding only when a fresh [`ServiceStatus`] reports
-	 *  `state: reachable` and `account_valid: true`; while that status is `unknown` or `unreachable`,
-	 *  the guard shows the connectivity-required state and does not start onboarding (task 3.3
-	 *  consumes this rule; task 3.4 holds the status).
+	 *  Served from the process's household book, which is this device's local view (D0.2), in the order
+	 *  the person acquired the households. Siblings are separate records: no member or item of one
+	 *  household appears in another's row (HS-3), and exactly one row carries `is_active`, or none when
+	 *  the person holds no household (DM-3).
+	 * 
+	 *  An empty list is **not** proof that the person holds no household: it cannot distinguish "no
+	 *  household" from "nothing was ever loaded and the service is unreachable" (SYNC-3). The list is
+	 *  what HS-2's route guard reads at launch, so the guard may start first-run onboarding only when a
+	 *  fresh [`ServiceStatus`] reports `state: reachable` and `account_valid: true`; while that status
+	 *  is `unknown` or `unreachable`, the guard shows the connectivity-required state and does not start
+	 *  onboarding (task 3.3 consumes this rule; task 3.4 holds the status).
 	 * 
 	 *  # Errors
 	 * 
-	 *  The read path's causes (`validation`, `unknown`). Unreachability is a status fact
-	 *  (`get_service_status`), not a read failure. The stub returns `unknown` until task 2.2.
+	 *  None is reachable: the read is local, so an empty book is `Ok(vec![])` rather than a failure.
+	 *  Unreachability is a status fact (`get_service_status`), not a read failure.
 	 */
 	listHouseholds: () => typedError<HouseholdSummary[], CommandError>(__TAURI_INVOKE("list_households")),
 	/**
@@ -59,12 +63,13 @@ export const commands = {
 	 *  device with no local copy and an unreachable service. It may be read as "no household" only when
 	 *  a fresh [`ServiceStatus`] reports `state: reachable` and `account_valid: true`; while that status
 	 *  is `unknown` or `unreachable`, the guard shows the connectivity-required state instead of
-	 *  onboarding (SYNC-3, D0.2). At most one household is active (DM-3).
+	 *  onboarding (SYNC-3, D0.2). At most one household is active (DM-3), and the read is served from
+	 *  the same book as [`list_households`].
 	 * 
 	 *  # Errors
 	 * 
-	 *  The read path's causes (`validation`, `unknown`); "no household" is `Ok(None)`. The stub returns
-	 *  `unknown` until task 2.2.
+	 *  None is reachable: "no household" is `Ok(None)` and the read is local, so it makes no service
+	 *  request that could fail.
 	 */
 	getActiveHousehold: () => typedError<{
 	/**  The opaque, stable identifier that also addresses the household's collection. */
@@ -96,15 +101,30 @@ export const commands = {
 	 *  Switch the active household and return the household that is active afterwards (HS-3, HS-4,
 	 *  DM-3).
 	 * 
-	 *  The result is the post-state rather than an echo of the argument: DM-3 re-elects an active
-	 *  household when the previous one is no longer held, so what the screens must show is the active
-	 *  household after the call. A re-issued call with the same `request_id` is deduplicated rather
-	 *  than applied twice (D0.14).
+	 *  The switch is **local state**: it changes this process's household book and never reaches the
+	 *  shared service, because the active household is a selection over the held households rather than
+	 *  an item of any household's collection (see [`crate::domain::household`]). The contract's
+	 *  `request_id` is therefore not a service idempotency key here; it is still carried on a failure,
+	 *  and re-issuing a call is naturally safe because the operation assigns one field one value.
+	 * 
+	 *  DM-3 is enforced **per device/process** here: this book is the process's state, so two devices can
+	 *  each show a different active household for the same person while each keeps exactly one.
+	 *  Cross-device agreement would need a per-account selection stored by the shared service, which
+	 *  P0's frozen contract does not have.
+	 * 
+	 *  The result is the post-state rather than an echo of the argument: it is read back from the book
+	 *  after the switch. This command never removes the active household — it refuses an id the person
+	 *  does not hold — so it cannot trigger DM-3's re-election, and the post-state is the requested
+	 *  household. Re-election happens when a household leaves the held set, through
+	 *  [`crate::domain::household::HouseholdBook::release`], which a held-set refresh uses. A refused
+	 *  switch changes nothing and the previously active household stays active.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for a household the person does not hold, plus the write path's causes (D0.7
-	 *  criterion 4). The stub returns `unknown` until task 2.2.
+	 *  `validation` when the person does not hold the household. That is the only failure this command
+	 *  can observe: because nothing leaves the device, the service's conditions (`connectivity`,
+	 *  `no_account`, `allowance_exceeded`, `rate_limited`, `timeout`) are unreachable here, and a failed
+	 *  switch is never presented as a switched one.
 	 */
 	setActiveHousehold: (householdId: HouseholdId, requestId: RequestId) => typedError<Household, CommandError>(__TAURI_INVOKE("set_active_household", { householdId, requestId })),
 	/**
@@ -115,10 +135,21 @@ export const commands = {
 	 *  `loaded_at` report the three SYNC-3 states, so "nothing was ever loaded and the service is
 	 *  unreachable" keeps its own surface and is never shown as an empty collection.
 	 * 
+	 *  The read is served from the local copy captured before any network call. When a fresh probe
+	 *  identifies both the service and the account, the collection is then refreshed through the guarded
+	 *  load path, which replaces the household's copy and records this device's load instant; the
+	 *  result is `source: service`. When the probe refuses or the refresh fails for any reason, the
+	 *  previously loaded copy is returned unchanged (`source: local` with `loaded_at: Some(..)`), or —
+	 *  when nothing was ever loaded — the explicit never-loaded value (`source: local` with
+	 *  `loaded_at: None`). A refresh failure never clears, resets or empties the copy (SYNC-3).
+	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an unknown household id, `unknown` for an unclassifiable internal failure. The
-	 *  stub returns `unknown` until task 2.5.
+	 *  `validation` for a blank household id. Unreachability and a failed refresh are not errors: they
+	 *  are reported by `source`/`loaded_at`. Unlike the placeholder this command used to return, it
+	 *  never reports `unknown` merely because the shared service cannot be reached. Only a blank id is
+	 *  locally refutable: P0 has no local membership list yet (task 2.2 owns the household list), so a
+	 *  well-formed id this device holds no copy of is the never-loaded state, not a validation failure.
 	 */
 	loadHousehold: (householdId: HouseholdId) => typedError<HouseholdCollection, CommandError>(__TAURI_INVOKE("load_household", { householdId })),
 	/**

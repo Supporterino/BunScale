@@ -1783,6 +1783,11 @@ Rules held here:
   rule 6. The device-reading half is therefore **unverifiable in this change's gate**, so task 5.11's
   "Default unit follows the device region" pins the *rule* — choice wins, region when readable,
   canonical otherwise — not a device read.
+- The active-household selection is **local state** in P0 (task 2.2): it is a selection over the
+  person's held set, not an item in a household collection, so DM-3's "exactly one active" is enforced
+  **per device/process**, and two devices of the same person can each show a different active
+  household. Cross-device agreement would need a service-side per-account selection, which P0's frozen
+  contract does not have and which is not a P0 requirement. This is the reading P0 implements.
 - The household collection is the only source of truth for household data; the local copy is a
   cache of it, never a competing record.
 - Reachability is a state the *product* derives (from a fresh outcome), not a value cached from a
@@ -1887,14 +1892,19 @@ shows the explicit connectivity-required state and does not start onboarding. `g
 predecessor fact — task 3.3 consumes this rule and task 3.4 holds the status — and
 `load_household`'s `source`/`loaded_at` carry the same distinction for a collection.
 
-Every state-changing command in the table carries a **client-generated `request_id`**, and the
-shared service deduplicates on it, so a retry is safe by construction (D0.14): retry (SYNC-2) is a
-re-invocation of the failed command with the *same* `request_id`, not a separate retry command.
-`request_id` is therefore **semantic, not diagnostic** — it identifies the operation the service
-must not perform twice. `CommandError.request_id` carries exactly that value; it is `None` only on a
-read's or the reachability probe's failure, because neither has an operation identity to
-deduplicate, so a retry is a fresh call. Mechanism selection is conditional on that support
-(task 1.1).
+Every state-changing command in the table carries a **client-generated `request_id`** (frozen
+signature), and retry (SYNC-2) is a re-invocation of the failed command with the *same* value, not a
+separate retry command. `request_id` is therefore **semantic, not diagnostic**: it names the
+operation — the thing the service must not perform twice **when the operation reaches the shared
+service**, which is what makes that retry safe by construction (D0.14). Not every mutating command
+reaches the service: `set_active_household` (task 2.2's ruling — the active household is a selection
+over the held set, not an item in a household collection) and `set_display_weight_unit` (a per-device
+preference) are local state changes, so for them the value still names the operation and is still
+re-used on a retry, but no service ledger ever sees it and there is no deduplication step. The
+service-side purpose stays exactly as D0.14 states it for the commands that do write.
+`CommandError.request_id` carries that value; it is `None` only on a read's or the reachability
+probe's failure, because neither has an operation identity to deduplicate, so a retry is a fresh
+call. Mechanism selection is conditional on that support (task 1.1).
 
 **`retryable` is a per-cause policy, and `allowance_exceeded` is retryable** (ruling B, orchestrator).
 `retryable` is `true` for `connectivity`, `no_account`, `allowance_exceeded`, `rate_limited` and
@@ -1968,7 +1978,7 @@ transparent newtypes, so the generated TypeScript sees plain `string` aliases.
 | `Instant` | RFC 3339 string with an offset, normalised to UTC on store | D0.5, DM-6; absolute instants only, never local times |
 | `WeightUnit` | `grams \| kilograms` | display only; storage stays canonical (D0.4) |
 | `SaveCause` | `connectivity \| no_account \| allowance_exceeded \| rate_limited \| timeout \| validation \| unknown` | the frozen, exhaustive cause list (D0.6, D0.12, D0.13); one UI copy per cause (NFR-8) |
-| `CommandError` | `{ cause: SaveCause, retryable: bool, message_key: String, request_id?: RequestId }` | one failure surface for every operation; `request_id` is **semantic** — the operation's identity for the service's deduplication, which is what makes a retry safe — not a diagnostic field (D0.14); `None` only on a read's or the reachability probe's failure; `retryable` is `true` for `connectivity`, `no_account`, `allowance_exceeded`, `rate_limited` and `timeout`, and `false` only for `validation` and `unknown` |
+| `CommandError` | `{ cause: SaveCause, retryable: bool, message_key: String, request_id?: RequestId }` | one failure surface for every operation; `request_id` is **semantic** — the operation's identity, deduplicated by the service where the operation reaches it, which is what makes that retry safe — not a diagnostic field (D0.14); a local-per-device change carries it without a service deduplication step; `None` only on a read's or the reachability probe's failure; `retryable` is `true` for `connectivity`, `no_account`, `allowance_exceeded`, `rate_limited` and `timeout`, and `false` only for `validation` and `unknown` |
 | `ServiceState` | `reachable \| unreachable \| unknown` | `unknown` until a fresh outcome exists (R3); P3 adds `syncing` |
 | `ServiceStatus` | `{ state: ServiceState, account_valid?: bool, cause?: SaveCause, observed_at?: Instant }` | the `service:status-changed` payload; the optional fields mean "no observation yet", never a default (R3) |
 | `Household` | `{ id, name, created_at, owner_member_id, is_active, is_owner }` | `is_owner` gates P3's delete control; ownership is recorded from P0 on (D0.3) |

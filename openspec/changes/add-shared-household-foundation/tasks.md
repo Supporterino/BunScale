@@ -798,7 +798,7 @@ file's header).
   active (HS-1). Creation is **idempotent on the command's client-generated `request_id`**: re-issuing
   a create with the same `request_id` returns the household that already exists instead of creating a
   second one (D0.14).
-- [ ] 2.2 [rust-backend] Implement holding multiple households per person with exactly one active,
+- [x] 2.2 [rust-backend] Implement holding multiple households per person with exactly one active,
   switching the active household, and re-electing an active household when the active one is no
   longer held (HS-3, DM-3).
 - [x] 2.3 [rust-backend] Implement the household collection layout: stable opaque ids, per-item
