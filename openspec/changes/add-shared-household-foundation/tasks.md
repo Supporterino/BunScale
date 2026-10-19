@@ -811,7 +811,7 @@ file's header).
   bound, not a placeholder (D0.13) — and an exhausted storage allowance is reported as
   `allowance_exceeded` from the service's own report of that condition, never as a generic write
   error (D0.12).
-- [ ] 2.5 [rust-backend] Implement the read path: serve the locally kept copy first, refresh from the
+- [x] 2.5 [rust-backend] Implement the read path: serve the locally kept copy first, refresh from the
   shared service on a start or foreground return with connectivity, and produce an explicit
   never-loaded state when nothing was ever loaded (SYNC-3).
 - [ ] 2.6 [rust-backend] Implement last-write-wins merge on the collection: exactly one surviving

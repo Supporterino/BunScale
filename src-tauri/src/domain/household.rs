@@ -58,7 +58,7 @@
 //! would need a per-account selection stored by the shared service, which P0's frozen contract does
 //! not have; a later change that adds one would move this decision, not silently narrow it here.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::ipc::types::{
@@ -172,6 +172,49 @@ impl HouseholdRecord {
             owner_member_id,
             members: vec![owner],
         }
+    }
+
+    /// Rebuild a persisted record, applying the invariants [`HouseholdRecord::created`] establishes.
+    ///
+    /// A stored record is not trusted merely because it was once written by this app: the name is
+    /// parsed again (so a blank one is refused), the member list must be non-empty, every member id
+    /// must be unique, and the owner must be the first member — the same "creator first and owner"
+    /// shape creation produces (HS-1, D0.3). `None` means the persisted value is not a record this
+    /// domain can admit, and the caller skips it rather than presenting a household it cannot
+    /// support.
+    pub fn restore(
+        id: HouseholdId,
+        name: String,
+        created_at: Instant,
+        owner_member_id: MemberId,
+        members: Vec<Member>,
+    ) -> Option<Self> {
+        let name = HouseholdName::parse(name)?;
+
+        if id.0.trim().is_empty() || owner_member_id.0.trim().is_empty() {
+            return None;
+        }
+
+        if members.first().map(|member| &member.id) != Some(&owner_member_id) {
+            return None;
+        }
+
+        let mut seen = HashSet::with_capacity(members.len());
+        if !members.iter().all(|member| {
+            !member.id.0.trim().is_empty()
+                && !member.account_user_id.0.trim().is_empty()
+                && seen.insert(member.id.clone())
+        }) {
+            return None;
+        }
+
+        Some(Self {
+            id,
+            name,
+            created_at,
+            owner_member_id,
+            members,
+        })
     }
 
     /// The household's opaque, stable identifier.
@@ -354,6 +397,55 @@ impl HouseholdBook {
     /// Whether `household_id` is the active household.
     pub fn is_active(&self, household_id: &HouseholdId) -> bool {
         self.active.as_ref() == Some(household_id)
+    }
+
+    /// Every held record, in acquisition order (HS-3, HS-4).
+    ///
+    /// The order is the one the list serves and the re-election falls back through. It is a
+    /// read-only view for persistence, not a second way to mutate the book.
+    pub fn held(&self) -> impl Iterator<Item = &HouseholdRecord> {
+        self.held_order
+            .iter()
+            .filter_map(|household_id| self.households.get(household_id))
+    }
+
+    /// The active household's id, or `None` when none is active (DM-3).
+    pub fn active_id(&self) -> Option<&HouseholdId> {
+        self.active.as_ref()
+    }
+
+    /// Rebuild a book from persisted records, preserving acquisition order and the active id.
+    ///
+    /// The records must already satisfy [`HouseholdRecord::restore`]; a duplicate id is skipped
+    /// rather than allowed to replace an earlier record. The persisted active id is kept only when
+    /// it names a held household; otherwise DM-3's re-election chooses the first held one, so the
+    /// book can never claim an active household it does not hold.
+    ///
+    /// **The operation ledger is deliberately empty.** It is a process-local mirror of what this
+    /// process already applied, not the service's durable ledger: a create retried after a relaunch
+    /// is a fresh operation on the service's ledger (D0.14 is server-side), and no local tombstone
+    /// is needed to make that safe.
+    pub fn restore(
+        records: impl IntoIterator<Item = HouseholdRecord>,
+        active: Option<HouseholdId>,
+    ) -> Self {
+        let mut book = Self::new();
+
+        for record in records {
+            let household_id = record.id().clone();
+
+            if book.households.contains_key(&household_id) {
+                continue;
+            }
+
+            book.held_order.push(household_id.clone());
+            book.households.insert(household_id, record);
+        }
+
+        book.active = active.filter(|household_id| book.households.contains_key(household_id));
+        book.reelect_active();
+
+        book
     }
 
     /// Record the outcome of one create operation, returning the household that operation denotes.
@@ -866,5 +958,111 @@ mod tests {
         assert_eq!(replay, first);
         assert_eq!(book.len(), 1);
         assert!(book.get(&household("household-2")).is_none());
+    }
+
+    #[test]
+    fn a_restored_record_passes_the_same_invariants_as_a_created_one() {
+        let created = record("household-1", "member-1", "account-1");
+        let restored = HouseholdRecord::restore(
+            created.id().clone(),
+            created.name().as_str().to_owned(),
+            created.created_at().clone(),
+            created.owner_member_id().clone(),
+            created.members().to_vec(),
+        )
+        .expect("the created record is restorable");
+
+        assert_eq!(restored, created);
+
+        let owner_not_first = HouseholdRecord::restore(
+            household("household-1"),
+            "Home".to_owned(),
+            at("2026-10-19T10:00:00Z"),
+            member("member-2"),
+            created.members().to_vec(),
+        );
+        assert_eq!(owner_not_first, None);
+
+        let duplicate_member = HouseholdRecord::restore(
+            household("household-1"),
+            "Home".to_owned(),
+            at("2026-10-19T10:00:00Z"),
+            member("member-1"),
+            vec![created.members()[0].clone(), created.members()[0].clone()],
+        );
+        assert_eq!(duplicate_member, None);
+
+        let blank_name = HouseholdRecord::restore(
+            household("household-1"),
+            "   ".to_owned(),
+            at("2026-10-19T10:00:00Z"),
+            member("member-1"),
+            created.members().to_vec(),
+        );
+        assert_eq!(blank_name, None);
+
+        let blank_id = HouseholdRecord::restore(
+            household("   "),
+            "Home".to_owned(),
+            at("2026-10-19T10:00:00Z"),
+            member("member-1"),
+            created.members().to_vec(),
+        );
+        assert_eq!(blank_id, None);
+
+        let blank_owner = HouseholdRecord::restore(
+            household("household-1"),
+            "Home".to_owned(),
+            at("2026-10-19T10:00:00Z"),
+            member("   "),
+            created.members().to_vec(),
+        );
+        assert_eq!(blank_owner, None);
+
+        let mut member_with_blank_account = created.members()[0].clone();
+        member_with_blank_account.account_user_id = AccountUserId("   ".to_owned());
+        let blank_account = HouseholdRecord::restore(
+            household("household-1"),
+            "Home".to_owned(),
+            at("2026-10-19T10:00:00Z"),
+            member("member-1"),
+            vec![member_with_blank_account],
+        );
+        assert_eq!(blank_account, None);
+    }
+
+    #[test]
+    fn a_restored_book_keeps_order_and_active_id_without_a_local_operation_ledger() {
+        let restored = HouseholdBook::restore(
+            [
+                record("household-1", "member-1", "account-1"),
+                record("household-2", "member-2", "account-1"),
+            ],
+            Some(household("household-1")),
+        );
+
+        let ids: Vec<&HouseholdId> = restored.held().map(HouseholdRecord::id).collect();
+        assert_eq!(ids, [&household("household-1"), &household("household-2")]);
+        assert_eq!(restored.active_id(), Some(&household("household-1")));
+        assert_eq!(restored.summaries(None).len(), 2);
+
+        // The ledger is empty, but a local re-record cannot add a second household under the same
+        // id: the held record is replaced rather than duplicated.
+        let mut restored = restored;
+        restored.record_created(
+            request_id("fresh-operation"),
+            record("household-1", "member-1", "account-1"),
+        );
+        assert_eq!(restored.len(), 2);
+    }
+
+    #[test]
+    fn a_restored_active_id_that_is_not_held_re_elects_a_held_household() {
+        let restored = HouseholdBook::restore(
+            [record("household-2", "member-2", "account-1")],
+            Some(household("household-1")),
+        );
+
+        assert_eq!(restored.active_id(), Some(&household("household-2")));
     }
 }

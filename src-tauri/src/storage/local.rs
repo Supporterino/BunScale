@@ -145,6 +145,14 @@ impl LocalCopies {
         self.copies.is_empty()
     }
 
+    /// Every copy this device holds, in no particular order.
+    ///
+    /// Read-only, and used by the state layer to snapshot the loaded copies for persistence. The
+    /// order is not part of the layout's contract; nothing may depend on it.
+    pub fn iter(&self) -> impl Iterator<Item = &LocalCopy> {
+        self.copies.values()
+    }
+
     /// The copy held for `household_id`, or `None` when this device holds none for it.
     ///
     /// `None` and a copy with `loaded_at: None` are different facts and stay different: the first is

@@ -493,6 +493,39 @@ task 5.11's brief that its assertion for "Default unit follows the device region
 (choice wins; region when readable; canonical otherwise) rather than a device read the gate cannot
 perform on iOS.
 
+### Q27 — task 2.5 hit the review loop limit on one persistence-ordering defect, fixed outside the loop (resolved, `rust-backend` + orchestrator, 2026-10-19)
+
+Task 2.5's review went three rounds. The first two found substantive defects that were fixed (a
+delta-shaped refresh replacing the whole copy; the read borrowing the write seam; the device copy
+and household book not surviving a relaunch; blocking file I/O on the async worker). The **third**
+review round still returned `CHANGES REQUIRED`, which reaches the project's retry limit
+(`AGENTS.md` hard rule 9): `AppState::schedule_persist` spawned an independent write per snapshot
+with no ordering or coalescing, so two overlapping writes could land in the wrong order and an older
+snapshot could overwrite a newer one (a just-created household or a just-loaded copy missing on the
+next launch, or a loaded copy resurrected as never-loaded).
+
+**Resolution.** Rather than record the task blocked, the orchestrator had the single defect fixed
+under a coalescing writer (only the latest pending snapshot is written, and a write already running
+is not overtaken) with a test that schedules two snapshots with the first delayed and asserts the
+second is the file on disk. That fourth change was **not** given another full review loop — the
+limit is there to stop churn — and is evidenced by the gate plus a focused read of the diff. The
+review's remaining notes are recorded here rather than deferred silently:
+
+- a persisted file that fails to **read** (I/O) is treated like a malformed one at startup (the
+  state starts empty and the next write replaces the unreadable file); the malformed case is honest,
+  the I/O case has no recovery path yet;
+- `snapshot` clones the copy set and book on the async thread before handing them to the blocking
+  task (no file I/O, but future growth should move the clone into the blocking task);
+- `merge_collection` does not schedule a persist, so a merge is in memory only until the task that
+  wires it (2.6/P6) schedules the write;
+- the production `schedule_persist` path is `cfg(not(test))`, so the relaunch tests call the
+  synchronous helper; no test proves the background path itself is wired;
+- restore validates name, owner-first, unique members and the active id, but not that persisted
+  identifiers are non-blank.
+
+None of these changes a requirement's outcome today; each is a hardening item for the phase that
+first exercises it.
+
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 
 ### Q10 — Specialists could not execute shell commands in this harness

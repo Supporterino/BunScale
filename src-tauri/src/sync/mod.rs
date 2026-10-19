@@ -4,8 +4,8 @@
 //! `design.md`'s "State and boundaries" gives this directory the reachability gate and the refresh
 //! orchestration, and gives `storage/` the device's copy of a household's collection: the copy is a
 //! cache of the shared collection, never a competing record, and the refresh that replaces it goes
-//! *through* here (ADR 0002 R1). Task 2.4 implements the **write** half — everything a write needs,
-//! and nothing a read needs:
+//! *through* here (ADR 0002 R1). Task 2.4 implements the **write** half and task 2.5 the **read**
+//! half:
 //!
 //! | Module | What it owns |
 //! |---|---|
@@ -15,6 +15,7 @@
 //! | [`probe`] | One fresh probe of the service *and* the account, as two separate checks, each bounded by [`REACHABILITY_PROBE_TIMEOUT`] (D0.7 criterion 4). |
 //! | [`status`] | The fresh-outcome [`ServiceStatus`] surface the two status commands read, with D0.13's offline threshold applied in Rust. |
 //! | [`gate`] | The gated save: the one place a write to the shared service is admitted. |
+//! | [`read`] | The read path: the local copy first, a fresh-probe refresh, and the three SYNC-3 states (task 2.5). |
 //!
 //! [`ServiceStatus`]: crate::ipc::types::ServiceStatus
 //!
@@ -56,6 +57,10 @@
 //! has to be recorded is supplied by the caller, exactly as `storage::local` does); the diagnostics
 //! sink is 2.12's; and the two status commands plus the platform lifecycle hooks are 2.13's, which
 //! consumes [`probe`] and [`StatusTracker`] rather than re-deriving either.
+//!
+//! Task 2.5 implements that read path in [`read`]: the local copy is served first, a fresh probe
+//! decides whether a refresh is attempted, and the guarded load replaces the copy. The write-side
+//! rules above are unchanged by it.
 
 use std::time::Duration;
 
@@ -63,6 +68,7 @@ pub mod double;
 pub mod gate;
 pub mod http;
 pub mod probe;
+pub mod read;
 pub mod service;
 pub mod status;
 
@@ -70,6 +76,7 @@ pub use double::ScriptedService;
 pub use gate::{SaveGate, SaveReceipt};
 pub use http::HttpService;
 pub use probe::{AccountOutcome, ProbeOutcome, probe};
+pub use read::ReadPath;
 pub use service::{
     Answer, SaveRequest, ServiceFuture, ServiceReply, SharedService, TransportFailure,
 };
@@ -96,6 +103,16 @@ pub use status::StatusTracker;
 /// [`ScriptedService`]: double::ScriptedService
 pub const SAVE_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// The bound on one whole-collection refresh (task 2.5): the read path's `household_changes` call.
+///
+/// It is a **read-specific name** rather than a reused [`SAVE_ATTEMPT_TIMEOUT`], so the read path
+/// does not borrow a write's bound and either can move without silently changing the other. The
+/// value matches a save attempt because a refresh carries a whole household collection, the same
+/// order of payload as a write. Like the other bounds it is *passed* to the transport on every
+/// call rather than timed here; [`SAVE_ATTEMPT_TIMEOUT`]'s documentation records where enforcement
+/// lives and why.
+pub const READ_REFRESH_TIMEOUT: Duration = Duration::from_secs(15);
+
 /// The bound on **each** of a probe's two checks (D0.13): a check that receives no answer within it
 /// counts as a failed check.
 ///
@@ -121,10 +138,12 @@ mod tests {
     #[test]
     fn the_bounds_are_the_values_d0_13_fixes() {
         let save = SAVE_ATTEMPT_TIMEOUT.as_secs();
+        let read = READ_REFRESH_TIMEOUT.as_secs();
         let probe = REACHABILITY_PROBE_TIMEOUT.as_secs();
         let offline = OFFLINE_FAILURE_THRESHOLD;
 
         assert_eq!(save, 15);
+        assert_eq!(read, 15);
         assert_eq!(probe, 5);
         assert_eq!(offline, 3);
     }

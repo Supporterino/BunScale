@@ -8,12 +8,14 @@
 //! probe reports the three states of [`ServiceStatus`], so "nothing was ever loaded and the service
 //! is unreachable" keeps its own surface instead of arriving as an empty collection or as an error.
 //!
-//! Every body here is still a **placeholder** that fails through [`CommandError::not_implemented`]:
-//! the cause `unknown`, `retryable: false` and the placeholder key `error.not_implemented`, with
-//! `request_id: None`, because these commands take no `RequestId` and are idempotent, so their retry
-//! is a fresh call rather than a re-issued one. That key says "this command has no implementation
-//! yet"; a genuine unclassifiable failure is [`CommandError::unknown`] and names `error.unknown`
-//! instead (see the parent module's docs).
+//! `load_household` is implemented (task 2.5): it resolves the locally kept copy first and refreshes
+//! it from the shared service when a fresh probe allows, reporting the three SYNC-3 states through
+//! `source` and `loaded_at`. The other two bodies are still **placeholders** that fail through
+//! [`CommandError::not_implemented`]: the cause `unknown`, `retryable: false` and the placeholder key
+//! `error.not_implemented`, with `request_id: None`, because these commands take no `RequestId` and
+//! are idempotent, so their retry is a fresh call rather than a re-issued one. That key says "this
+//! command has no implementation yet"; a genuine unclassifiable failure is
+//! [`CommandError::unknown`] and names `error.unknown` instead (see the parent module's docs).
 
 // The shared contract types, including the ones only the doc comments link (see the parent module's
 // docs for why this is a glob).
@@ -26,17 +28,30 @@ use super::super::types::*;
 /// `loaded_at` report the three SYNC-3 states, so "nothing was ever loaded and the service is
 /// unreachable" keeps its own surface and is never shown as an empty collection.
 ///
+/// The read is served from the local copy captured before any network call. When a fresh probe
+/// identifies both the service and the account, the collection is then refreshed through the guarded
+/// load path, which replaces the household's copy and records this device's load instant; the
+/// result is `source: service`. When the probe refuses or the refresh fails for any reason, the
+/// previously loaded copy is returned unchanged (`source: local` with `loaded_at: Some(..)`), or —
+/// when nothing was ever loaded — the explicit never-loaded value (`source: local` with
+/// `loaded_at: None`). A refresh failure never clears, resets or empties the copy (SYNC-3).
+///
 /// # Errors
 ///
-/// `validation` for an unknown household id, `unknown` for an unclassifiable internal failure. The
-/// stub returns `unknown` until task 2.5.
+/// `validation` for a blank household id. Unreachability and a failed refresh are not errors: they
+/// are reported by `source`/`loaded_at`. Unlike the placeholder this command used to return, it
+/// never reports `unknown` merely because the shared service cannot be reached. Only a blank id is
+/// locally refutable: P0 has no local membership list yet (task 2.2 owns the household list), so a
+/// well-formed id this device holds no copy of is the never-loaded state, not a validation failure.
 #[tauri::command]
 #[specta::specta]
 pub async fn load_household(
     household_id: HouseholdId,
+    state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<HouseholdCollection, CommandError> {
-    let _ = household_id;
-    Err(CommandError::not_implemented(None))
+    crate::sync::ReadPath::shared()
+        .load(&state, &household_id)
+        .await
 }
 
 /// The last observed service/account status, with the time it was observed (NFR-1).

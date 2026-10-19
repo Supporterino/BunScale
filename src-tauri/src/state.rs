@@ -48,18 +48,40 @@
 //! locks the book only after the network call returns, and the status and copy guards are not held
 //! across one at all.
 //!
+//! # The copies and the book outlive the process, on a best-effort basis
+//!
+//! [`AppState::production`] restores the device's loaded copies and household book from
+//! [`CollectionStore`] under the app's own data directory, and a successful load or book change
+//! schedules a rewrite of that file on the blocking pool. [`AppState::new`] stays in-memory only —
+//! it is the test constructor, and a test states its own persistence explicitly through
+//! [`AppState::with_collection_store`]. A persistence **write** failure does not make a read fail:
+//! the in-memory copy and book remain the source for the current process, and the next launch falls
+//! back to never-loaded only when nothing readable exists. A missing, unreadable or malformed file
+//! is handled the same way at construction: the state starts with no copy and an empty book rather
+//! than presenting invented data.
+//!
+//! **The operation ledger is not persisted.** It mirrors what this process already applied, while
+//! D0.14's durable deduplication is the shared service's ledger; a create retried after a relaunch is
+//! a fresh operation on the service's ledger. The restored book therefore has no local tombstone,
+//! which is the documented domain behaviour of [`HouseholdBook::restore`].
+//!
 //! [`Arc<dyn SharedService>`]: std::sync::Arc
 //! [`HttpService`]: crate::sync::HttpService
 //! [`Mutex`]: std::sync::Mutex
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::domain::{self, HouseholdBook, validate_name};
+use tauri::Manager;
+
+use crate::domain::{self, HouseholdBook, HouseholdRecord, validate_name};
 use crate::ipc::types::{
     AccountUserId, CollectionSource, CommandError, Household, HouseholdCollection, HouseholdId,
     HouseholdSummary, Instant, RequestId,
 };
-use crate::storage::{BoundaryRefusal, GuardedStore};
+use crate::storage::{
+    BoundaryRefusal, CollectionStore, CollectionStoreError, DeviceSnapshot, GuardedStore,
+    PersistedHousehold,
+};
 use crate::sync::http::AccessTokenSource;
 use crate::sync::{HttpService, SharedService, StatusTracker};
 
@@ -84,14 +106,26 @@ pub struct AppState {
     copies: Mutex<GuardedStore>,
     /// The last fresh service/account status (task 2.13).
     status: Mutex<StatusTracker>,
+    /// The file the device's loaded copies and book are persisted in, for the synchronous test
+    /// helper only; production writes through [`AppState::writer`].
+    #[cfg(test)]
+    persistence: Option<CollectionStore>,
+    /// The coalescing writer that serialises persistence writes, when persistence is available.
+    ///
+    /// It holds the latest pending snapshot and one in-flight write, so an older snapshot can never
+    /// overwrite a newer one even when its write was slower. Tests install their own sink through
+    /// `with_writer`; the ordinary in-memory test constructor has none.
+    writer: Option<Arc<PersistenceWriter>>,
 }
 
 impl AppState {
-    /// State over one transport and one account.
+    /// State over one transport and one account, in memory only.
     ///
-    /// This is the seam a test uses to substitute the scripted double: it is the same constructor
-    /// the running app uses, only with a different service and an account instead of `None`. There
-    /// is no test-only state type and no command branch that knows which transport it received.
+    /// This is the test constructor: it substitutes the scripted double for the transport and starts
+    /// with no copies, so a test states its own persistence explicitly through
+    /// [`AppState::with_collection_store`]. The running app uses [`AppState::production`], which adds
+    /// the device's collection file to the same shape. There is no test-only state type and no command
+    /// branch that knows which transport it received.
     pub fn new(service: Arc<dyn SharedService>, account: Option<AccountUserId>) -> Self {
         Self {
             service,
@@ -99,25 +133,97 @@ impl AppState {
             households: Mutex::new(HouseholdBook::new()),
             copies: Mutex::new(GuardedStore::new()),
             status: Mutex::new(StatusTracker::new()),
+            #[cfg(test)]
+            persistence: None,
+            writer: None,
         }
     }
 
-    /// The state the running P0 app installs: the real HTTPS client, and no account.
+    /// State over one transport, one account and one device store, restoring the loaded copies and
+    /// the household book the store holds (SYNC-3, HS-2, HS-3; task 2.5).
+    ///
+    /// This is the seam a unit test uses for a relaunch: two states built over the same directory
+    /// are two launches of the same device. A store whose file is absent, unreadable or malformed
+    /// restores no copy and an empty book — the explicit never-loaded state — rather than failing
+    /// construction or presenting invented data. [`AppState::new`] remains the strictly in-memory
+    /// constructor.
+    pub(crate) fn with_collection_store(
+        service: Arc<dyn SharedService>,
+        account: Option<AccountUserId>,
+        persistence: CollectionStore,
+    ) -> Self {
+        let snapshot = persistence.load().unwrap_or_default();
+        let copies = restored_copies(&snapshot.collections);
+        let households = restored_book(&snapshot);
+
+        #[cfg(not(test))]
+        let writer = Some(Arc::new(PersistenceWriter::new(Arc::new(
+            persistence.clone(),
+        ))));
+        #[cfg(test)]
+        let writer = None;
+
+        Self {
+            service,
+            account,
+            households: Mutex::new(households),
+            copies: Mutex::new(copies),
+            status: Mutex::new(StatusTracker::new()),
+            #[cfg(test)]
+            persistence: Some(persistence),
+            writer,
+        }
+    }
+
+    /// A state with a supplied persistence sink, for a test that controls write ordering.
+    ///
+    /// The ordinary `with_collection_store` has no writer under `cfg(test)`, so the relaunch tests
+    /// drive `persist_now` deterministically; this constructor is what the coalescing test uses to
+    /// observe the real writer.
+    #[cfg(test)]
+    fn with_writer(
+        service: Arc<dyn SharedService>,
+        account: Option<AccountUserId>,
+        persistence: CollectionStore,
+        sink: Arc<dyn SnapshotSink>,
+    ) -> Self {
+        let mut state = Self::with_collection_store(service, account, persistence);
+        state.writer = Some(Arc::new(PersistenceWriter::new(sink)));
+
+        state
+    }
+
+    /// The state the running P0 app installs: the real HTTPS client, no account, and the device's
+    /// persisted collection copies and household book.
     ///
     /// The token source answers `None` because the platform Keychain belongs to a sign-in flow this
     /// change does not ship (Q25). That is the honest half of the construction: the transport is
     /// real, but it has no identity to send, and [`AppState::create_household`] reports `no_account`
     /// rather than attempting an unauthenticated write or creating local-only data.
     ///
+    /// The device state is restored from [`CollectionStore`] under the app's own data directory. A
+    /// directory that cannot be resolved leaves the state in-memory only; a missing, unreadable or
+    /// malformed file restores no copy and an empty book (the never-loaded state). Neither is a
+    /// startup failure: the transport is usable, and the read path has an explicit state for both.
+    ///
     /// # Errors
     ///
     /// The pinned `reqwest` client cannot be built (a TLS backend that fails to initialise). There
     /// is no later call that could recover from it, and P0 has nothing to fall back to, so the app's
     /// `setup` reports it instead of hiding it behind a state that could never work.
-    pub fn production() -> Result<Self, reqwest::Error> {
+    pub fn production(app: &tauri::AppHandle) -> Result<Self, reqwest::Error> {
         let service = HttpService::new(SERVICE_ORIGIN, no_account_token())?;
+        let service: Arc<dyn SharedService> = Arc::new(service);
 
-        Ok(Self::new(Arc::new(service), None))
+        let Ok(data_dir) = app.path().app_data_dir() else {
+            return Ok(Self::new(service, None));
+        };
+
+        Ok(Self::with_collection_store(
+            service,
+            None,
+            CollectionStore::in_dir(data_dir),
+        ))
     }
 
     /// The current account, when one is available.
@@ -142,9 +248,11 @@ impl AppState {
     /// Load one household's collection through the guarded store, recording the load instant
     /// (SYNC-3, NFR-10).
     ///
-    /// The collection mutex is locked and released inside this method, so the caller never receives
-    /// the [`GuardedStore`] — let alone a replaceable handle to it. Task 2.5's refresh uses this for
-    /// a load; [`AppState::merge_collection`] is the merge that leaves the marker alone.
+    /// This is **in-memory only**: it locks the collection store, applies the guarded load and
+    /// returns. The caller at the async edge ([`crate::sync::ReadPath::refresh`]) schedules the
+    /// best-effort persistence write on the blocking pool, so no file I/O runs on the async worker
+    /// (`rust-conventions`). Task 2.5's refresh uses this for a load;
+    /// [`AppState::merge_collection`] is the merge that leaves the marker alone.
     ///
     /// # Errors
     ///
@@ -157,6 +265,77 @@ impl AppState {
         loaded_at: Instant,
     ) -> Result<(), BoundaryRefusal> {
         lock(&self.copies).load_wire_collection(household_id, collection, loaded_at)
+    }
+
+    /// Snapshot the device state this process holds, for persistence.
+    ///
+    /// The snapshot is taken while each mutex is held only for the copy, so the blocking write that
+    /// receives it never touches the locks. Only loaded copies are included; the book is exported in
+    /// acquisition order with its active id.
+    ///
+    /// The clone happens on the calling thread rather than inside the blocking task because the
+    /// snapshot must be read under the state's mutexes, and a guard cannot be held across an await or
+    /// moved into a `'static` task. P0's snapshot is small; if P6 grows it, the writer can be handed
+    /// the state behind an `Arc` instead.
+    pub(crate) fn snapshot(&self) -> DeviceSnapshot {
+        let collections: Vec<HouseholdCollection> = {
+            let copies = lock(&self.copies);
+
+            copies
+                .local_copies()
+                .iter()
+                .filter(|copy| copy.loaded_at().is_some())
+                .map(|copy| copy.to_wire(CollectionSource::Local))
+                .collect()
+        };
+
+        let (households, active_household) = {
+            let book = lock(&self.households);
+
+            (
+                book.held().map(persisted_household).collect(),
+                book.active_id().cloned(),
+            )
+        };
+
+        DeviceSnapshot {
+            collections,
+            households,
+            active_household,
+        }
+    }
+
+    /// Schedule a best-effort persistence write through the coalescing writer.
+    ///
+    /// The snapshot is taken on the calling thread (see [`AppState::snapshot`]) and handed to the
+    /// writer, which keeps only the latest pending snapshot and one in-flight write. A later
+    /// snapshot taken while a write runs therefore wins; an older snapshot cannot finish last and
+    /// overwrite it. The write is best effort: a failure never fails a read and is never reported as
+    /// persisted.
+    ///
+    /// Tests without a writer (`AppState::new`, and `with_collection_store` under `cfg(test)`) are a
+    /// no-op here; a relaunch test calls [`AppState::persist_now`] instead, and the coalescing test
+    /// installs its own sink through `with_writer`.
+    pub(crate) fn schedule_persist(&self) {
+        let Some(writer) = &self.writer else {
+            return;
+        };
+
+        writer.schedule(self.snapshot());
+    }
+
+    /// Write the current snapshot synchronously, for a test that needs the relaunch file to exist
+    /// before building the next state.
+    ///
+    /// The same best-effort rule applies: the caller asserts the store/file outcome separately. It
+    /// is compiled only for tests, so product code cannot accidentally block an async worker.
+    #[cfg(test)]
+    pub(crate) fn persist_now(&self) {
+        let Some(store) = &self.persistence else {
+            return;
+        };
+
+        let _persisted = store.save(&self.snapshot());
     }
 
     /// Merge one household's rows through the guarded store, leaving `loaded_at` untouched
@@ -173,7 +352,15 @@ impl AppState {
         household_id: &HouseholdId,
         collection: HouseholdCollection,
     ) -> Result<(), BoundaryRefusal> {
-        lock(&self.copies).upsert_wire_collection(household_id, collection)
+        let outcome = lock(&self.copies).upsert_wire_collection(household_id, collection);
+
+        if outcome.is_ok() {
+            // A merge changes the held copy even though it leaves the marker alone, so it is part of
+            // what a relaunch must see.
+            self.schedule_persist();
+        }
+
+        outcome
     }
 
     /// The collection this device holds for `household_id`, labelled with the source of the read
@@ -190,6 +377,23 @@ impl AppState {
         lock(&self.copies)
             .collection(household_id)
             .map(|copy| copy.to_wire(source))
+    }
+
+    /// Mark an item immutable in this process's copy, for a read-path test that needs the guarded
+    /// load to refuse a changed row.
+    ///
+    /// The product marker is the domain's decision (NFR-10); P0 has no domain entity to mark yet, so
+    /// the accessor exists only under `cfg(test)` and adds no command surface.
+    #[cfg(test)]
+    pub(crate) fn mark_immutable(&self, item_id: &crate::ipc::types::ItemId) {
+        lock(&self.copies).mark_immutable(item_id);
+    }
+
+    /// The household that claims `item_id` in this process's guarded store, for a restore test that
+    /// asserts the ownership claims were rebuilt (NFR-10).
+    #[cfg(test)]
+    pub(crate) fn item_owner(&self, item_id: &crate::ipc::types::ItemId) -> Option<HouseholdId> {
+        lock(&self.copies).household_of(item_id).cloned()
     }
 
     /// The last fresh service/account status.
@@ -231,9 +435,17 @@ impl AppState {
             domain::create_household(self.service.as_ref(), account, name, request_id.clone())
                 .await?;
 
-        let mut households = lock(&self.households);
-        let stored = households.record_created(request_id, record);
-        let is_active = households.is_active(stored.id());
+        let (stored, is_active) = {
+            let mut households = lock(&self.households);
+            let stored = households.record_created(request_id, record);
+            let is_active = households.is_active(stored.id());
+
+            (stored, is_active)
+        };
+
+        // The book changed: schedule the best-effort rewrite off the async worker. No lock is held
+        // here, so the snapshot cannot deadlock on the same book.
+        self.schedule_persist();
 
         Ok(stored.to_wire(account, is_active))
     }
@@ -283,10 +495,17 @@ impl AppState {
         household_id: HouseholdId,
         request_id: RequestId,
     ) -> Result<Household, CommandError> {
-        let mut households = lock(&self.households);
-        let record = households
-            .set_active(&household_id)
-            .map_err(|_| CommandError::validation(Some(request_id)))?;
+        let record = {
+            let mut households = lock(&self.households);
+
+            households
+                .set_active(&household_id)
+                .map_err(|_| CommandError::validation(Some(request_id)))?
+                .clone()
+        };
+
+        // The active id changed: schedule the best-effort rewrite after the guard is dropped.
+        self.schedule_persist();
 
         Ok(record.to_wire_for(self.account.as_ref(), true))
     }
@@ -299,6 +518,160 @@ impl AppState {
 /// absence of an account as itself instead of sending an unauthenticated request.
 fn no_account_token() -> AccessTokenSource {
     Arc::new(|| None)
+}
+
+/// The write side of persistence, abstracted so a test can hold one write while a newer snapshot
+/// arrives (the coalescing test).
+trait SnapshotSink: Send + Sync {
+    /// Persist one snapshot. A failure is the caller's to ignore; the writer never reports it.
+    fn save(&self, snapshot: &DeviceSnapshot) -> Result<(), CollectionStoreError>;
+}
+
+impl SnapshotSink for CollectionStore {
+    fn save(&self, snapshot: &DeviceSnapshot) -> Result<(), CollectionStoreError> {
+        CollectionStore::save(self, snapshot)
+    }
+}
+
+/// The latest snapshot waiting to be written, and whether one write is already running.
+#[derive(Debug, Default)]
+struct WriterState {
+    /// The newest snapshot not yet picked up. A later schedule replaces it, so only the latest is
+    /// ever written after the current in-flight snapshot.
+    pending: Option<DeviceSnapshot>,
+    /// Whether the writer's one draining task is running.
+    in_flight: bool,
+}
+
+/// A coalescing persistence writer: one in-flight write and the latest pending snapshot.
+///
+/// The ordering rule is the point: a schedule while a write is in flight replaces the pending
+/// snapshot rather than starting a second write. The drain loop takes the newest pending snapshot
+/// after each write finishes, so an older (possibly larger, possibly slower) snapshot can never
+/// finish last and overwrite a newer one.
+struct PersistenceWriter {
+    /// The destination the snapshots are written to.
+    sink: Arc<dyn SnapshotSink>,
+    /// The pending/in-flight state.
+    state: Mutex<WriterState>,
+}
+
+impl PersistenceWriter {
+    /// A writer over one sink.
+    fn new(sink: Arc<dyn SnapshotSink>) -> Self {
+        Self {
+            sink,
+            state: Mutex::new(WriterState::default()),
+        }
+    }
+
+    /// Offer `snapshot` to the writer, starting the one drain task if none is running.
+    fn schedule(self: &Arc<Self>, snapshot: DeviceSnapshot) {
+        let start = {
+            let mut state = lock(&self.state);
+
+            // Always replace: the newest snapshot is the one a relaunch must see.
+            state.pending = Some(snapshot);
+
+            if state.in_flight {
+                false
+            } else {
+                state.in_flight = true;
+                true
+            }
+        };
+
+        if start {
+            self.spawn();
+        }
+    }
+
+    /// Start the drain task on the blocking pool (a test thread under `cfg(test)`).
+    fn spawn(self: &Arc<Self>) {
+        let writer = Arc::clone(self);
+
+        #[cfg(not(test))]
+        {
+            let _handle = tauri::async_runtime::spawn_blocking(move || writer.drain());
+        }
+
+        #[cfg(test)]
+        {
+            let _handle = std::thread::spawn(move || writer.drain());
+        }
+    }
+
+    /// Write the newest pending snapshot until none remains, then stop being in flight.
+    fn drain(&self) {
+        loop {
+            let snapshot = {
+                let mut state = lock(&self.state);
+
+                match state.pending.take() {
+                    Some(snapshot) => snapshot,
+                    None => {
+                        state.in_flight = false;
+
+                        return;
+                    }
+                }
+            };
+
+            // Best effort: a failed write is not retried forever and never fails the read. A newer
+            // snapshot already pending will still be written next.
+            let _persisted = self.sink.save(&snapshot);
+        }
+    }
+}
+
+/// The guarded store restored from `collections`, ignoring refused entries.
+///
+/// Every persisted copy goes back through [`GuardedStore::load_wire_collection`], so the same
+/// household-isolation and marker rules apply as to a network load — including the restored
+/// ownership claim for each item. A refused copy is skipped rather than allowed to fail the launch;
+/// the rest still restore.
+fn restored_copies(collections: &[HouseholdCollection]) -> GuardedStore {
+    let mut copies = GuardedStore::new();
+
+    for collection in collections {
+        let Some(loaded_at) = collection.loaded_at.clone() else {
+            continue;
+        };
+        let household_id = collection.household_id.clone();
+        let _loaded = copies.load_wire_collection(&household_id, collection.clone(), loaded_at);
+    }
+
+    copies
+}
+
+/// The household book restored from the persisted rows through the domain's restore constructors.
+///
+/// A row that [`HouseholdRecord::restore`] refuses is skipped: the book never presents a household
+/// whose owner/member invariants cannot be met. The persisted active id is passed through, and
+/// [`HouseholdBook::restore`] re-elects a held household when it names none that is held.
+fn restored_book(snapshot: &DeviceSnapshot) -> HouseholdBook {
+    let records = snapshot.households.iter().filter_map(|household| {
+        HouseholdRecord::restore(
+            household.id.clone(),
+            household.name.clone(),
+            household.created_at.clone(),
+            household.owner_member_id.clone(),
+            household.members.clone(),
+        )
+    });
+
+    HouseholdBook::restore(records, snapshot.active_household.clone())
+}
+
+/// One domain record as the stored row.
+fn persisted_household(record: &HouseholdRecord) -> PersistedHousehold {
+    PersistedHousehold {
+        id: record.id().clone(),
+        name: record.name().as_str().to_owned(),
+        created_at: record.created_at().clone(),
+        owner_member_id: record.owner_member_id().clone(),
+        members: record.members().to_vec(),
+    }
 }
 
 /// Lock a mutex, recovering a poisoned one rather than cascading the panic.
@@ -316,6 +689,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
     use serde_json::json;
 
     use super::*;
@@ -536,5 +915,202 @@ mod tests {
             .active_household()
             .expect("the previous active remains");
         assert_eq!(active.id, household("household-1"));
+    }
+
+    /// A sink whose first write is held until the test releases it, so a second snapshot can be
+    /// offered while the first write is genuinely in flight.
+    struct GatedSink {
+        store: CollectionStore,
+        first: AtomicBool,
+        started: Mutex<Option<mpsc::Sender<()>>>,
+        release: Mutex<mpsc::Receiver<()>>,
+        saved: Mutex<mpsc::Sender<()>>,
+        writes: Mutex<Vec<DeviceSnapshot>>,
+    }
+
+    impl SnapshotSink for GatedSink {
+        fn save(&self, snapshot: &DeviceSnapshot) -> Result<(), CollectionStoreError> {
+            self.writes
+                .lock()
+                .expect("the writes are readable")
+                .push(snapshot.clone());
+
+            if self.first.swap(false, Ordering::SeqCst) {
+                if let Some(started) = self.started.lock().expect("started").as_ref() {
+                    let _ = started.send(());
+                }
+
+                let release = self.release.lock().expect("release");
+                let _ = release.recv();
+            }
+
+            let outcome = self.store.save(snapshot);
+            let _ = self.saved.lock().expect("saved").send(());
+
+            outcome
+        }
+    }
+
+    /// A sink that records every write and signals completion, without gating.
+    struct RecordingSink {
+        store: CollectionStore,
+        saved: Mutex<mpsc::Sender<()>>,
+    }
+
+    impl SnapshotSink for RecordingSink {
+        fn save(&self, snapshot: &DeviceSnapshot) -> Result<(), CollectionStoreError> {
+            let outcome = self.store.save(snapshot);
+            let _ = self.saved.lock().expect("saved").send(());
+
+            outcome
+        }
+    }
+
+    #[test]
+    fn a_later_snapshot_wins_over_an_older_in_flight_write() {
+        let directory = temp_data_dir("coalesce");
+        let store = CollectionStore::in_dir(&directory);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (saved_tx, saved_rx) = mpsc::channel();
+        let sink = Arc::new(GatedSink {
+            store: store.clone(),
+            first: AtomicBool::new(true),
+            started: Mutex::new(Some(started_tx)),
+            release: Mutex::new(release_rx),
+            saved: Mutex::new(saved_tx),
+            writes: Mutex::new(Vec::new()),
+        });
+        let state = AppState::with_writer(
+            Arc::new(ScriptedService::new()),
+            None,
+            CollectionStore::in_dir(&directory),
+            sink.clone(),
+        );
+        let one = household("household-1");
+
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire("item-1", "2026-10-19T10:00:00Z")]),
+                at("2026-10-19T11:00:00Z"),
+            )
+            .expect("the first copy loads");
+        state.schedule_persist();
+        started_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the first write started");
+
+        // The first write is now held. Change the copy and offer the newer snapshot, then let the
+        // first write finish.
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![
+                        wire("item-1", "2026-10-19T10:00:00Z"),
+                        wire("item-2", "2026-10-19T10:00:00Z"),
+                    ],
+                ),
+                at("2026-10-19T12:00:00Z"),
+            )
+            .expect("the second copy loads");
+        let expected = state.snapshot();
+        state.schedule_persist();
+
+        release_tx.send(()).expect("release the first write");
+        saved_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the first write finished");
+        saved_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the later snapshot finished");
+
+        assert_eq!(
+            store.load().expect("the file is readable"),
+            expected,
+            "the file must hold the later snapshot"
+        );
+
+        let writes = sink.writes.lock().expect("the writes are readable");
+        assert_eq!(writes.len(), 2, "the two writes were coalesced, not queued");
+        assert_eq!(
+            writes[0].collections[0].items.len(),
+            1,
+            "the older snapshot was the first to be written"
+        );
+        assert_eq!(
+            writes[1], expected,
+            "the later snapshot is the one written last"
+        );
+
+        drop(writes);
+        remove_temp_data_dir(&directory);
+    }
+
+    #[test]
+    fn a_merge_schedules_the_merged_copy_for_persistence() {
+        let directory = temp_data_dir("merge-persist");
+        let store = CollectionStore::in_dir(&directory);
+        let (saved_tx, saved_rx) = mpsc::channel();
+        let sink = Arc::new(RecordingSink {
+            store: store.clone(),
+            saved: Mutex::new(saved_tx),
+        });
+        let state = AppState::with_writer(
+            Arc::new(ScriptedService::new()),
+            None,
+            CollectionStore::in_dir(&directory),
+            sink,
+        );
+        let one = household("household-1");
+
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire("item-1", "2026-10-19T10:00:00Z")]),
+                at("2026-10-19T11:00:00Z"),
+            )
+            .expect("the base copy loads");
+        state
+            .merge_collection(
+                &one,
+                wire_collection(&one, vec![wire("item-2", "2026-10-19T10:00:00Z")]),
+            )
+            .expect("the merge lands");
+
+        saved_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the merge is scheduled for persistence");
+
+        let stored = store.load().expect("the file is readable");
+        assert_eq!(stored.collections.len(), 1);
+        let ids: Vec<&str> = stored.collections[0]
+            .items
+            .iter()
+            .map(|item| item.item_id.0.as_str())
+            .collect();
+        assert_eq!(ids, ["item-1", "item-2"]);
+
+        remove_temp_data_dir(&directory);
+    }
+
+    /// A fresh directory under the process's temporary area, unique per call.
+    fn temp_data_dir(label: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+        let process = std::process::id();
+        let name = format!("bunscale-state-{process}-{sequence}-{label}");
+        let directory = std::env::temp_dir().join(name);
+
+        fs::create_dir_all(&directory).expect("a test directory");
+
+        directory
+    }
+
+    fn remove_temp_data_dir(directory: &Path) {
+        let _cleanup = fs::remove_dir_all(directory);
     }
 }

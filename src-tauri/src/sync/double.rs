@@ -11,10 +11,11 @@
 //! Three properties make it usable as evidence rather than as decoration:
 //!
 //! 1. **Every answer is scripted, and the script is consumed in order.** `replies` given to
-//!    `on_service_check`/`on_account_check`/`on_write` are handed out one per call, and the last one
-//!    is repeated for every further call, so "the first three probes fail and everything after them
-//!    succeeds" is one line. An unscripted call gets the healthy default: the service answers `200`,
-//!    the account is valid, and a write comes back with the completed-write envelope.
+//!    `on_service_check`/`on_account_check`/`on_read`/`on_write` are handed out one per call, and the
+//!    last one is repeated for every further call, so "the first three probes fail and everything after
+//!    them succeeds" is one line. An unscripted call gets the healthy default: the service answers
+//!    `200`, the account is valid, a read returns the requested household's empty collection, and a
+//!    write comes back with the completed-write envelope.
 //! 2. **Every call is recorded, at call time.** A call the code under test never makes is absent
 //!    from [`ScriptedService::calls`], which is exactly how a test proves that a refused write was
 //!    never *sent* — the observable half of "nothing is written as if it were saved" (D0.1, SYNC-2).
@@ -33,6 +34,7 @@ use serde_json::Value;
 use super::service::{
     Answer, OUTCOME_APPLIED, SaveRequest, ServiceFuture, ServiceReply, SharedService,
 };
+use crate::ipc::types::HouseholdId;
 
 /// One call the double answered, in the order it answered them.
 ///
@@ -51,6 +53,15 @@ pub enum RecordedCall {
         /// The limit the caller put on the call.
         bound: Duration,
     },
+    /// A collection read, with the bound, the household and the feed position it was given.
+    Read {
+        /// The limit the caller put on the call.
+        bound: Duration,
+        /// The household the read addressed.
+        household_id: HouseholdId,
+        /// The change-feed position the caller asked from. P0 always asks `0`.
+        since_change_seq: u64,
+    },
     /// A write, with the bound it was given and the write it was asked to submit.
     Save {
         /// The limit the caller put on the attempt.
@@ -66,6 +77,7 @@ pub enum RecordedCall {
 struct Script {
     service: VecDeque<ServiceReply>,
     account: VecDeque<ServiceReply>,
+    reads: VecDeque<ServiceReply>,
     writes: VecDeque<ServiceReply>,
     calls: Vec<RecordedCall>,
 }
@@ -88,6 +100,7 @@ impl ScriptedService {
             script: Mutex::new(Script {
                 service: VecDeque::new(),
                 account: VecDeque::new(),
+                reads: VecDeque::new(),
                 writes: VecDeque::new(),
                 calls: Vec::new(),
             }),
@@ -103,6 +116,12 @@ impl ScriptedService {
     /// Script the account check's replies: handed out one per call, the last one repeated.
     pub fn on_account_check(mut self, replies: impl IntoIterator<Item = ServiceReply>) -> Self {
         self.script_mut().account = replies.into_iter().collect();
+        self
+    }
+
+    /// Script the reads' replies: handed out one per call, the last one repeated.
+    pub fn on_read(mut self, replies: impl IntoIterator<Item = ServiceReply>) -> Self {
+        self.script_mut().reads = replies.into_iter().collect();
         self
     }
 
@@ -127,6 +146,18 @@ impl ScriptedService {
             .calls
             .iter()
             .filter(|call| matches!(call, RecordedCall::Save { .. }))
+            .count()
+    }
+
+    /// How many collection reads this double has been asked to perform.
+    ///
+    /// It is deliberately separate from [`ScriptedService::write_count`]: a read is not a write and
+    /// is never counted as one.
+    pub fn read_count(&self) -> usize {
+        self.script()
+            .calls
+            .iter()
+            .filter(|call| matches!(call, RecordedCall::Read { .. }))
             .count()
     }
 
@@ -186,6 +217,27 @@ impl SharedService for ScriptedService {
         Box::pin(async move { reply })
     }
 
+    /// Answer the collection read from the script, recording the call and what it addressed.
+    fn read<'a>(
+        &'a self,
+        household_id: &'a HouseholdId,
+        since_change_seq: u64,
+        bound: Duration,
+    ) -> ServiceFuture<'a, ServiceReply> {
+        let reply = {
+            let mut script = self.script();
+
+            script.calls.push(RecordedCall::Read {
+                bound,
+                household_id: household_id.clone(),
+                since_change_seq,
+            });
+            next(&mut script.reads, || empty_read_reply(household_id))
+        };
+
+        Box::pin(async move { reply })
+    }
+
     /// Answer the write from the script, recording the call and the write it was given.
     fn save<'a>(
         &'a self,
@@ -208,7 +260,10 @@ impl SharedService for ScriptedService {
 
 /// The next scripted reply: the queue is consumed from the front, and its last reply stands for
 /// every call after it, so a one-element script applies to every call.
-fn next(queue: &mut VecDeque<ServiceReply>, fallback: fn() -> ServiceReply) -> ServiceReply {
+fn next(
+    queue: &mut VecDeque<ServiceReply>,
+    fallback: impl FnOnce() -> ServiceReply,
+) -> ServiceReply {
     let reply = if queue.len() > 1 {
         queue.pop_front()
     } else {
@@ -219,6 +274,21 @@ fn next(queue: &mut VecDeque<ServiceReply>, fallback: fn() -> ServiceReply) -> S
         Some(reply) => reply,
         None => fallback(),
     }
+}
+
+/// The reply of a read this double answers with nothing scripted: the requested household's
+/// collection is empty.
+///
+/// A read answer must name its household (the read path refuses one that does not), so the default
+/// carries the id it was asked for rather than a bodiless success.
+fn empty_read_reply(household_id: &HouseholdId) -> ServiceReply {
+    ServiceReply::Answered(Answer::with_body(
+        200,
+        serde_json::json!({
+            "household_id": household_id.0.as_str(),
+            "items": [],
+        }),
+    ))
 }
 
 /// The reply of a call the service answered successfully, and the double's default.

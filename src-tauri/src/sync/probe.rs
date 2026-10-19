@@ -1,6 +1,6 @@
 //! One fresh probe of the shared service and the account (D0.7 criterion 4, D0.13, NFR-1).
 //!
-//! A probe answers a single question for the caller that makes it: *may a write be attempted right
+//! A probe answers a single question for the caller that makes it: *may a call be attempted right
 //! now, and if not, which condition is in the way?* It is deliberately two calls and not one —
 //! a health check for the service and the account service's own check for the account (D0.7
 //! criterion 4) — because the two answers are different facts: the service being up says nothing
@@ -67,6 +67,16 @@ pub enum ProbeOutcome {
 }
 
 impl ProbeOutcome {
+    /// Whether a **read** call may be attempted on the strength of this probe (NFR-1, SYNC-3).
+    ///
+    /// True for the same one outcome as [`ProbeOutcome::permits_write`]: the service answered and
+    /// the account is identified. A read is *served* whether or not this holds — the local copy is
+    /// the fallback — so a false answer only means the refresh is skipped, never that the read is
+    /// refused.
+    pub fn permits_call(self) -> bool {
+        matches!(self, Self::Answered(AccountOutcome::Identified))
+    }
+
     /// Whether a write may be attempted on the strength of this probe (SYNC-2, D0.1).
     ///
     /// True for exactly one outcome: the service answered *and* the account is identified. A write
@@ -74,7 +84,7 @@ impl ProbeOutcome {
     /// attempt just as an unreachable service does — and it refuses it *before* the write is
     /// described to the transport, which is what the double's call log makes observable.
     pub fn permits_write(self) -> bool {
-        matches!(self, Self::Answered(AccountOutcome::Identified))
+        self.permits_call()
     }
 
     /// The cause a write refused on this probe reports (D0.6, D0.7 criterion 4).
@@ -232,12 +242,13 @@ mod tests {
     }
 
     #[test]
-    fn only_an_identified_account_permits_a_write() {
+    fn only_an_identified_account_permits_a_call() {
         for outcome in ALL_OUTCOMES {
             assert_eq!(outcome.permits_write(), outcome.refusal_cause().is_none());
+            assert_eq!(outcome.permits_call(), outcome.refusal_cause().is_none());
         }
 
-        assert!(ProbeOutcome::Answered(AccountOutcome::Identified).permits_write());
+        assert!(ProbeOutcome::Answered(AccountOutcome::Identified).permits_call());
         assert_eq!(
             ProbeOutcome::Answered(AccountOutcome::Unreadable { status: 503 }).refusal_cause(),
             Some(SaveCause::Unknown)

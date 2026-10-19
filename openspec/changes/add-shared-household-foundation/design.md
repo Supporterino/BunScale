@@ -30,6 +30,17 @@ The device keeps a local copy of each household collection it has loaded. Reads 
 against that copy first. A start or foreground return with connectivity refreshes it. "Nothing ever
 loaded + unreachable" is a distinct state with its own surface, never an empty list.
 
+**The local copy is persisted, not in-process only** (task 2.5). Each loaded household's collection —
+its rows and the instant it was loaded — is written to a versioned `loaded-collections.json` under the
+app data directory, atomically, and restored at startup through the same guarded load, so the load
+path reads: local copy first, persisted across launches, refreshed when reachable. The same store
+holds the **household book**: the held households, their members and owner, their acquisition order and
+the active household id. HS-2's onboarding guard and HS-3's household list therefore survive a
+relaunch, and the active selection stays device-local P0 state, as "State and boundaries" records.
+Two things deliberately do **not** persist: the **change-feed cursor** — it is process-local, and the
+incremental feed is P6's — and the **operation ledger**, so a create retried after a relaunch is a
+fresh operation on the service's own ledger, exactly as D0.14 describes.
+
 The loaded-data path is deliberately unoptimised in P0 — serving it first, batching the refresh and
 invalidating only affected data is the subject of `add-read-path-performance` (P6, NFR-7). P0 only
 fixes the *boundaries* (where the cache lives, what a refresh replaces) so P6 can improve behaviour
@@ -1076,6 +1087,7 @@ The bounded times the requirements leave unnumbered are fixed here as constants:
 | `SAVE_ATTEMPT_TIMEOUT` | **15 s** | a save attempt that gets no outcome is refused with the `timeout` cause |
 | `REACHABILITY_PROBE_TIMEOUT` | **5 s** | a reachability probe that gets no answer counts as a failed probe |
 | `OFFLINE_FAILURE_THRESHOLD` | **3 consecutive failures** | without an intervening success, only then is the status reported as offline |
+| `READ_REFRESH_TIMEOUT` | **15 s** | one refresh read of a household's collection (task 2.5): a refresh that gets no outcome inside it counts as a failed refresh, not a failed read (D0.2) |
 
 The third value is NFR-6's threshold, adopted here in P0 as a concrete number so that P3 **inherits**
 it rather than redefining it. The `timeout` cause is therefore a first-class cause with a bound, not
@@ -1474,7 +1486,7 @@ when it fixes the cold-load bound and the freshness window (D6.1, D6.2). Where t
 the **foreground refresh** it means is the Rust-driven one task 3.6 wires, not a browser-focus
 refetch, and the option is disabled so that the two cannot diverge.
 
-**No `staleTime`, because staleness is P6's subject.** Reads resolve against the in-process local copy
+**No `staleTime`, because staleness is P6's subject.** Reads resolve against the persisted local copy
 (D0.2), so revalidating on mount is cheap, and a refresh is driven by invalidation once a load or a
 change event has landed (task 3.2, task 3.6). Leaving the value **unset** is the honest posture rather
 than an invented one: choosing a staleness policy presupposes the freshness window P6 fixes, and a
@@ -1756,7 +1768,8 @@ Rust (src-tauri/)                                  Frontend (src/)
   src-tauri/src/domain/         household, member, ownership, invariants
   src-tauri/src/storage/        storage boundary: household isolation, canonical
                                 representation, immutability, absolute instants, and
-                                the device's loaded copy (storage/local.rs, task 2.3)
+                                the device's loaded copy (local.rs) persisted across
+                                launches with the household book (persist.rs, task 2.5)
   src-tauri/src/sync/           reachability gate, refresh orchestration, LWW merge
                                 (replaces the loaded copy in storage/, holds none itself)
   src-tauri/src/settings/       per-device preferences (display weight unit)

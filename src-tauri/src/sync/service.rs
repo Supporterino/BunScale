@@ -8,8 +8,8 @@
 //! to be a substitutable seam: [`SharedService`] is implemented by the real `reqwest` client
 //! ([`super::http::HttpService`]) and by a scripted double ([`super::double::ScriptedService`]), and
 //! everything above the seam — the probe, the gate, the refusal mapping — is ordinary, testable
-//! code. The seam is the *transport*, not the protocol: a call is asked, a write is described, and
-//! a reply is reported, and no part of the reply is a cause yet.
+//! code. The seam is the *transport*, not the protocol: a call is asked, a read and a write are
+//! described, and a reply is reported, and no part of the reply is a cause yet.
 //!
 //! # Why a boxed future rather than `async fn` in the trait
 //!
@@ -42,7 +42,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::ipc::types::{CommandError, RequestId, SaveCause};
+use crate::ipc::types::{CommandError, HouseholdId, RequestId, SaveCause};
 
 /// The future every call on the seam returns (see the module documentation for why it is boxed).
 pub type ServiceFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -231,13 +231,14 @@ impl SaveRequest {
     }
 }
 
-/// The shared service, as the sync boundary uses it: two separate questions about availability and
-/// one way to submit a write (D0.7 criterion 4).
+/// The shared service, as the sync boundary uses it: two separate questions about availability, one
+/// way to read a household's collection, and one way to submit a write (D0.7 criterion 4).
 ///
 /// The trait requires `Send + Sync` because the app holds one transport for the whole process and
-/// probes and writes from different tasks; a double that could not be shared could not stand in for
-/// it. It has no method for reading a collection: the read path is task 2.5's, and it arrives as its
-/// own call on this seam rather than as something invented here.
+/// probes, reads and writes from different tasks; a double that could not be shared could not stand
+/// in for it. [`SharedService::read`] is the read path's own call — it carries no
+/// [`RequestId`](crate::ipc::types::RequestId), because a read has no operation to deduplicate
+/// (D0.14) — and [`SharedService::save`] stays exactly the write path's.
 pub trait SharedService: Send + Sync {
     /// Ask whether the service itself is answering — the `health` check of D0.7 criterion 4.
     ///
@@ -254,6 +255,28 @@ pub trait SharedService: Send + Sync {
     /// and `429` that the service is temporarily rate limiting; anything else is answered but not
     /// classified here.
     fn check_account(&self, bound: Duration) -> ServiceFuture<'_, ServiceReply>;
+
+    /// Read one household's collection through the `household_changes` function (SYNC-1, SYNC-3;
+    /// ADR 0002).
+    ///
+    /// The implementation sends the function's two arguments — the household id and the change-feed
+    /// position — and reports the status and body it received. It decides nothing about whether the
+    /// read may be attempted (that is the read path's fresh probe) and interprets no body (the read
+    /// path owns the private feed shape). **No operation identity is sent**, because a read has no
+    /// operation to deduplicate and inventing one would misuse D0.14's ledger.
+    ///
+    /// `since_change_seq` is the caller's request: P0 passes `0` and replaces the whole copy; an
+    /// incremental position is P6's. `bound` is the caller's limit on the call
+    /// ([`super::READ_REFRESH_TIMEOUT`] for a refresh).
+    ///
+    /// The lifetime is explicit because the returned future borrows both the service and the
+    /// household id; the shorthand form would tie it to the receiver alone and refuse to compile.
+    fn read<'a>(
+        &'a self,
+        household_id: &'a HouseholdId,
+        since_change_seq: u64,
+        bound: Duration,
+    ) -> ServiceFuture<'a, ServiceReply>;
 
     /// Submit one write.
     ///

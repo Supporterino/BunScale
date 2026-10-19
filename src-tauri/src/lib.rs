@@ -32,7 +32,7 @@ pub fn run() {
             // here rather than by a helper for the reason above. `production` reports a client that
             // could not be built instead of hiding it; P0 has no account, so every write command
             // still refuses honestly with `no_account` (Q25).
-            app.manage(crate::state::AppState::production()?);
+            app.manage(crate::state::AppState::production(app.handle())?);
             Ok(())
         })
         .run(tauri::generate_context!())

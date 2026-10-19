@@ -19,10 +19,11 @@
 //! # The deployment's shape it assumes
 //!
 //! The paths below are the Supabase stack's (D0.7): a health endpoint for the service check, the
-//! account service's user endpoint for the account check, and a PostgREST function for a write. They
-//! are constants in one place because they are **deployment configuration**, not mechanism: the
-//! deployment task that first writes through these functions is the one that verifies the routes,
-//! and it changes a path here rather than hunting literals.
+//! account service's user endpoint for the account check, and a PostgREST function for each service
+//! call (the collection read and the write). They are constants in one place because they are
+//! **deployment configuration**, not mechanism: the deployment task that first writes through these
+//! functions is the one that verifies the routes, and it changes a path here rather than hunting
+//! literals.
 //!
 //! Every request carries the person's JWT and nothing else — no service-role key, no API key the app
 //! holds (D0.7 criterion 1). The token arrives through [`AccessTokenSource`] rather than being stored
@@ -32,12 +33,12 @@
 //! # The bound
 //!
 //! Each call's limit is handed to `reqwest`'s per-request timeout (its `RequestBuilder::timeout`),
-//! so [`super::SAVE_ATTEMPT_TIMEOUT`] and [`super::REACHABILITY_PROBE_TIMEOUT`] are enforced by the
-//! transport that is actually waiting, and a call that passes its bound reports
-//! [`ServiceReply::NoOutcome`] — the `timeout` condition (D0.13). The bound covers the **body read**
-//! as well as the response: a body that runs out of time is that same condition, not an answer with
-//! an unreadable body, because a deadline is a condition of the attempt rather than of its content.
-//! No timer is added to this crate for it.
+//! so [`super::SAVE_ATTEMPT_TIMEOUT`], [`super::READ_REFRESH_TIMEOUT`] and
+//! [`super::REACHABILITY_PROBE_TIMEOUT`] are enforced by the transport that is actually waiting, and
+//! a call that passes its bound reports [`ServiceReply::NoOutcome`] — the `timeout` condition
+//! (D0.13). The bound covers the **body read** as well as the response: a body that runs out of time
+//! is that same condition, not an answer with an unreadable body, because a deadline is a condition
+//! of the attempt rather than of its content. No timer is added to this crate for it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,6 +48,7 @@ use serde_json::Value;
 use super::service::{
     Answer, HTTP_UNAUTHORIZED, SaveRequest, ServiceFuture, ServiceReply, SharedService,
 };
+use crate::ipc::types::HouseholdId;
 
 /// The access token the next call carries, or `None` while no account token is available.
 ///
@@ -61,9 +63,12 @@ const HEALTH_PATH: &str = "/health";
 /// The path of the account check (D0.7 criterion 4): the account service's view of the token.
 const ACCOUNT_PATH: &str = "/auth/v1/user";
 
-/// The path prefix of a write (D0.7 criteria 1, 3 and 5): a service function called with the
+/// The path prefix of a service function (D0.7 criteria 1, 3 and 5): a function called with the
 /// person's JWT.
 const RPC_PREFIX: &str = "/rest/v1/rpc/";
+
+/// The PostgREST function that reads a household's collection and its changes (ADR 0002).
+const HOUSEHOLD_CHANGES_RPC: &str = "household_changes";
 
 /// The real transport: the pinned `reqwest` client, talking to one deployment over HTTPS (D0.7).
 ///
@@ -109,7 +114,7 @@ impl HttpService {
     }
 
     /// The absolute URL of the service function `rpc`.
-    fn write_url(&self, rpc: &str) -> String {
+    fn rpc_url(&self, rpc: &str) -> String {
         let mut url = self.url(RPC_PREFIX);
 
         url.push_str(rpc);
@@ -179,6 +184,34 @@ impl SharedService for HttpService {
         })
     }
 
+    fn read<'a>(
+        &'a self,
+        household_id: &'a HouseholdId,
+        since_change_seq: u64,
+        bound: Duration,
+    ) -> ServiceFuture<'a, ServiceReply> {
+        Box::pin(async move {
+            let Some(token) = self.token() else {
+                // A read needs an identity for the same reason a write does (D0.7 criterion 1); the
+                // read path treats this exactly like any other unreadable answer and keeps the copy.
+                return ServiceReply::Answered(Answer::status_only(HTTP_UNAUTHORIZED));
+            };
+
+            let body = serde_json::json!({
+                "household_id": household_id.0.as_str(),
+                "since_change_seq": since_change_seq,
+            });
+            let sent = self
+                .client
+                .post(self.rpc_url(HOUSEHOLD_CHANGES_RPC))
+                .timeout(bound)
+                .bearer_auth(token)
+                .json(&body);
+
+            Self::send(sent, true).await
+        })
+    }
+
     fn save<'a>(
         &'a self,
         request: &'a SaveRequest,
@@ -193,7 +226,7 @@ impl SharedService for HttpService {
 
             let sent = self
                 .client
-                .post(self.write_url(request.rpc()))
+                .post(self.rpc_url(request.rpc()))
                 .timeout(bound)
                 .bearer_auth(token)
                 .json(request.body());

@@ -12,7 +12,9 @@
 //! - [`StoredCollection`] — one household's rows, keyed so that a second load of an item upserts
 //!   rather than duplicates (SYNC-1);
 //! - [`LocalCopy`] / [`LocalCopies`] — the device's copy of one household's collection and the
-//!   device's set of those copies, with the loaded-at marker the read path reports (SYNC-3).
+//!   device's set of those copies, with the loaded-at marker the read path reports (SYNC-3);
+//! - [`CollectionStore`] — the file under the app's own data directory that keeps those copies
+//!   across a relaunch (task 2.5), with [`CollectionStoreError`] as its failure classification.
 //!
 //! Task 2.7 adds the boundary's **guards** on top of that layout:
 //!
@@ -48,8 +50,13 @@ pub mod collection;
 pub mod guards;
 pub mod instant;
 pub mod local;
+pub mod persist;
 
 pub use collection::{StoredCollection, StoredItem};
 pub use guards::{BoundaryRefusal, Canonical, CanonicalForm, GuardedStore};
 pub use instant::{AbsoluteInstant, InstantError};
 pub use local::{LocalCopies, LocalCopy};
+pub use persist::{
+    COLLECTIONS_FILE_NAME, CollectionStore, CollectionStoreError, DeviceSnapshot,
+    PersistedHousehold,
+};
