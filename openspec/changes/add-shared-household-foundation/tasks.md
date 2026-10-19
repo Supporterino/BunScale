@@ -758,7 +758,7 @@ file's header).
 
 ## 1. Contract and security surface
 
-- [ ] 1.1 [architect] Select and justify the shared-service mechanism in `design.md` (D0.7): one
+- [x] 1.1 [architect] Select and justify the shared-service mechanism in `design.md` (D0.7): one
   shared collection per household, per-item versioning for last-write-wins, per-device local
   caching, forced availability and account reporting, forced allowance/rate-limit reporting where an
   exhausted owner allowance is reportable as **its own condition**, distinct from a generic write

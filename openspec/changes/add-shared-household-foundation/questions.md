@@ -23,7 +23,10 @@ Android output, both decided rather than improvised. Q23 records a runtime hazar
 possible to pass while unmocked — a reused dev server started without the flag — the mechanism that caused
 it, and why the fix is behavioural rather than a config change. Q24 records a verification finding found
 while reconciling two stray edits after task 0.21 was committed — a reviewed screenshot had been captured
-from an uncommitted tree, so the image and the commit disagreed — and both were corrected. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+from an uncommitted tree, so the image and the commit disagreed — and both were corrected. Q25 records
+the sign-in/account-acquisition gap that task 1.1's mechanism decision exposes: P0 has no sign-in
+screen, the first live account is provisioned by the deployment task, and no task owns the sign-in
+flow itself. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -439,6 +442,27 @@ change is final, and if the tree moves after a capture, the image is stale evide
 file. Nothing here changes what the 0.21 review concluded about the primitives, the adaptive arrangement or
 the measurements — those were read from the code and are unaffected — but it is worth knowing before task
 0.25 asserts anything visual against these baselines.
+
+### Q25 — P0 has no sign-in or account-acquisition owner (open, `architect`, 2026-10-19)
+
+Raised by task 1.1's mechanism decision (D0.7). The selected mechanism supplies the account
+(GoTrue email OTP), and NFR-1 requires a valid account for every save, but **no P0 task implements a
+sign-in or account-acquisition flow**: `tasks.md` section 4's screens (4.1–4.5) are household
+creation, the dashboard shell, Settings & Profile and the two failure states, and nothing before them
+signs anyone in. Task 1.1 therefore does not claim a sign-in flow exists; it records that the
+account's acquisition has no owner, rather than inventing one into scope.
+
+**What is decided and what is not.** The mechanism side is decided: Supabase Auth (GoTrue) is the
+account, email OTP is the intended method when the flow lands, and the refresh token belongs in the
+platform Keychain (D0.7). The gap is the product flow and its owner — the screen(s) that take an
+address, request the code, verify it, and decide what a person with no account sees. The first live
+account is provisioned by the live-deployment task D0.7 names (the task or release that first needs a
+real write), which is an operator step, not a user-facing flow.
+
+**Needed:** an owner and a phase for the sign-in/account-acquisition flow — either a task in this
+change (which would extend section 4 beyond its current screen list) or an explicit deferral to a
+named later change, with the P0 onboarding entry point (task 4.1) gated the same way HS-2 gates
+household creation.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 

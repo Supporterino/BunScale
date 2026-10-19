@@ -63,28 +63,149 @@ allowed to fall through to a success state (SYNC-2). The surface also carries th
 `request_id` that identifies the operation (D0.14) — that is what makes the retry the surface offers
 safe, because the shared service deduplicates on it.
 
-### D0.7 — Technology-agnostic specs, concrete mechanism chosen here
+### D0.7 — Technology-agnostic specs, with a product-operated PostgreSQL service selected
 
 The capability specs in this change name only "the shared service" and "the account" (D6). The
-concrete mechanism — which product provides one shared collection per household with per-item
-last-write-wins and per-device local caching — is selected and justified by `architect` in task 1.1
-and recorded in `docs/adr/0002-shared-service-mechanism.md` (`0001` is taken by the settled
-scope decisions, `docs/adr/0001-reimplementation-scope-decisions.md`). Until that task lands, the mechanism
-is an **open item**, and every statement below treats it as an interface with five capabilities:
+concrete mechanism — one shared collection per household, per-item last-write-wins and per-device
+local caching — was selected by `architect` in task 1.1 and will be recorded in
+`docs/adr/0002-shared-service-mechanism.md` by task 1.2 (`0001` is taken by the settled scope
+decisions, `docs/adr/0001-reimplementation-scope-decisions.md`).
 
-1. address a household collection by an opaque, stable id;
-2. read the collection and read per-item changes since a marker;
-3. write an item with a client-supplied version/updated-at for last-write-wins;
-4. report availability and account state in a way the product can map to cause codes;
-5. report storage-allowance and rate-limit conditions, where an exhausted owner allowance is
-   reportable as **its own condition**, distinct from a generic write error (D0.12);
-6. accept a client-supplied idempotency key and deduplicate on it, so a re-issued write is safe by
-   construction (D0.14).
+**Selected: a self-hosted Supabase stack operated by the product.** PostgreSQL with row-level
+security is the collection store and source of truth; Supabase Auth (GoTrue) is the account;
+PostgREST plus product-authored SQL functions is the read/write surface; the stack's own gateway
+(Kong) is configured with a rate-limiting plugin. The app reaches the service over HTTPS from Rust
+with `reqwest`; there is no Tauri plugin, no Apple-only API and no vendor-operated data plane. The
+components are the open-source Supabase distribution, deployed with its Docker Compose on
+infrastructure the product controls. The hosting provider supplies machines; the product operates
+the service, its schema, its access policy and its data plane.
 
-Any candidate that cannot report 4 and 5 *distinctly*, or that cannot deduplicate a request by its
-key, cannot satisfy SYNC-2's cause list or SYNC-1's "exactly one copy" rule and must be rejected in
-task 1.1. The mechanism is therefore not an open item in the sense of an unknown criterion: the
-criteria are fixed here, and 1.1 names the candidate that meets them.
+**What "the product's own shared service" means here (NFR-3).** The phrase is read as *the product
+operates the service software, schema, access policy and data plane*, not as *the product writes
+every line*. A managed backend in which the vendor operates the database and holds the data
+(Supabase Cloud, Firebase, CloudKit) does not satisfy that reading, however convenient; the same
+open-source stack deployed by the product does. This is the line the privacy criterion is applied on
+below, and it is the test a later infrastructure change must keep passing.
+
+The six criteria were fixed in this section **before** the selection, so the choice is auditable
+rather than retrofitted. The mechanism meets each of them:
+
+1. **Address a household collection by an opaque, stable id.** `households.id` is a UUID; a
+   household's collection is the `household_items` rows carrying that `household_id` (the P0 name;
+   task 2.3 may split the physical layout per kind, provided every household-scoped row keeps
+   `household_id`, the version tuple and `change_seq`). There is one logical collection per
+   household, never a per-device or per-member copy. The `(household_id, item_id)` primary key makes
+   "exactly one copy" (SYNC-1) an invariant of the store rather than a client-side check. Row-level
+   security gates every household-scoped table on household membership, so isolation (NFR-10) is a
+   property of the service rather than of client-side filtering, and the app never holds the
+   service-role key — every request carries the person's JWT.
+2. **Read the collection and read per-item changes since a marker.**
+   `household_changes(household_id, since_change_seq)` reads the collection and its changes from a
+   server-assigned, per-household monotonic `change_seq`. The marker is the service's, not a client
+   clock, and a removed item is a tombstone row rather than a vanished row, so a removal appears in
+   the feed instead of being silently missing from it. A marker is only sound if a lower
+   `change_seq` cannot commit after a higher one, so `save_item` takes a per-household
+   transaction-scoped advisory lock around the assignment, serialising household writes so sequence
+   order is commit order for that household (P6 may replace this with a commit-order feed without
+   changing the client's marker).
+3. **Write an item with a client-supplied version/updated-at for last-write-wins.**
+   `save_item(household_id, item_id, updated_at, payload, writer_id, request_id)` stores the incoming
+   version only when `(updated_at, writer_id, request_id)` — `writer_id` is the writing member's id —
+   is strictly greater than the stored tuple, so every replica computes the same winner without
+   guessing from arrival order. A losing write returns the winning item with `applied: false` and is
+   **not** an error, which is NFR-2's "conflict never fails". SYNC-5's "the change that reached the
+   service last" is read as this version order: in the normal case the two coincide, and the bounded
+   skew guard below keeps a device's clock from making them diverge; where they could, the version
+   wins because it is the only value every replica can compare identically. The LWW `updated_at` is
+   the item's **version marker**, distinct from any user-supplied domain timestamp (D0.5/DM-6),
+   which remains stored unchanged.
+4. **Report availability and account state in a way the product can map to cause codes.** The
+   absence of an HTTP response (DNS, TLS, connect or read failure) maps to connectivity; `401` from
+   GoTrue/PostgREST maps to no account; the gateway's `429` maps to rate limited; a missing outcome
+   within `SAVE_ATTEMPT_TIMEOUT` maps to timeout (D0.13). The reachability probe checks the two
+   separately — a `health` RPC for the service and a GoTrue user/token-refresh call for the account —
+   so `ServiceStatus.account_valid` is a fresh outcome rather than a cached guess. The refresh token
+   lives in the platform Keychain (iOS and macOS), never in the local data cache; the section-2
+   sync/auth task owns that storage. The client has no local write queue (D0.1) and the RPC is the
+   only write path, so a write cannot be recorded locally and later presented as saved: the report
+   is forced rather than advisory.
+5. **Report allowance and rate-limit conditions, with an exhausted owner allowance as its own
+   condition (D0.12).** `save_item` checks the **household owner's** accounted usage (HS-12), logs the
+   condition with `RAISE WARNING … USING ERRCODE` (a warning does not abort the transaction) and
+   returns the typed envelope `{ outcome: "allowance_exceeded", … }`; the wire token is the same one
+   `SaveCause::allowance_exceeded` carries, so no translation table can collapse it into a generic
+   write error. A `200` means the RPC completed, not that the write was accepted: the client maps
+   the envelope's `outcome`, so an allowance refusal cannot be mistaken for a saved write. The
+   gateway reports rate limiting as `429` with `Retry-After`, a different signal, and neither
+   condition can be produced by a validation or transport failure. The allowance value itself is
+   deployment configuration, not a mechanism choice; this decision fixes only that it is per owner
+   and distinctly reportable.
+6. **Accept a client-supplied idempotency key and deduplicate on it (D0.14).** `request_log` is keyed
+   by `(account_user_id, request_id)` and written in the same transaction as the domain change, with
+   the command and a hash of the request payload recorded; a re-issued call returns the stored
+   outcome instead of performing the change twice, and the same key with a different payload is
+   refused rather than silently reinterpreted. The client keeps a `request_id` for **24 hours** after
+   the last attempt or until the operation succeeds, whichever is longer; the service retains the
+   ledger for `REQUEST_ID_RETENTION` = **30 days**, comfortably longer than any retry the product
+   offers, so it stays bounded without reopening the duplicate window.
+
+**Per-device local caching is the app's, not the service's.** The service supplies the resumable
+change feed in (2); the device keeps its copy in `src-tauri/src/storage/` and refreshes it through
+`src-tauri/src/sync/` (D0.2). The service keeps no per-device data cache, so a device can be
+rebuilt from `household_changes(…, 0)` — which is why the feed, not a device row, is the cache's
+contract. The stack's Realtime component is available for P3's live-update subscription point but is
+not part of P0's contract.
+
+##### ADR 0001's follow-ups, mapped (task 1.1)
+
+| Follow-up | How the selected mechanism meets it |
+|---|---|
+| 1. Platform support (iOS + macOS) | HTTPS from Rust via `reqwest` with rustls: a platform-neutral crate with no native TLS binding, building for `aarch64-apple-ios` and macOS; no Tauri plugin and no Apple-only API. The `aarch64-apple-ios` `cargo check` in section 2 proves the client compiles. |
+| 2. Identity | Supabase Auth (GoTrue): email OTP (a code entered in the app) is the intended sign-in method when that flow lands and needs no native plugin or deep-link handler; Sign in with Apple can be added later as a provider. P0 itself has no sign-in screen: the account is provisioned by the live-deployment task described below, and the missing owner for account acquisition is recorded as Q25 in `questions.md`. The JWT's `sub` is the stable account id; the display name comes from user metadata when present and falls through SET-2's chain when it does not — an unresolved name never blocks a screen. |
+| 3. Storage accounting (HS-12) | Items are attributed through `households.owner_account_id`; `save_item` accounts stored payload size against the owner's usage and returns `allowance_exceeded` past the configured allowance. The same owner mapping extends to the stack's Storage component when photos arrive, so accounting does not change shape later. The vendor's plan quota is not used as the product allowance. |
+| 4. Failure taxonomy | Four distinct signals, not one generic write error: transport failure → connectivity; `401` → no account; the `allowance_exceeded` envelope → allowance; gateway `429` → rate limited. `timeout` (bounded by D0.13) and `validation` are additional causes, so SYNC-2's list is fully honourable. |
+| 5. Privacy (NFR-3) | The data plane is self-hosted and product-operated; no analytics SDK is added, and the deployment disables or self-hosts the stack's telemetry/analytics components, so no vendor receives content. OTP delivery, if it uses a transactional email provider, carries only the address and the code, never household content. Diagnostics remain local and redacted (task 2.12). The service origin is not a webview origin — the calls are in Rust — so it needs no CSP `connect-src` entry; task 1.4 must not widen CSP for it. D0.21 is amended to match: a future webview path to the service would reopen that entry. |
+
+**The cost, recorded rather than hidden.** Criteria 3, 5 and 6 are met by product-authored SQL
+(constraints, functions and a request ledger), not by a feature of a closed API; that is exactly the
+control a closed backend cannot give, and it is why this stack is selected over one. The price is
+operational: the product must run PostgreSQL, Auth, PostgREST and the gateway. That deployment is
+**outside this app repository and outside this change's gate** — the gate's E2E layer mocks IPC and
+no task in P0 boots the service. A live deployment becomes a precondition only for the task or
+release that first needs a real write; that task must record it, and nothing here assumes it exists.
+That task also provisions the first service account, because P0 has no sign-in flow (Q25).
+Because the gate mocks the service, the SQL implementing criteria 2, 3, 5 and 6 is not exercised by
+the P0 gate; the deployment change must test those functions against a real PostgreSQL before the
+first release that writes through them. Two further consequences belong to the section-2 work: the LWW
+ordering is only as truthful as the devices' clocks, so the service stores the client `updated_at`
+beside a server `received_at` for diagnosis and applies a bounded skew guard on the **version
+marker** rather than letting one future-dated device win forever (task 2.6); and a hard delete must
+be a tombstone write so the change feed can report the removal.
+
+**Dependency (project rule 6), one line.** `reqwest` with `default-features = false` and
+`features = ["rustls-tls", "json"]` — the HTTPS client the Rust sync module uses to call the service;
+a platform-neutral crate with a pure-Rust rustls TLS stack (bundled webpki roots, no OpenSSL or
+platform TLS binding) that builds for both `aarch64-apple-ios` and macOS and runs on the tokio
+runtime Tauri already provides. The wire format is JSON over HTTPS, which is what D0.8's
+`serde_json` pin already describes. No Tauri plugin is added: the calls originate in Rust, not the
+webview, so `tauri-plugin-http` is not needed and task 1.4's capability/CSP surface stays as narrow
+as it can. The exact pin is added, with this justification, by the task that first puts it in
+`src-tauri/Cargo.toml` (section 2; D0.8/TOOL-8), not by task 1.1. The server components are
+open-source and run on the deployment host; none is linked into the iOS or macOS binary, so they add
+no platform constraint to the app. On macOS, the App Sandbox set that ships with the first signed or
+distributed build must include `com.apple.security.network.client`; task 1.4 owns the entitlement
+surface and the change that enables the sandbox owes the entry then (D0.21's rule for the sandbox
+set).
+
+##### Alternatives considered and rejected (task 1.1)
+
+| Candidate | Verdict and the criterion it fails |
+|---|---|
+| **Apple CloudKit** (native framework, a shared record zone per household) | **Rejected.** Fails criterion 3: the only optimistic-concurrency primitive is the **server-assigned** `recordChangeTag`; a concurrent save returns `serverRecordChanged` for the client to retry, and a client-supplied `updated_at` is merely a field the server never compares — conflict retry, not deterministic LWW on the client's version. Fails criterion 6: there is no idempotency-key ledger; a client-chosen `recordName` can make a create collide, but the duplicate is an error rather than the stored first outcome, and a re-issued modify is not deduplicated. Fails NFR-3/follow-up 5: the data lives in the user's or owner's iCloud under Apple's terms, not in the product's own service. It does meet 4 and 5 (`notAuthenticated`/`networkUnavailable`; `quotaExceeded`, counted against the share owner; `requestRateLimited`), so the rejection is specific rather than blanket. Secondary cost: no official Rust client; native CloudKit needs a custom Swift plugin (Apple-only), and the HTTP web-services route needs a web-auth or server-held-key flow rather than a plain user session. |
+| **Firebase / Cloud Firestore** | **Rejected.** Fails criterion 3: Firestore's preconditions are the server-assigned `updateTime`; last-write-wins is by server commit order, and a client `updated_at` is not compared. Fails criterion 5 and ADR 0001 follow-up 3: quota exhaustion and rate limiting both surface as `RESOURCE_EXHAUSTED`/HTTP 429 with no reliable distinction, and the quota is project-level, not the per-owner allowance HS-12 requires. Fails criterion 6: no client idempotency key or dedup ledger; a transaction retry re-executes and does not deduplicate an externally re-issued request. Fails follow-up 5: Google operates the data plane. Platform support is also weak: no official Rust SDK; REST covers CRUD but the change feed needs gRPC/WebChannel or a polling `readTime` query that is not a per-item change list (criterion 2 partial). |
+| **Supabase Cloud** (the same stack, vendor-operated) | **Rejected on privacy alone (NFR-3/follow-up 5), not on capability.** Criteria 1–6 are met by the same schema and functions, and it would remove the operational cost. But the vendor would operate the data plane holding health and weight data, which is the line this decision draws for "the product's own shared service"; a dedicated project and a processing agreement do not change who operates the database. If the product owner later accepts that trade, it is a deployment change to this decision, not a schema change, and must be recorded as an explicit NFR-3 exception rather than inferred. |
+| **Custom Rust service** (axum + `sqlx` over the same PostgreSQL schema) | **Capability-equivalent; rejected on cost and risk, not on a criterion.** It meets the six D0.7 criteria by construction and keeps the data plane in-house with no Supabase component, but it must build identity (follow-up 2) itself. It is rejected because it re-implements the parts most likely to be wrong — account issuance, token refresh, JWT verification, RLS enforcement and the HTTP data API — as a second bespoke codebase, while the chosen stack supplies them as maintained components over the same PostgreSQL. It remains the fallback if the stack's operational shape later binds. |
+| **Firebase Realtime Database / other closed BaaS** | **Rejected on the same criteria as Firestore** — no client-version LWW comparator, no per-owner allowance distinct from rate limiting, no server-side idempotency key — plus NFR-3's data-plane requirement. Listed so the rejection is not read as Firestore-specific. |
 
 ### D0.8 — Scaffold baseline and exact pins (section 0)
 
@@ -1192,8 +1313,10 @@ following spellings are consequently load-bearing constraints on whoever edits t
   subscribed to. Task 1.4 is the named owner of that entry in `tasks.md`. The same obligation covers
   every other core module the frontend later imports: `path`, `window` and `app` are equally denied
   today.
-- **1.4:** the shared service's origin is the read model's network surface (R5) and is owed a
-  `connect-src` entry there, with its own rule-4 line.
+- **1.4:** the shared service's origin is **not** a webview network surface. D0.7 makes the calls in
+  Rust (`reqwest`), so no `connect-src` entry is owed and 1.4 must not add one. If a future change
+  introduces a webview path to the service, this bullet reopens and that change owes the entry with
+  its own rule-4 line.
 - **the change that first needs a signed or distributed macOS build:** the macOS App Sandbox
   entitlements set is owed there — authored by `tauri-security`, since AGENTS.md routes entitlements to
   that agent, and validated in that release flow — not carried as a standing obligation on a sibling
