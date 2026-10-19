@@ -19,7 +19,11 @@ to be rediscovered. Q20 records what task 0.19 deliberately did not cover — th
 and the generator-owned `src-tauri/gen/schemas/` — together with the one path it added beyond its list
 on evidence. Q21 records the keyboard inset's missing assignment and hands it to task 4.1, the first
 surface with a real keyboard. Q22 records the one narrow write grant task 0.22 needed and the icon CLI's
-Android output, both decided rather than improvised. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+Android output, both decided rather than improvised. Q23 records a runtime hazard that makes an E2E run
+possible to pass while unmocked — a reused dev server started without the flag — the mechanism that caused
+it, and why the fix is behavioural rather than a config change. Q24 records a verification finding found
+while reconciling two stray edits after task 0.21 was committed — a reviewed screenshot had been captured
+from an uncommitted tree, so the image and the commit disagreed — and both were corrected. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -299,7 +303,7 @@ defaults to `.tanstack/tmp`). It is empty today, and git reports an empty direct
 exactly why covering it matters: the first scratch file it holds would otherwise appear as untracked and
 be swept in by a later `git add -A`.
 
-### Q21 — the keyboard inset has no owner until the first real form screen (resolved by assignment, 2026-10-21)
+### Q21 — the keyboard inset has no owner until the first real form screen (resolved by assignment, 2026-10-19)
 
 Raised by the task 0.21 review. The design system defines `--keyboard-inset` and `Screen` consumes it
 (adds it to `padding-block-end` and `scroll-padding-block-end`), so the convention "the keyboard inset is
@@ -318,7 +322,7 @@ settled inside the design system is the record's own rule: no primitive may meas
 assignment belongs to the app shell and therefore to a screen-level task. Nothing here blocks 0.21, which
 is why the finding is a correction to the record rather than a blocked task.
 
-### Q22 — task 0.22 needed a write grant, and the icon CLI writes platforms this phase does not ship (resolved, 2026-10-21)
+### Q22 — task 0.22 needed a write grant, and the icon CLI writes platforms this phase does not ship (resolved, 2026-10-19)
 
 Two things task 0.22 surfaced that no task text anticipated, both decided rather than improvised.
 
@@ -362,6 +366,79 @@ set of a shipped app is not scratch output — those files are part of the artef
 a later phase that enables Android should find them present and reviewable rather than silently missing
 until someone notices the ignore rule. That is a preference, not a correctness argument, and it is
 reversible in one line if the product owner prefers the ignore.
+
+### Q23 — a local E2E run can silently be unmocked, and the mechanism that caused it is by design (open hazard, recorded 2026-10-19)
+
+Found while verifying task 0.23, and it is a hazard rather than a task defect: the E2E layer can run
+**green while nothing is mocked**, which is the same failure class D0.24 rejected `passWithNoTests` for.
+
+**The mechanism.** `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, deliberately, so a
+local run does not have to restart a dev server someone already has up. But `VITE_E2E_MOCK=1` is set by
+the `test:e2e` script for the process that *starts* the server; a server that was already listening on 1420
+was started without it. Playwright reuses it as-is, so the page's `import.meta.env` carries no
+`VITE_E2E_MOCK`, and `src/main.tsx`'s seam takes its early return: **the app renders and no mock is
+installed.** The symptom is exactly that shape — a rendering app with `window.__TAURI_INTERNALS__` absent —
+and it is invisible to every assertion that does not look for the mock specifically.
+
+**Observed, not theorised.** Task 0.21 left a dev server running on 1420. During 0.23's verification the
+seam spec failed against the reused server with `present: false, invokeIsFunction: false` while the same
+spec passed against a server started with the flag on a different port; probing the served
+`http://localhost:1420/@vite/env` showed the injected env object with no `VITE_E2E_MOCK` key at all.
+**Two** such servers were ultimately found and stopped across the task, PIDs `18674` and `17814`, both this
+repository's `node_modules/.bin/vite` — the first the one 0.21's screenshot work left behind, the second
+appearing later in the session and not attributable with certainty, most likely a server an agent started
+for screenshots. Two rather than one is the point: this is a recurrent shape, not one lingering process,
+so it is not something a single clean-up closes. Port 1420 is free as of the end of task 0.23.
+
+**Why nothing is changed in the config, and what is changed instead.** The CI side is already correct and is
+why D0.24 calls that choice a CI-only *tightening*: CI never reuses a server, so the gate cannot inherit a
+stale one. The config-level alternative was weighed and declined: setting `reuseExistingServer: false`
+outright would turn this from a silent unmocked run into a loud failure — the honest posture — at the cost
+of making every local run wait for a dev server start, and of failing with Playwright's 120-second
+`webServer` timeout whenever a stale process holds the port. The local convenience was kept, so the handling
+lands where it can land once rather than per spec: **task 0.25 must supply one shared `e2e/` fixture (or a
+`globalSetup`) that asserts the mock is installed, consumed by every E2E spec.** That is what makes a run
+*mocked* instead of merely green, and it is deliberately the same shape as the baseline helper 0.23 added
+for viewports — a per-spec convention is the thing both exist to remove. The fixture does not exist yet;
+until it does, D0.24 records that the per-spec assertion is the only protection, and `src/test/mock-ipc.ts`
+documents the hazard in its own header. The standing operational rule is that a dev server started for
+screenshots or manual checks must not be left listening on 1420, and a run that needs a guaranteed flag can
+set `CI=1`, which turns the reuse off.
+
+### Q24 — a reviewed screenshot can be rendered from an uncommitted tree (found and corrected, 2026-10-19)
+
+Found while reconciling two stray edits left in the working tree after task 0.21 was committed. It is a
+verification finding rather than a code one, and it was proved rather than inferred.
+
+**What happened.** Task 0.21's fix round removed `.bs-preview__intro` and swapped a section's top margin
+from `--spacing-section` to `--spacing-stack-lg` in two files — and those two edits were never staged, so
+`5dc3802` does not contain them. Checking whether they were deliberate was the small job; what turned up
+while doing it is the larger one: `.artifacts/screens/0.21-compact.png`, the image the review read, is
+**byte-identical to the render of the edited state** and differs from the render of the committed state.
+Three captures were hashed to establish that — two from the edited tree (identical to each other, one of
+them the file already on disk, at `62975` bytes) and one after restoring (`58140` bytes, the hash that
+belongs to the committed state) — and captures are otherwise deterministic at the same engine, viewport,
+delay and cache state. So the reviewed
+*image* and the reviewed *commit* disagreed: the picture showed a flatter 40px section rhythm, the code
+shipped the intended 80px lead-in and the responsive `--spacing-section`.
+
+**Resolution.** The owner restored both files byte-exact to `5dc3802` (empty diff, and the build returns to
+the 189 modules / 44.94 kB CSS the 0.21 record quotes, which is the strongest confirmation available), the
+compact screenshot was re-taken from the committed state, and `.artifacts/screens/` is back to its six
+files. That re-captured frame is itself **unreviewed** — it is the same class of problem in the other
+direction, an image nobody has read — so it is task 0.25's review, which asserts against these baselines,
+that confirms it, rather than a re-review of 0.21. The edits are not in the record and nothing asked for them: `--spacing-section` is the only one of
+the two tokens that widens at the breakpoint, the `ui.css` header already named "the Intro spacing" as part
+of that block, and the swap would have been the same "second name for one decision" that task 0.21's own
+review deleted `--list-section-gap` for.
+
+**The lesson, recorded because it will recur.** A screenshot is evidence *for the tree it was captured
+from* and for nothing else, and a capture taken between an edit and a commit cannot be told apart from one
+taken after it — the file is just a PNG either way. Two habits follow, and they are cheap: capture after the
+change is final, and if the tree moves after a capture, the image is stale evidence rather than a stale
+file. Nothing here changes what the 0.21 review concluded about the primitives, the adaptive arrangement or
+the measurements — those were read from the code and are unaffected — but it is worth knowing before task
+0.25 asserts anything visual against these baselines.
 
 ## History — how Q10–Q12 were raised (2026-10-16, orchestrator)
 

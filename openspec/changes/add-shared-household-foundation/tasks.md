@@ -140,11 +140,16 @@ foreground/background pairs read off live elements, all matching their token val
 below 4.5:1 being the disabled button — exempt, and still labelled. Two claims are stated carefully
 rather than loosely, because the review found both overstated. The `navigation` landmarks are **two in the
 DOM and exactly one laid out** at each width: the attribute says which landmark is which, not which one is
-on screen, and under jsdom there is no CSS pipeline at all, so a component test sees both — the
+on screen, and jsdom cannot settle it either — not because it lacks a CSS pipeline, which it has, but
+because its media evaluation matches plain media types only and the app stylesheet is never loaded in a
+Vitest run — so a component test sees both. The
 arrangement assertion belongs in E2E, where Playwright's viewports are real (noted in 0.25). And the
 keyboard inset is **defined and reserved but not yet assigned**: `Screen` consumes it while nothing sets
 it, there is no `visualViewport` code anywhere, and the app-shell assignment is deferred to task 4.1, the
-first screen with a real keyboard (Q21). Four screenshots sit in `.artifacts/screens/` — the preview and the not-found surface at both baselines —
+first screen with a real keyboard (Q21). The compact capture was **re-taken** after this task was
+committed: two files of the fix round were left unstaged, the reviewed PNG had been rendered from that
+uncommitted state rather than from the commit, and once the owner restored the files byte-exact the image
+was captured again so the evidence matches the code (Q24). Four screenshots sit in `.artifacts/screens/` — the preview and the not-found surface at both baselines —
 gitignored as evidence rather than committed, per `definition-of-done`. The build stays at 47 linted files
 and the route set is unchanged, so `src/routeTree.gen.ts` needed no regeneration.
 Task 0.22 replaced Tauri's default mark with one drawn from the design system. The source artwork is
@@ -169,6 +174,35 @@ the reason in the file) rather than the artwork being parked in a stylesheet dir
 deleting part of generated output would make re-running the documented command produce a diff and D0.11
 says regenerate rather than edit. Phase 1 ships neither Android nor Windows, so that is dead weight by
 design, not a platform commitment (Q22).
+Task 0.23 delivered the harness both test layers rest on, and it is the task after which the remaining red
+gate command is red for want of a **subject** rather than wiring: both suites still exit non-zero with
+"no test files found" and "no tests found", but nothing is missing from the harness any more — what is
+missing is the specs themselves, which 0.24 and 0.25 own. `src/test/setup.ts` registers the jest-dom
+matchers, installs Testing Library's `cleanup` by hand (its auto-cleanup hides behind a global `afterEach`
+that `globals: false` does not provide), and exports the query-client wrapper with `retry: false`, the
+memory-history and router builders, and — the piece nothing else supplied — the **baseline helper** that
+makes "this suite runs at 390×844" and "…at 1280×800" true for every spec that opts in, with the numbers in
+one place and the viewport applied in `beforeEach` and restored in `afterEach`. Its limits are documented
+rather than implied, because they are what stops 0.25 being asked for the wrong thing: jsdom evaluates
+only plain media types and never loads the app's stylesheet, so a feature query never matches and the
+adaptive arrangement cannot be asserted in the component
+layer at all, and with no layout engine `getBoundingClientRect()` returns zeroes, so the ≥44pt and
+safe-area assertions stay E2E subjects. `src/test/mock-ipc.ts` is the other half, and it is what turns the
+`VITE_E2E_MOCK` seam from designed into verified: with a flagged dev server the app boots,
+`window.__TAURI_INTERNALS__` carries `invoke` and `transformCallback`, an `invoke` for an unregistered
+command rejects naming that command rather than resolving to nothing, and the page logs no unhandled
+rejection — the positive case 0.17 could not reach, now exercised through the committed module. Its
+registry is one entry per command, so task 1.3's commands slot in without restructuring it. The one
+cross-file step again belonged to `frontend-logic` (`setupFiles` in `vitest.config.ts`, since
+`test-engineer` cannot edit that file). Two findings came out of this task and are recorded rather than
+absorbed: the build stays at **189 modules with no `mock-ipc` chunk**, which is the D0.24 claim that 0.26
+must assert, verified here by folding the flag off at build time; and an **unflagged dev server on 1420**
+makes a local E2E run silently *unmocked*, because `playwright.config.ts` reuses an existing server and
+that one lacked the flag, so the app rendered with no mock installed. **Two** such servers were found and
+stopped during this task (`18674` and `17814`, both this repository's Vite; the first left by task 0.21's
+screenshot work, the second appearing later and most likely started by an agent for screenshots), and Q23
+records the hazard plus the mitigating fixture task 0.25 must now supply — one shared assertion, not a
+per-spec convention.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -500,27 +534,25 @@ file's header).
   Screenshots of the mark rendered from the tokens at 390×844 and 1280×800 in `.artifacts/screens/`.
   Both platforms (TOOL-1, TOOL-2).
 
-- [ ] 0.23 [test-engineer] Add `src/test/setup.ts` and `src/test/mock-ipc.ts` — the latter
+- [x] 0.23 [test-engineer] Add `src/test/setup.ts` and `src/test/mock-ipc.ts` — the latter
   bootstrapped only when `VITE_E2E_MOCK=1` — with the `QueryClientProvider` (`retry: false`) and
   `createMemoryHistory` helpers the frontend suites use. Both platforms (TOOL-5). Task 0.17 left two
   seams this task closes, and both are stated in D0.24: the `VITE_E2E_MOCK` bootstrap is already wired
   in `src/main.tsx` as an `import.meta.glob('./test/mock-ipc.ts')` seam, so **creating that file is all
-  it takes** — do not edit `src/main.tsx` — and that half is designed rather than verified until you do
-  it, since task 0.17 could only exercise the seam with the file absent, where an empty glob and an
-  unsupported glob pattern are indistinguishable. The seam deliberately **throws** while the file is
-  absent, so until this task lands an E2E run logs that throw from the page instead of booting an
+  it takes** — do not edit `src/main.tsx` — and this is the task that turns that half from designed into
+  verified, because task 0.17 could only exercise the seam with the file absent, where an empty glob and
+  an unsupported glob pattern are indistinguishable. The seam deliberately **throws** while the file is
+  absent, so before this task landed an E2E run logged that throw from the page instead of booting an
   unmocked app. This task also owns the component layer's **baseline** mechanism, which TOOL-5's first
   two scenarios need and nothing yet provides: `vitest.config.ts` fixes the environment (`jsdom`) but
   deliberately declares no viewport, so a component spec must set the window size itself, and the
   uniform helper that makes "the suite runs at 390×844" and "…at 1280×800" true for every spec belongs
-  here, in `src/test/setup.ts` or beside it, with 0.25 then consuming it. Two cross-file steps are
-  therefore this task's, and both are **`frontend-logic`'s to make in this task's commit**, because
-  `vitest.config.ts` is not in `test-engineer`'s edit allow list: adding the single
-  `setupFiles: ['./src/test/setup.ts']` line to `vitest.config.ts` (`globals` stays off: `tsconfig.json`
-  does not list `vitest/globals` in `types`, so specs import from `vitest` explicitly). That is this
-  task's **one** cross-file step; the baseline helper above lives in `src/test/`, which
-  `test-engineer` does own. Report the split rather than leaving either half unowned (Q17 is the
-  precedent). This task must
+  here, in `src/test/setup.ts` or beside it, with 0.25 then consuming it. This task's **one** cross-file
+  step is **`frontend-logic`'s to make in this task's commit**, because `vitest.config.ts` is not in
+  `test-engineer`'s edit allow list: adding the single `setupFiles: ['./src/test/setup.ts']` line
+  (`globals` stays off: `tsconfig.json` does not list `vitest/globals` in `types`, so specs import from
+  `vitest` explicitly) — which landed, and the split is recorded rather than left unowned (Q17 is the
+  precedent). The baseline helper above lives in `src/test/`, which `test-engineer` does own. This task must
   land **before 0.25**, because 0.25's E2E specs cannot render the app until the mock file exists.
 
 - [ ] 0.24 [test-engineer] Smoke tests for the scaffold artefacts: the Rust integration target
@@ -581,18 +613,37 @@ file's header).
   a type error in them fails `bun run typecheck`, not just the run. The component specs must use the
   baseline helper task 0.23 adds (TOOL-5's first two scenarios are that requirement, and nothing else
   declares the two baselines for the component layer), rather than each spec setting its own window
-  size. **Assert the adaptive navigation arrangement in the E2E layer, not the component layer**, and
-  note why in the spec: `vitest.config.ts` is jsdom with no CSS pipeline, so the `display: none` that
+  size. **Assert the adaptive navigation arrangement in the E2E layer, and nowhere else**, and
+  note why in the spec: jsdom cannot settle it — not because it lacks a CSS pipeline, which the pinned
+  jsdom has, but because its media evaluation matches plain media types only (so no `min-width` query in
+  the stylesheet ever matches, and even a computed `display` read returns the base rule at both
+  baselines) and because the app's stylesheet is never loaded in a Vitest run. So the `display: none` that
   hides one of the two navigation landmarks never applies, both are in the DOM, and a component test's
   role query finds two. Task 0.21 gave each landmark a `data-navigation-arrangement` attribute so the
-  assertion does not depend on class names — but the attribute says which landmark *is which*, not which
-  one is laid out, so either scope by the attribute and assert the computed `display`, or keep the
-  arrangement assertion in Playwright, where the viewports are real. The two E2E projects are
+  assertion does not depend on class names; use it **in Playwright**, where the viewports are real — scope
+  by the attribute and assert the computed `display` or visibility there. Reading that value under jsdom
+  would be a green assertion proving nothing, which is why there is no component-layer variant of it. The two E2E projects are
   `webkit-compact` (390×844, `deviceScaleFactor` 3, touch) and `webkit-expanded` (1280×800,
   `deviceScaleFactor` 2), one per baseline so a failure names its baseline and `--project=…` runs one.
   The suite needs no native device: it drives the frontend against the app's own dev server, which
   Playwright starts as a child of `playwright test`, with the IPC layer mocked through 0.23's
-  `src/test/mock-ipc.ts` — which is why 0.23 must land first.
+  `src/test/mock-ipc.ts` — which is why 0.23 must land first. **This task must supply one shared fixture
+  (or a `globalSetup`) that asserts the mock is installed, and every E2E spec must consume it** — check
+  `window.__TAURI_INTERNALS__.invoke` is a function there, before any spec exercises anything that depends
+  on it. It belongs in one place rather than in each spec's own preamble for the same reason the baseline
+  helper exists: a per-spec convention is exactly what task 0.23 was created to remove. The reason it
+  matters is that a local run can be silently *unmocked* — `playwright.config.ts` reuses an existing dev
+  server, and one started without `VITE_E2E_MOCK=1` makes the app render with no mock at all — and a spec
+  asserting D0.2's never-loaded surface would then pass *because* the mock is absent. Q23 records the
+  mechanism, the two unflagged servers found on port 1420 during task 0.23 and stopped, and why the
+  config-level alternative (`reuseExistingServer: false`) was declined. Use the baseline
+  helper task 0.23 exports for the component layer rather than setting window sizes by hand, and read its
+  documented limits before writing a component assertion: it makes the viewport real to JavaScript
+  (`innerWidth`, `clientWidth`) but carries nothing else — no app stylesheet, no layout engine (so
+  `getBoundingClientRect()` returns zeroes), jsdom's `devicePixelRatio` of 1 rather than the compact
+  project's 3, no touch or coarse-pointer capability, and no `visualViewport`. So it can make a spec *run*
+  at a baseline but cannot assert geometry, density, pointer behaviour or the adaptive arrangement — all of
+  which belong to the E2E projects above.
 
 - [ ] 0.26 [test-engineer] Run the full `definition-of-done` gate on the scaffold
   (`cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo check --target aarch64-apple-ios`,

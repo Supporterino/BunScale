@@ -1361,15 +1361,18 @@ committed route tree through `src/router.tsx` instead. Nothing else is lost: the
 with no meaning to tests, and `@vitejs/plugin-react` is not needed because Vitest compiles `.tsx` with
 esbuild via `tsconfig.json`'s `jsx: "react-jsx"`.
 
-**`include` is scoped to `src/`, `e2e/**` is excluded explicitly, and `globals`/`setupFiles` are left
-off on purpose.** Vitest's and Playwright's default naming overlap exactly (`*.spec.ts` /
-`*.test.tsx`), so an unscoped default would make `bun run test` try to execute the E2E specs;
-`configDefaults.exclude` is spread rather than replaced so Vitest's own defaults survive. `globals`
-stays off because `tsconfig.json` does not list `vitest/globals` in `types`, so global
-`describe`/`it`/`expect` would break `bun run typecheck`; specs import from `vitest` explicitly.
-`setupFiles` is absent because task 0.23 owns `src/test/setup.ts`, and pointing at a file that does not
-exist would be a second, silent way for `bun run test` to fail — so **task 0.23's one cross-file step
-is adding that single `setupFiles` line to `vitest.config.ts`.**
+**`include` is scoped to `src/`, `e2e/**` is excluded explicitly, and `globals` is off while
+`setupFiles` names task 0.23's `src/test/setup.ts`.** Vitest's and Playwright's default naming overlap
+exactly (`*.spec.ts` / `*.test.tsx`), so an unscoped default would make `bun run test` try to execute
+the E2E specs; `configDefaults.exclude` is spread rather than replaced so Vitest's own defaults
+survive. `globals` stays off because `tsconfig.json` does not list `vitest/globals` in `types`, so
+global `describe`/`it`/`expect` would break `bun run typecheck`; specs import from `vitest` explicitly.
+`setupFiles` was the one entry deliberately left off while the file it names did not exist — a dangling
+entry would have been a second, silent way for `bun run test` to fail — and **0.23 has now landed it,
+as its one cross-file step:** `vitest.config.ts` carries the single line
+`setupFiles: ['./src/test/setup.ts']`, added in 0.23's own commit by `frontend-logic` (the file is not
+in `test-engineer`'s edit allow list), so the jest-dom matcher registration and the after-each
+`cleanup` that module performs now run for every component spec.
 
 **The E2E layer is Playwright driving WebKit — the engine both shipped platforms actually run
 (WKWebView) — in one project per baseline, not one project looping over sizes.** `webkit-compact` is
@@ -1399,23 +1402,53 @@ variable of its own, and the one variable it does set, `CI`, only *tightens* the
 exactly two places in `playwright.config.ts`, `forbidOnly: !!process.env.CI` (a committed `.only` is
 refused) and `reuseExistingServer: !process.env.CI` (CI never reuses a server someone else started) —
 rather than supplying anything the local run lacks (D0.22); the mock is task 0.23's
-`src/test/mock-ipc.ts`. The seam awaits the mock **before the first render**, so the
-mock is installed before any route loader or query can call `invoke`. It reads
-`import.meta.glob('./test/mock-ipc.ts')` rather than a static or literal dynamic import specifically so
-that the seam is inert and the build stays green while the file does not exist yet — 0.23 fills it by
-creating that file, with no edit to `src/main.tsx`. **That positive half is designed rather than
-verified, and the distinction is kept here:** it rests on Vite resolving an exact-path, non-glob
-pattern, and no committed artefact exercises it, because the only run happened with the file absent —
-where an empty glob and an unsupported glob pattern are indistinguishable (`{}` either way). It is
-therefore first verifiable once **task 0.23 creates the file**, exercised by **task 0.25**'s specs, and
-**task 0.26** now carries the assertion that makes it checked rather than asserted in prose: with the
-file present, a non-`VITE_E2E_MOCK` `bun run build` emits no `mock-ipc` chunk while the `test:e2e` path
-does load it (both recorded in `tasks.md` 0.26). The stale-pattern case remains safe rather than silent:
-it lands on the failure mode below. The deliberate failure mode: **when the flag is `1`
-and the module is absent, the seam throws instead of booting unmocked**, because a mocked run that
-silently is not mocked would look green while testing nothing — the same reason `passWithNoTests` and
-`--pass-with-no-tests` were rejected below. Observable consequence while 0.23 is still pending: an E2E
-run before then logs that throw from the page, which is expected and not a test failure.
+`src/test/mock-ipc.ts`, and that file now exists. The seam awaits the mock **before the first render**,
+so the mock is installed before any route loader or query can call `invoke`. It reads
+`import.meta.glob('./test/mock-ipc.ts')` rather than a static or literal dynamic import because it was
+written while the file did not exist: a static or literal dynamic import of a missing module fails
+`bun run build` and `tsc --noEmit`, whereas the glob is resolved at build time and yields an empty
+record when the path matches nothing, so the seam stayed inert and the build green until 0.23 created
+the file — with no edit to `src/main.tsx`, which is still the shape a later reader meets, because 0.23
+filled the seam rather than rewriting it. **The positive half is now verified rather than designed:**
+with a dev server that carries the flag, the app boots, `window.__TAURI_INTERNALS__` is present with
+`invoke` and `transformCallback` as functions, an `invoke` for an unregistered command rejects naming
+that command, and the page logs no unhandled rejection — which is the exact-path, non-glob resolution
+the seam rests on, exercised through the committed module instead of through an empty glob. What is
+still owed is the build-side half: **task 0.26** carries the assertion that a non-`VITE_E2E_MOCK`
+`bun run build` emits no `mock-ipc` chunk while the `test:e2e` path does load it (recorded in
+`tasks.md` 0.26). The stale-pattern case remains safe rather than silent: it lands on the failure mode
+below. The deliberate failure mode: **when the flag is `1` and the module is absent, the seam throws
+instead of booting unmocked**, because a mocked run that silently is not mocked would look green while
+testing nothing — the same reason `passWithNoTests` and `--pass-with-no-tests` were rejected below.
+
+**A local E2E run can silently be unmocked, and that is worth knowing before trusting a green one.**
+`playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so a dev server already listening
+on 1420 that was started *without* `VITE_E2E_MOCK=1` is reused as-is: the page's `import.meta.env`
+carries no flag, the seam takes its early return, and the app renders with no mock installed. Measured
+while 0.23 was verified — **two** stale servers were found on 1420 and stopped, PIDs `18674` and
+`17814`, both this repository's `node_modules/.bin/vite`, so this was a recurrent shape rather than one
+lingering process. The first is the one task 0.21's screenshot work left behind, serving unflagged and
+therefore invisible to the harness; the second appeared later in the session and **could not be
+attributed with certainty** — most likely a dev server an agent started to take screenshots, recorded
+as the probable origin rather than as an actor the evidence names. The symptom is exactly that shape: a
+rendering app with `window.__TAURI_INTERNALS__` absent. CI is not exposed to it, because CI never
+reuses a server, which is why the choice above is recorded as a CI-only *tightening* rather than as a
+difference the local run lacks; the local hazard is the new information, and it is not visible in the
+tightening. A spec that depends on the mock should therefore **assert it is installed rather than
+assume it**, the same posture `src/test/mock-ipc.ts` records for itself, because that is what makes a
+run *mocked* instead of merely green.
+
+**The config-level alternative was weighed and declined, and the handling lands in a shared fixture
+rather than in per-spec discipline.** Setting `reuseExistingServer: false` outright would turn this
+from a silent unmocked run into a loud failure — the honest posture, and the one this record would
+take if the convenience were worthless. What it costs is every local run: a dev server start becomes
+mandatory, and a stale process still holding 1420 fails with Playwright's 120-second `webServer`
+timeout instead of being reused. The local convenience was kept and the hazard handled where it can be
+handled once: **task 0.25 is to supply one shared `e2e/` fixture (or a `globalSetup`) that asserts the
+mock is installed, consumed by every E2E spec**, instead of each spec remembering to — because a
+per-spec convention is the same class of thing task 0.23 exists to remove for viewports. That fixture
+is 0.25's deliverable and **does not exist yet**; until it lands, the per-spec assertion above is the
+only thing between a reused unflagged server and a green unmocked run.
 
 **No `passWithNoTests` and no `--pass-with-no-tests`, recorded as a decision.** At task 0.17 there are
 no vitest specs and no Playwright specs, so both commands are red; the alternative to a red command
@@ -1425,19 +1458,57 @@ already states: each command goes green when the task that owns its subject land
 
 **The evidence these decisions rest on was obtained by running the layer, not by reasoning about it:**
 the component layer ran green at both baselines with a temporary spec (since deleted) — with the limit
-of that evidence stated rather than glossed, because nothing committed declares a component **baseline**:
-`vitest.config.ts` fixes the environment (`jsdom`) and deliberately declares no viewport, so the
-temporary spec set its own window size, and what was shown is "**a spec** can run at both baselines",
-not "**the suite** does", which is what TOOL-5's first two scenarios actually require. That gap is
-owned, not left implicit: **task 0.23** now owns a uniform baseline helper (it is stated in `tasks.md`
-0.23), with **0.25** consuming it, so those two scenarios are partially satisfied at 0.17 and completed
-by 0.23/0.25. The E2E layer launched WebKit in both projects and `page.viewportSize()` equalled each
-project's declared viewport
-(390×844 and 1280×800) with `--project` selecting one baseline; and the `VITE_E2E_MOCK` chain
-was observed end to end — the script sets the variable, the dev server hands it to the page as
-`import.meta.env.VITE_E2E_MOCK`, the injected env object carries the key when set and lacks it when
-unset, and the mock installs only when it is `1`. The browser binary is installed by
-`playwright install webkit`, which is what CI runs before the E2E step (D0.22).
+of that evidence stated rather than glossed, because nothing committed declared a component
+**baseline** at 0.17: `vitest.config.ts` fixes the environment (`jsdom`) and deliberately declares no
+viewport, so the temporary spec set its own window size, and what was shown is "**a spec** can run at
+both baselines", not "**the suite** does", which is what TOOL-5's first two scenarios actually require.
+That gap was owned rather than left implicit — **task 0.23** owns a uniform baseline helper (stated in
+`tasks.md` 0.23) — and 0.23 has now landed it, with **0.25** consuming it, so the two scenarios are
+true for every spec 0.25 writes through it. The E2E layer launched WebKit in both projects and
+`page.viewportSize()` equalled each project's declared viewport (390×844 and 1280×800) with `--project`
+selecting one baseline; and the `VITE_E2E_MOCK` chain was observed end to end — the script sets the
+variable, the dev server hands it to the page as `import.meta.env.VITE_E2E_MOCK`, the injected env
+object carries the key when set and lacks it when unset, and the mock installs only when it is `1` —
+with the flagged boot against the committed module confirming the positive case, recorded above. The
+browser binary is installed by `playwright install webkit`, which is what CI runs before the E2E step
+(D0.22).
+
+**The baseline helper is what makes the component layer's two baselines real.** `vitest.config.ts`
+fixes jsdom and declares no viewport, so a spec sets the window size itself; 0.23 now exports one
+uniform opt-in — `describeAtBothBaselines(name, body)`, expanding to one `describe` per baseline,
+applying the viewport in `beforeEach` and restoring it in `afterEach`, with `COMPONENT_BASELINES`
+naming 390×844 and 1280×800 in one place — so "this suite runs at both baselines" stops being a
+per-spec convention. What that makes real is the viewport **to JavaScript** (`window.innerWidth`,
+`document.documentElement.clientWidth`) and nothing else, and **the reason a `@media` rule never
+applies under it is not that jsdom lacks a CSS pipeline** — the pinned jsdom 30.1.3 has one
+(`lib/jsdom/living/css/helpers/computed-style.js`, a parsed default stylesheet, a real
+`getComputedStyle` on `Window`). Two stronger reasons hold, and both are the ones `src/test/setup.ts`
+records beside the helper: **jsdom's media evaluation matches plain media types only, so every feature
+query in the app's styles is inert**, and **the app's stylesheet is never loaded in a Vitest run**.
+`evaluateMediaList` in `MediaList-impl.js` matches `all` and `screen` and says exactly that a query
+with media features does not match, so every `@media` in `src/styles/**` (`min-width` at 768 px and
+1200 px, `prefers-color-scheme`, the `hover`/`pointer` pair, `prefers-reduced-motion`) never fires —
+which is why even a computed-`display` assertion reads the base rule at **both** baselines, and why the
+earlier "scope by the `data-navigation-arrangement` attribute and assert the computed `display`" idea
+cannot discriminate. On the second reason, `css` is not enabled in `vitest.config.ts` and
+`src/styles/index.css` is imported only by `src/main.tsx`, so `getComputedStyle` returns jsdom's
+UA/inline-derived value rather than a token-driven one. The upshot is unchanged and the true half of
+the original record stands: the adaptive arrangement does not happen here, both navigation landmarks
+stay in the DOM (a role query finds two), and with no layout engine `getBoundingClientRect()` returns
+zeroes, so the ≥44 pt and safe-area assertions are E2E subjects. **The arrangement assertion therefore
+belongs to Playwright, which is also why task 0.25 must not be read as owing it in the component
+layer.**
+
+**Density, pointer and visual-viewport behaviour belong to E2E too, a limit recorded only now.**
+Beyond the viewport numbers the helper carries nothing of a compact browser: `devicePixelRatio` is
+jsdom's `1` where the E2E `webkit-compact` project sets `deviceScaleFactor: 3`; there is no touch or
+coarse-pointer capability at all, since `hasTouch: true` and `pointer: coarse` exist only in a real
+browser; and `window.visualViewport` is absent — consistent with Q21, which records that no
+`visualViewport` code exists anywhere yet and defers that measurement to task 4.1, the first screen with
+a real keyboard. A component spec that branches on density or pointer type is therefore reading jsdom's
+defaults rather than the baseline it opted into, as is one that reaches for `visualViewport`; all three
+belong to E2E alongside geometry and the arrangement, and all three are documented in
+`src/test/setup.ts` beside the helper.
 
 No ADR number is taken: section 0 takes none (D0.8).
 

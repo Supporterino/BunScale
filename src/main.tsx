@@ -28,12 +28,13 @@ import { router } from './router';
  * is consulted: a mock that switched itself on in a normal `tauri dev` run
  * would hide the real backend.
  *
- * Why the glob rather than a plain `import()`: at this task the module does not
- * exist yet — task 0.23 owns it — and a static or literal dynamic import of a
- * missing file fails `bun run build` and `tsc --noEmit` today. `import.meta.glob`
- * is resolved by Vite at build time and yields an empty record when the path
- * matches nothing, so the seam is inert until the file lands, and task 0.23
- * fills it without editing this file or the harness config.
+ * Why the glob rather than a plain `import()`: the glob was written while the
+ * module did not exist yet — task 0.23 owned it — because a static or literal
+ * dynamic import of a missing file fails `bun run build` and `tsc --noEmit`.
+ * `import.meta.glob` is resolved by Vite at build time and yields an empty
+ * record when the path matches nothing, so the seam stayed inert and the build
+ * green until task 0.23 created the file, which fills it without editing this
+ * file or the harness config.
  *
  * The flag is read once and narrowed to `string | undefined` rather than used
  * as `any`: `import.meta.env` has an index signature, and this is the one place

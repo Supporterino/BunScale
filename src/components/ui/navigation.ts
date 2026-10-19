@@ -38,15 +38,23 @@ export type NavigationDestination = {
  *
  * That difference matters for where the arrangement can be asserted:
  *
- *   - **E2E (Playwright) owns it.** There is a CSS pipeline, so the visible
- *     landmark can be read at 390×844 and 1280×800 — exactly one `navigation`
- *     landmark named "Primary" is exposed, and `data-navigation-arrangement`
- *     says which one it is without a class-name dependency;
- *   - a **component spec** (Vitest, jsdom) cannot assert it: `vitest.config.ts`
- *     is jsdom with no CSS pipeline, so the `display: none` never applies and
- *     **both** landmarks are in the DOM. `getByRole('navigation', { name:
- *     'Primary' })` therefore matches two elements and cannot say which is
- *     laid out. A component spec must scope by this attribute (or `within(...)`)
- *     and only ever assert what the DOM itself says.
+ *   - **E2E (Playwright) owns it.** The browser applies the stylesheet, so the
+ *     visible landmark can be read at 390×844 and 1280×800 — exactly one
+ *     `navigation` landmark named "Primary" is exposed, and
+ *     `data-navigation-arrangement` says which one it is without a class-name
+ *     dependency;
+ *   - a **component spec** (Vitest, jsdom) cannot assert it, though *not*
+ *     because jsdom lacks a CSS pipeline: the pinned jsdom 30.1.3 has one.
+ *     jsdom's media evaluation matches plain media **types** only (`all`,
+ *     `screen`), so no feature query this stylesheet uses (`min-width`,
+ *     `prefers-color-scheme`, `hover`/`pointer`, `prefers-reduced-motion`)
+ *     ever matches and the `display: none` never applies — and the app's
+ *     stylesheet is not loaded in a Vitest run at all (`css` is off in
+ *     `vitest.config.ts`; `src/styles/index.css` is imported only by
+ *     `src/main.tsx`). So **both** landmarks are in the DOM:
+ *     `getByRole('navigation', { name: 'Primary' })` matches two elements and
+ *     cannot say which is laid out. A component spec must scope by this
+ *     attribute (or `within(...)`) and only ever assert what the DOM itself
+ *     says — `src/test/setup.ts` states the measured detail.
  */
 export type NavigationArrangement = 'tabs' | 'sidebar';

@@ -29,18 +29,26 @@ import { configDefaults, defineConfig } from 'vitest/config';
  * would typecheck only if the app's typecheck program were widened for it.
  * Specs import them from `vitest` explicitly instead.
  *
- * `setupFiles` is **absent** by design: task 0.23 adds `src/test/setup.ts` (the
- * `@testing-library/jest-dom` matchers and the `QueryClientProvider`
- * (`retry: false`) / `createMemoryHistory` helpers) and references it here in
- * one line. It is not pre-wired, because nothing in this task may point at a
- * file that does not exist yet (a dangling `setupFiles` entry would also be a
- * second, silent failure mode for `bun run test`).
+ * `setupFiles` names `src/test/setup.ts`, the file task 0.23 added and this
+ * line wires: it registers the `@testing-library/jest-dom` matchers, installs
+ * Testing Library's `cleanup` after every test (its own auto-cleanup registers
+ * behind a global `afterEach`, which `globals: false` above does not provide)
+ * and exports the shared helpers — the `QueryClientProvider` (`retry: false`)
+ * wrappers, the `createMemoryHistory` router builders and the 390×844 /
+ * 1280×800 component-baseline helpers. The line was deliberately absent until
+ * that file existed: a dangling `setupFiles` entry would have been a second,
+ * silent failure mode for `bun run test`, which is why task 0.17 left it to the
+ * task that owns the file (design.md D0.24).
  */
 export default defineConfig({
   test: {
     // The component layer runs in a DOM (TOOL-5). jsdom is the pinned
     // environment (design.md D0.8) and is what Testing Library drives.
     environment: 'jsdom',
+
+    // The shared component-test harness (task 0.23). The header says what it
+    // sets up and why the line was absent until the file existed.
+    setupFiles: ['./src/test/setup.ts'],
 
     // Specs live beside the code they cover (`frontend-conventions`:
     // `src/features/<name>/*.test.tsx`). Scoping the include to `src/` is what

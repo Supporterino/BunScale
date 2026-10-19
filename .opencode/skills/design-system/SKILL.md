@@ -659,8 +659,9 @@ A sheet or alert will also need a scrim and focus trap, which is why it is not a
    `display: none` and medium-and-up hides the tab bar the same way. A
    `matchMedia` hook would put a second copy of the 768 px breakpoint in
    JavaScript, would flash the wrong arrangement on the first frame, and would
-   have to be tested the same way the CSS is — in E2E, since jsdom has no CSS
-   pipeline and cannot evaluate either form (see decision 4). The shell's rules use a
+   have to be tested the same way the CSS is — in E2E, since jsdom evaluates
+   only plain media types and never loads the app's stylesheet, so it can
+   evaluate neither form (see decision 4). The shell's rules use a
    compound selector (`.bs-app-shell .bs-app-shell__sidebar`) so they outrank the
    primitive's own `display`, keeping the primitives self-contained.
 4. **`data-navigation-arrangement="tabs" | "sidebar"`** on each landmark. It is
@@ -669,12 +670,17 @@ A sheet or alert will also need a scrim and focus trap, which is why it is not a
    **E2E**: in a browser `display: none` removes the hidden landmark from the
    accessibility tree, so exactly one `navigation` landmark named "Primary" is
    exposed per band and a role query works there. A **component spec cannot**
-   assert it — `vitest.config.ts` is jsdom with no CSS pipeline, so `display:
-   none` never applies and both landmarks are in the DOM, which makes
-   `getByRole('navigation', { name: 'Primary' })` match two elements. A component
+   assert it — and not because jsdom lacks a CSS pipeline, which the pinned
+   jsdom 30.1.3 has: its media evaluation matches plain media **types** only, so
+   no `min-width` query in the stylesheet ever matches, and the app's stylesheet
+   is not loaded in a Vitest run at all. So `display: none` never applies and
+   both landmarks are in the DOM, which makes
+   `getByRole('navigation', { name: 'Primary' })` match two elements, and even a
+   computed `display` read returns the base rule at both baselines. A component
    spec scopes by the attribute (or `within(...)`) and asserts only what the DOM
-   says. `navigation.ts` and `AppShell.tsx` carry the same correction, and the
-   orchestrator added it to task 0.25's brief.
+   says; the `display`/visibility assertion belongs in Playwright.
+   `navigation.ts`, `AppShell.tsx` and `src/test/setup.ts` carry the same
+   correction, and the orchestrator added it to task 0.25's brief.
 5. **One destination in the placeholder, not three.** A destination's `to` is
    typed as the router's own path union (`LinkProps['to']`), the scaffold has one
    route, and three links to `/` would put `aria-current` on three elements. The

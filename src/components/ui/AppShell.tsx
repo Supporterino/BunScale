@@ -23,11 +23,20 @@ import { TabBar } from './TabBar';
  * `display: none` removes the hidden landmark from the accessibility tree and
  * from the focus order *in a browser*, so a screen reader user and a keyboard
  * user each meet exactly one arrangement at any width, while the DOM holds both.
- * That is a rendering fact, not a DOM fact: in jsdom (the Vitest component
- * layer) no CSS pipeline runs, so both landmarks are present and a role query
- * finds both. The arrangement is therefore asserted in E2E, and a component spec
- * scopes by `data-navigation-arrangement` or `within(...)` instead of by the
- * landmark's role name — see `./navigation.ts`, which states the same rule.
+ * That is a rendering fact, not a DOM fact — and the reason it cannot be read
+ * in jsdom (the Vitest component layer) is *not* that jsdom has no CSS
+ * pipeline: the pinned jsdom 30.1.3 has one. Two stronger reasons hold, and
+ * `src/test/setup.ts` states both in detail: (1) jsdom's media evaluation
+ * matches plain media **types** only (`all`, `screen`), so every feature query
+ * this stylesheet uses — `min-width`, `prefers-color-scheme`,
+ * `hover`/`pointer`, `prefers-reduced-motion` — never matches, which makes even
+ * a `display` read return the base rule at both baselines; and (2) the app's
+ * stylesheet is not loaded in a Vitest run at all (`css` is off in
+ * `vitest.config.ts`; `src/styles/index.css` is imported only by
+ * `src/main.tsx`). Both landmarks are therefore in the DOM and a role query
+ * finds both. The arrangement is asserted in E2E, and a component spec scopes
+ * by the `data-navigation-arrangement` attribute or `within(...)` instead of by
+ * the landmark's role name — see `./navigation.ts`, which states the same rule.
  *
  * `data-navigation-arrangement` on each landmark is a constant that identifies
  * which landmark is which (see `./navigation.ts`); it is not a report of which
