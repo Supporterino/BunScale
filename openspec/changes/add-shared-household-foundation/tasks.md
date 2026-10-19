@@ -814,7 +814,7 @@ file's header).
 - [x] 2.5 [rust-backend] Implement the read path: serve the locally kept copy first, refresh from the
   shared service on a start or foreground return with connectivity, and produce an explicit
   never-loaded state when nothing was ever loaded (SYNC-3).
-- [ ] 2.6 [rust-backend] Implement last-write-wins merge on the collection: exactly one surviving
+- [x] 2.6 [rust-backend] Implement last-write-wins merge on the collection: exactly one surviving
   version per item, no duplicates, and no conflict surfaced to the person as a failure
   (SYNC-5, NFR-2).
 - [x] 2.7 [rust-backend] Enforce the storage-boundary invariants: an item belongs to exactly one

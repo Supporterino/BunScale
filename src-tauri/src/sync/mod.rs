@@ -16,6 +16,7 @@
 //! | [`status`] | The fresh-outcome [`ServiceStatus`] surface the two status commands read, with D0.13's offline threshold applied in Rust. |
 //! | [`gate`] | The gated save: the one place a write to the shared service is admitted. |
 //! | [`read`] | The read path: the local copy first, a fresh-probe refresh, and the three SYNC-3 states (task 2.5). |
+//! | [`merge`] | The last-write-wins merge: one surviving version per item, with losing versions ignored rather than failed (task 2.6). |
 //!
 //! [`ServiceStatus`]: crate::ipc::types::ServiceStatus
 //!
@@ -67,6 +68,7 @@ use std::time::Duration;
 pub mod double;
 pub mod gate;
 pub mod http;
+pub mod merge;
 pub mod probe;
 pub mod read;
 pub mod service;
@@ -75,6 +77,7 @@ pub mod status;
 pub use double::ScriptedService;
 pub use gate::{SaveGate, SaveReceipt};
 pub use http::HttpService;
+pub use merge::{MergeOutcome, MergePath};
 pub use probe::{AccountOutcome, ProbeOutcome, probe};
 pub use read::ReadPath;
 pub use service::{
