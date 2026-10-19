@@ -801,7 +801,7 @@ file's header).
 - [ ] 2.2 [rust-backend] Implement holding multiple households per person with exactly one active,
   switching the active household, and re-electing an active household when the active one is no
   longer held (HS-3, DM-3).
-- [ ] 2.3 [rust-backend] Implement the household collection layout: stable opaque ids, per-item
+- [x] 2.3 [rust-backend] Implement the household collection layout: stable opaque ids, per-item
   version/updated-at, and one collection per household that a second load cannot duplicate
   (SYNC-1).
 - [ ] 2.4 [rust-backend] Implement the reachability-gated save path: refuse writes without

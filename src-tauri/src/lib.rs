@@ -4,6 +4,7 @@
 //! example calls it. Nothing here holds domain logic.
 
 pub mod ipc;
+pub mod storage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
