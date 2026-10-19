@@ -1444,11 +1444,21 @@ from a silent unmocked run into a loud failure — the honest posture, and the o
 take if the convenience were worthless. What it costs is every local run: a dev server start becomes
 mandatory, and a stale process still holding 1420 fails with Playwright's 120-second `webServer`
 timeout instead of being reused. The local convenience was kept and the hazard handled where it can be
-handled once: **task 0.25 is to supply one shared `e2e/` fixture (or a `globalSetup`) that asserts the
-mock is installed, consumed by every E2E spec**, instead of each spec remembering to — because a
-per-spec convention is the same class of thing task 0.23 exists to remove for viewports. That fixture
-is 0.25's deliverable and **does not exist yet**; until it lands, the per-spec assertion above is the
-only thing between a reused unflagged server and a green unmocked run.
+handled once: **0.25's `e2e/fixtures.ts` exports the one `test` object every E2E spec uses, with an
+`auto: true` fixture (not a `globalSetup`, which has no page) that boots the start screen and asserts
+`window.__TAURI_INTERNALS__.invoke` is a function before each test body** — the mock is shown installed
+rather than assumed, and the failure names the cause (`VITE_E2E_MOCK=1 is not in effect…`) and points
+at this record and Q23. `mockedIpc` is a non-option fixture, so `test.use` cannot override it, and
+every spec imports `test`/`expect` from `./fixtures` rather than `@playwright/test`; a per-spec
+convention is the same class of thing 0.23 exists to remove for viewports. **The guard is mechanical,
+not a convention:** 0.25 also adds a spec in `src/test/` that reads every `e2e/*.spec.ts` and fails if
+one imports `test`/`expect` from anywhere else, if `e2e/fixtures.ts` stops exporting `expect`, or if
+it finds no spec files at all, so a renamed directory cannot pass by scanning nothing. That answers the
+fair objection to the sentence above: convention cannot enforce it, and a future spec importing from
+`@playwright/test` would lint, typecheck and run with the fixture silently absent — Q23's
+unmocked-green state in a new form. It was demonstrated in the direction that matters: with an
+unflagged dev server deliberately left on 1420, every test of a project failed inside the fixture with
+that named cause, and the stray server was then stopped.
 
 **No `passWithNoTests` and no `--pass-with-no-tests`, recorded as a decision.** At task 0.17 there are
 no vitest specs and no Playwright specs, so both commands are red; the alternative to a red command
@@ -1496,8 +1506,9 @@ UA/inline-derived value rather than a token-driven one. The upshot is unchanged 
 the original record stands: the adaptive arrangement does not happen here, both navigation landmarks
 stay in the DOM (a role query finds two), and with no layout engine `getBoundingClientRect()` returns
 zeroes, so the ≥44 pt and safe-area assertions are E2E subjects. **The arrangement assertion therefore
-belongs to Playwright, which is also why task 0.25 must not be read as owing it in the component
-layer.**
+belongs to Playwright, where 0.25 has now placed it:** the component specs assert the reason it cannot
+live here — two "Primary" landmarks under jsdom — and the E2E specs scope by
+`data-navigation-arrangement` and assert the computed `display` per band.
 
 **Density, pointer and visual-viewport behaviour belong to E2E too, a limit recorded only now.**
 Beyond the viewport numbers the helper carries nothing of a compact browser: `devicePixelRatio` is

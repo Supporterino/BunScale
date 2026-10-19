@@ -307,7 +307,8 @@ export function DesignSystemPreview() {
             This is not an empty household — nothing was ever loaded.
           </ErrorState>
           <Text tone="tertiary" variant="caption-1">
-            Retry pressed {retryAttempts} times in this placeholder screen.
+            Retry pressed {retryAttempts}{' '}
+            {retryAttempts === 1 ? 'time' : 'times'} in this placeholder screen.
           </Text>
         </PreviewSection>
       </Screen>

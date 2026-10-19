@@ -236,6 +236,41 @@ route tree cannot be provoked because the gate builds before it diffs, so the ga
 (0.9's CI, evidenced at 0.15, run by 0.26), and "both platforms are supported" is a constraint on adding a
 dependency rather than a manifest property, enforced by D0.8's per-dependency review. What is still red is
 `bun run test:e2e` alone, which 0.25 owns.
+Task 0.25 closed section 0's test surface, and with it **the whole gate is green for the first time in
+this change** — every command of `definition-of-done` passes locally, with no command left red for want of
+a configuration, a subject or a suite. Four E2E specs in `e2e/`, plus the shared fixture, cover TOOL-5's E2E scenarios and the flows
+task 0.21 built, at **16 tests, 8 per project**, so each baseline is exercised separately and
+`--project=webkit-compact` runs one; three component specs under `src/**` add the component layer's half,
+every one of them inside `describeAtBothBaselines` so both baselines are exercised by construction rather
+than by convention. The shared fixture is the part worth describing, because it is the hazard from 0.23
+turned into an assertion: it is **auto**, so it runs before every E2E spec's body without any spec
+requesting it, it boots the start screen and asserts `window.__TAURI_INTERNALS__.invoke` is a function,
+and every spec imports `test`/`expect` from it rather than from `@playwright/test`. That import is a
+**rule, not a hope**: a guard spec under `src/test/` reads every `e2e/*.spec.ts` and fails if one
+value-imports `test` or `expect` from anywhere but `./fixtures`, fails if the fixture stops exporting
+`expect`, and fails when it finds no spec files at all — so a renamed directory cannot pass by scanning
+nothing. That mechanical half is what the review demanded, and it is the difference between a convention
+and a guard: a future spec importing from `@playwright/test` would lint, typecheck and run with the fixture
+silently absent, which is Q23's unmocked-green state in a new form. It was demonstrated in the direction
+that matters: with an unflagged dev server
+deliberately left on 1420, all eight tests in a project failed **in the fixture** with the named cause
+("VITE_E2E_MOCK=1 is not in effect: the page rendered with no IPC mock…"), which is the difference between
+a green run and a green run that means something — a spec asserting D0.2's never-loaded surface would
+otherwise pass *because* the mock was absent.
+The arrangement assertion exists **only** in Playwright, and the component specs assert the reason it
+cannot: they check that two "Primary" landmarks are in the jsdom DOM, which is what makes a component-layer
+`display` read a green assertion proving nothing. The E2E side scopes by `data-navigation-arrangement` and
+asserts computed `display` per band, so no assertion depends on class names. Two smaller findings came out
+of this task. The first is the copy defect 0.25's work exposed — the preview rendered "Retry pressed 1
+times" — which was fixed by its owner as a recorded cross-owner step rather than left for a reviewer to
+find, and which is why the two preview captures were **re-taken** as insurance rather than because the old
+frames were wrong: the changed caption sits in a section below the fold at both viewports and reads
+"0 times" at the captured state, so the images would probably have been identical — but the source of a
+rendered surface changed, and Q24's rule is to capture after the change is final rather than to reason
+about whether a pixel moved. The second is cosmetic and left
+alone deliberately: mounting a router under jsdom logs a `Not implemented: Window's scrollTo()` notice
+per router-mounting test in `bun run test`, from the router's scroll restoration, and silencing them with a
+stub would be asserting the stub rather than testing the app.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -650,7 +685,7 @@ file's header).
   positively in the specs that exercise them — because a green
   checks-suite that cannot fail is the same problem as a lint config that matches nothing.
 
-- [ ] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
+- [x] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
   1280×800, asserting the adaptive navigation arrangement rather than only that content rendered.
   Both platforms (TOOL-5). Task 0.17 fixed where these live and what they must import: the E2E specs go
   in **`e2e/`** (`playwright.config.ts`'s `testDir`, and the path design.md's scaffold-surface table
