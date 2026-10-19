@@ -793,7 +793,7 @@ file's header).
 
 ## 2. Backend (Rust)
 
-- [ ] 2.1 [rust-backend] Implement the household domain: create with non-blank name validation
+- [x] 2.1 [rust-backend] Implement the household domain: create with non-blank name validation
   (whitespace-only treated as blank), creator recorded as first member, created household becomes
   active (HS-1). Creation is **idempotent on the command's client-generated `request_id`**: re-issuing
   a create with the same `request_id` returns the household that already exists instead of creating a

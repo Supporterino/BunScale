@@ -4,10 +4,14 @@
 //! example calls it. Nothing here holds domain logic.
 
 pub mod diagnostics;
+pub mod domain;
 pub mod ipc;
 pub mod settings;
+pub mod state;
 pub mod storage;
 pub mod sync;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,6 +27,12 @@ pub fn run() {
         // a helper installing its own would clobber this one.
         .setup(move |app| {
             ipc_builder.mount_events(app);
+            // The one app-wide state: the shared service, the local copies, the status tracker and
+            // the household book the section-2 commands read (`state::AppState`). It is installed
+            // here rather than by a helper for the reason above. `production` reports a client that
+            // could not be built instead of hiding it; P0 has no account, so every write command
+            // still refuses honestly with `no_account` (Q25).
+            app.manage(crate::state::AppState::production()?);
             Ok(())
         })
         .run(tauri::generate_context!())

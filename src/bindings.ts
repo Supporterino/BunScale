@@ -9,17 +9,29 @@ export const commands = {
 	 *  Create a household with a non-blank name; the creator becomes its first member and it becomes
 	 *  the active household (HS-1, HS-2).
 	 * 
-	 *  The operation is **idempotent on `request_id`** (D0.14, task 2.1): re-issuing it with the same
-	 *  value returns the household that already exists instead of creating a second one. That is what
-	 *  makes the retry SYNC-2 offers safe and closes R6's duplicated-household risk.
+	 *  The write is attempted only through the reachability-gated save path, so it is refused before
+	 *  anything leaves the device when the shared service cannot be reached or when no account is
+	 *  available (SYNC-2, D0.1). No local-only household is created in either case. P0 ships no sign-in
+	 *  flow, so the running app has no account yet and answers `no_account` until one is provisioned
+	 *  (Q25).
+	 * 
+	 *  The operation is **idempotent on `request_id`** (D0.14): re-issuing it with the same value
+	 *  returns the household that already exists instead of creating a second one. The value is carried
+	 *  to the shared service, whose request ledger deduplicates the call, and the domain records the
+	 *  operation's outcome so a replay cannot add a second household locally either. That is what makes
+	 *  the retry SYNC-2 offers safe and closes R6's duplicated-household risk.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an empty or whitespace-only name, which is treated as blank (HS-1). A valid
-	 *  name reaches the write path, so its causes are also reachable here — `connectivity`,
-	 *  `no_account`, `allowance_exceeded`, `rate_limited` and `timeout` (D0.12, D0.13) — because this
-	 *  is P0's only state-changing command that writes to the shared service. The stub returns
-	 *  `unknown` until task 2.1 implements the body.
+	 *  `validation` for an empty or whitespace-only name, which is treated as blank (HS-1), for a blank
+	 *  operation identity, and when the service refuses the request body with `400` or `422`.
+	 *  `no_account` when no account is available (Q25) or the service answers `401`. The write path's
+	 *  other causes are reachable here because this is P0's only state-changing command that writes to
+	 *  the shared service: `connectivity` when no HTTP answer arrives, `allowance_exceeded` when the
+	 *  household owner's allowance is exhausted (D0.12), `rate_limited` for the gateway's `429`, and
+	 *  `timeout` when no outcome arrives inside D0.13's bounds. `unknown` is the honest remainder: a
+	 *  probe answer this version cannot classify, and an accepted answer whose household body cannot be
+	 *  read. No failure is ever presented as a created household (SYNC-2).
 	 */
 	createHousehold: (name: string, requestId: RequestId) => typedError<Household, CommandError>(__TAURI_INVOKE("create_household", { name, requestId })),
 	/**
