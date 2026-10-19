@@ -1,0 +1,342 @@
+/*
+ * BunScale design system — layer 2: semantic tokens.
+ *
+ * Purpose, not raw values. Every colour, size, radius and duration here
+ * resolves to a primitive from `primitives.css`, so a theme is a change to
+ * this file only. Components must consume this layer (or `components.css`,
+ * which resolves to it) and never a primitive directly.
+ *
+ * This file also owns the platform facts that must not be re-invented per
+ * component:
+ *   - safe-area insets (`env(safe-area-inset-*)`) for fixed bars;
+ *   - the keyboard inset (`--keyboard-inset`), set once by the app shell from
+ *     `visualViewport` when the iOS keyboard is up (no logic lives here);
+ *   - the preferred-text-size multiplier (`--text-scale`), applied to every
+ *     type token so Dynamic Type / a preferred reading size scales text;
+ *   - AA contrast pairs (verified in the project record in the design-system
+ *     skill) and the 44 pt touch baseline;
+ *   - compact → medium → expanded spacing, mobile-first.
+ *
+ * No element selectors live here. Importing this file must not restyle the
+ * unstyled scaffold placeholders; it only defines custom properties.
+ */
+
+:root {
+  /* ---------------------------------------------------------------------
+   * Theme mode. `prefers-color-scheme` is the only switch in P0; there is no
+   * in-app theme setting. A later `[data-theme]` hook can override the same
+   * semantic names without touching components.
+   *
+   * `color-scheme` is deliberately NOT declared here: it changes the UA
+   * canvas, scrollbars and form controls, which is a base-layer decision for
+   * the primitives task 0.21. This file must remain visually inert.
+   * ------------------------------------------------------------------ */
+
+  /* ---------------------------------------------------------------------
+   * Typography — scale and user preference.
+   *
+   * `--text-scale` is the single app-level multiplier. 1 = the sizes below.
+   * A later preferred-text-size bridge (or an in-app control) sets it on
+   * `:root`; components must never set it or hardcode a font size.
+   * ------------------------------------------------------------------ */
+  --text-scale: 1;
+
+  --text-large-title-size: calc(var(--font-size-34) * var(--text-scale));
+  --text-large-title-line-height: var(--line-height-34);
+  --text-large-title-weight: var(--font-weight-bold);
+  --text-large-title-tracking: var(--tracking-display);
+
+  --text-title-1-size: calc(var(--font-size-28) * var(--text-scale));
+  --text-title-1-line-height: var(--line-height-28);
+  --text-title-1-weight: var(--font-weight-regular);
+  --text-title-1-tracking: var(--tracking-title);
+
+  --text-title-2-size: calc(var(--font-size-22) * var(--text-scale));
+  --text-title-2-line-height: var(--line-height-22);
+  --text-title-2-weight: var(--font-weight-regular);
+  --text-title-2-tracking: var(--tracking-title);
+
+  --text-title-3-size: calc(var(--font-size-20) * var(--text-scale));
+  --text-title-3-line-height: var(--line-height-20);
+  --text-title-3-weight: var(--font-weight-regular);
+  --text-title-3-tracking: var(--tracking-title);
+
+  --text-headline-size: calc(var(--font-size-17) * var(--text-scale));
+  --text-headline-line-height: var(--line-height-17);
+  --text-headline-weight: var(--font-weight-semibold);
+  --text-headline-tracking: var(--tracking-body);
+
+  --text-body-size: calc(var(--font-size-17) * var(--text-scale));
+  --text-body-line-height: var(--line-height-17);
+  --text-body-weight: var(--font-weight-regular);
+  --text-body-tracking: var(--tracking-body);
+
+  --text-callout-size: calc(var(--font-size-16) * var(--text-scale));
+  --text-callout-line-height: var(--line-height-16);
+  --text-callout-weight: var(--font-weight-regular);
+  --text-callout-tracking: var(--tracking-body);
+
+  --text-subheadline-size: calc(var(--font-size-15) * var(--text-scale));
+  --text-subheadline-line-height: var(--line-height-15);
+  --text-subheadline-weight: var(--font-weight-regular);
+  --text-subheadline-tracking: var(--tracking-body);
+
+  --text-footnote-size: calc(var(--font-size-13) * var(--text-scale));
+  --text-footnote-line-height: var(--line-height-13);
+  --text-footnote-weight: var(--font-weight-regular);
+  --text-footnote-tracking: var(--tracking-caption);
+
+  --text-caption-1-size: calc(var(--font-size-12) * var(--text-scale));
+  --text-caption-1-line-height: var(--line-height-12);
+  --text-caption-1-weight: var(--font-weight-regular);
+  --text-caption-1-tracking: var(--tracking-caption);
+
+  --text-caption-2-size: calc(var(--font-size-11) * var(--text-scale));
+  --text-caption-2-line-height: var(--line-height-11);
+  --text-caption-2-weight: var(--font-weight-regular);
+  --text-caption-2-tracking: var(--tracking-caption);
+
+  --text-button-size: calc(var(--font-size-17) * var(--text-scale));
+  --text-button-line-height: var(--line-height-17);
+  --text-button-weight: var(--font-weight-semibold);
+  --text-button-tracking: var(--tracking-body);
+
+  --text-section-header-size: calc(var(--font-size-13) * var(--text-scale));
+  --text-section-header-line-height: var(--line-height-13);
+  --text-section-header-weight: var(--font-weight-semibold);
+  --text-section-header-tracking: var(--tracking-section);
+  --text-section-header-transform: uppercase;
+
+  --text-weight-regular: var(--font-weight-regular);
+  --text-weight-medium: var(--font-weight-medium);
+  --text-weight-semibold: var(--font-weight-semibold);
+  --text-weight-bold: var(--font-weight-bold);
+
+  /* ---------------------------------------------------------------------
+   * Colour — light theme.
+   *
+   * Every text token below is AA on the surface it is intended for; the
+   * measured pairs are in the design-system skill's project record.
+   * `--color-text-disabled` is deliberately below AA: disabled controls are
+   * exempt from contrast, but must still expose their label to assistive
+   * technology.
+   * ------------------------------------------------------------------ */
+  --color-background: var(--color-neutral-50);
+  --color-surface: var(--color-neutral-0);
+  --color-surface-sunken: var(--color-neutral-100);
+  --color-surface-elevated: var(--color-neutral-0);
+
+  --color-text: var(--color-neutral-900);
+  --color-text-secondary: var(--color-neutral-600);
+  --color-text-tertiary: var(--color-neutral-550);
+  --color-text-disabled: var(--color-neutral-400);
+  --color-text-inverse: var(--color-neutral-0);
+
+  --color-border: var(--color-neutral-200);
+  --color-border-control: var(--color-neutral-500);
+
+  --color-primary: var(--color-orange-700);
+  --color-primary-pressed: var(--color-orange-800);
+  --color-primary-subtle: var(--color-orange-50);
+  --color-primary-subtle-pressed: var(--color-orange-100);
+  --color-primary-subtle-border: var(--color-orange-200);
+  --color-on-primary: var(--color-neutral-0);
+
+  --color-success: var(--color-green-700);
+  --color-success-subtle: var(--color-green-50);
+  --color-success-subtle-border: var(--color-green-200);
+  --color-on-success-subtle: var(--color-green-800);
+
+  --color-warning: var(--color-amber-700);
+  --color-warning-subtle: var(--color-amber-50);
+  --color-warning-subtle-border: var(--color-amber-200);
+  --color-on-warning-subtle: var(--color-amber-800);
+
+  --color-danger: var(--color-red-700);
+  --color-danger-pressed: var(--color-red-800);
+  --color-danger-subtle: var(--color-red-50);
+  --color-danger-subtle-border: var(--color-red-200);
+  --color-on-danger: var(--color-neutral-0);
+  --color-on-danger-subtle: var(--color-red-800);
+
+  --color-info: var(--color-sky-700);
+  --color-info-subtle: var(--color-sky-50);
+  --color-info-subtle-border: var(--color-sky-200);
+  --color-on-info-subtle: var(--color-sky-800);
+
+  --color-focus-ring: var(--color-sky-600);
+  --color-scrim: var(--color-neutral-950-alpha-40);
+  --color-selection-background: var(--color-orange-100);
+
+  /*
+   * Fixed brand colours for the app mark (task 0.22). They deliberately do
+   * not change with the theme: a platform icon cannot follow light/dark mode.
+   * Components normally use `--color-primary`; only the mark reads these.
+   */
+  --color-brand-tile: var(--color-orange-700);
+  --color-brand-glyph: var(--color-neutral-0);
+  --color-brand-accent: var(--color-orange-200);
+
+  /* ---------------------------------------------------------------------
+   * Spacing — semantic rhythm. Compact is the base; the media queries at the
+   * end of this file widen the inline gutter for medium and expanded.
+   * ------------------------------------------------------------------ */
+  --spacing-inline: var(--space-4);
+  --spacing-stack-xs: var(--space-1);
+  --spacing-stack-sm: var(--space-2);
+  --spacing-stack-md: var(--space-4);
+  --spacing-stack-lg: var(--space-6);
+  --spacing-section: var(--space-8);
+
+  /* ---------------------------------------------------------------------
+   * Radii and elevation.
+   * ------------------------------------------------------------------ */
+  --radius-control: var(--radius-10);
+  --radius-card: var(--radius-16);
+  --radius-sheet: var(--radius-20);
+  --radius-pill: var(--radius-full);
+  --radius-badge: var(--radius-6);
+
+  --shadow-card: var(--shadow-1);
+  --shadow-sheet: var(--shadow-3);
+
+  /* ---------------------------------------------------------------------
+   * Layout and platform facts.
+   *
+   * `--layout-viewport-height` is 100vh for the iOS 15.0 floor and upgrades
+   * to 100dvh where the engine supports it. Bars consume the safe-area
+   * tokens; scroll regions must reserve the same space.
+   * ------------------------------------------------------------------ */
+  --layout-content-max: 720px;
+  --layout-form-max: 560px;
+  --layout-sidebar-width: 260px;
+  --layout-nav-bar-height: 44px;
+  --layout-tab-bar-content-height: 49px;
+  --layout-tab-bar-height: calc(
+    var(--layout-tab-bar-content-height) +
+    var(--safe-area-inset-bottom)
+  );
+  --layout-breakpoint-navigation: var(--breakpoint-medium);
+
+  --layout-viewport-height: 100vh;
+
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+
+  /*
+   * The software keyboard's overlap with the visual viewport. The default is
+   * 0; an app-level hook sets this on the document element from
+   * `visualViewport` when the iOS keyboard is up. UI consumes it and never
+   * measures the keyboard itself.
+   */
+  --keyboard-inset: 0px;
+
+  /*
+   * Focus ring geometry. Each half aliases the primitive of its own kind: the
+   * width is a stroke thickness (`--border-width-focus`, 2px), the offset is a
+   * distance from the control's edge (`--space-0-5`, the smallest step of the
+   * spacing scale, 2px). The two are equal by coincidence, not by coupling —
+   * a thicker ring must not drag the offset with it — and the offset resolves
+   * to 2px, unchanged.
+   */
+  --focus-ring-width: var(--border-width-focus);
+  --focus-ring-offset: var(--space-0-5);
+  --focus-ring-color: var(--color-focus-ring);
+  --focus-ring: var(--focus-ring-width) solid var(--focus-ring-color);
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --layout-viewport-height: 100dvh;
+  }
+}
+
+/*
+ * Medium and expanded spacing. The literal 768px / 1200px mirror
+ * `--breakpoint-medium` / `--breakpoint-expanded`; media queries cannot read
+ * custom properties, so the two statements must move together.
+ */
+@media (min-width: 768px) {
+  :root {
+    --spacing-inline: var(--space-6);
+    --spacing-section: var(--space-10);
+  }
+}
+
+@media (min-width: 1200px) {
+  :root {
+    --spacing-inline: var(--space-8);
+    --layout-content-max: 880px;
+  }
+}
+
+/*
+ * Dark theme. Only semantic colour names change; component tokens resolve
+ * through them, so no component needs a dark-specific rule.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: var(--color-neutral-950);
+    --color-surface: var(--color-neutral-900);
+    --color-surface-sunken: var(--color-neutral-950);
+    --color-surface-elevated: var(--color-neutral-800);
+
+    --color-text: var(--color-neutral-50);
+    --color-text-secondary: var(--color-neutral-300);
+    --color-text-tertiary: var(--color-neutral-400);
+    --color-text-disabled: var(--color-neutral-600);
+    --color-text-inverse: var(--color-neutral-900);
+
+    --color-border: var(--color-neutral-800);
+    --color-border-control: var(--color-neutral-500);
+
+    --color-primary: var(--color-orange-300);
+    --color-primary-pressed: var(--color-orange-200);
+    --color-primary-subtle: var(--color-orange-950);
+    --color-primary-subtle-pressed: var(--color-orange-900);
+    --color-primary-subtle-border: var(--color-orange-800);
+    --color-on-primary: var(--color-neutral-950);
+
+    --color-success: var(--color-green-400);
+    --color-success-subtle: var(--color-green-900);
+    --color-success-subtle-border: var(--color-green-800);
+    --color-on-success-subtle: var(--color-green-300);
+
+    --color-warning: var(--color-amber-400);
+    --color-warning-subtle: var(--color-amber-900);
+    --color-warning-subtle-border: var(--color-amber-800);
+    --color-on-warning-subtle: var(--color-amber-300);
+
+    --color-danger: var(--color-red-400);
+    --color-danger-pressed: var(--color-red-300);
+    --color-danger-subtle: var(--color-red-900);
+    --color-danger-subtle-border: var(--color-red-800);
+    --color-on-danger: var(--color-neutral-950);
+    --color-on-danger-subtle: var(--color-red-300);
+
+    --color-info: var(--color-sky-300);
+    --color-info-subtle: var(--color-sky-900);
+    --color-info-subtle-border: var(--color-sky-800);
+    --color-on-info-subtle: var(--color-sky-300);
+
+    --color-focus-ring: var(--color-sky-300);
+    --color-scrim: var(--color-neutral-950-alpha-60);
+    --color-selection-background: var(--color-orange-900);
+  }
+}
+
+/*
+ * Reduced motion is a token-level fact: every transition that reads a
+ * duration token becomes instant, and the press scale is disabled. A
+ * component must not re-enable motion with a literal duration.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+    --motion-press-scale: 1;
+  }
+}

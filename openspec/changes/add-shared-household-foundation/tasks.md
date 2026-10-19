@@ -101,6 +101,23 @@ generator's own `src-tauri/.gitignore` already covers — so no `src-tauri/gen/`
 root, because that would also hide the Xcode project task 0.8 deliberately commits. `.tanstack/tmp/` is
 the one path added beyond the task's list, on evidence: the pinned router generator creates that
 directory lazily as per-session scratch space.
+Task 0.20 established the design system and set the status line, so TOOL-6's precondition is satisfied
+for every UI task that follows: `src/styles/` now holds the three layers as separate files —
+`primitives.css` (values), `semantic.css` (purpose, both themes, platform facts) and `components.css`
+(per-component decisions) — behind a single `index.css` entry point, and the component inventory plus the
+global conventions are recorded in `.opencode/skills/design-system/SKILL.md` with `status: frozen` in its
+frontmatter. The layers are plain CSS custom properties, deliberately not a TS mirror or a generated
+bridge: the runtime consumers are CSS, no dependency may be added, and a second representation would
+drift. They are consumed from one place, `src/main.tsx`, which is what makes the bundler walk the whole
+`@import` chain — before that wiring landed the stylesheet had only been through Biome, and a broken
+import path or a bad at-rule would have surfaced in 0.21 instead of here. Two measurements carried the
+task rather than judgement: 484 tokens resolve per theme with every `var()` chain defined and no cycles,
+and all 25 documented contrast pairs pass AA in both themes, which is why the palette is orange-700
+rather than orange-500 and red-700 rather than red-600 on the sunken surface. No screenshots were owed,
+because no styled surface exists until 0.21 — the token layers carry no element selectors and no reset,
+so importing them restyles nothing, and the build emitting a 22.18 kB stylesheet is evidence of the
+chain resolving, not of a visual result. The record lives in the skill rather than as a new `D0.x`
+because D0.10 already fixes that as the design system's home.
 Commit message: `feat(add-shared-household-foundation): <task>`.
 Every UI task captures screenshots at 390×844 and 1280×800 into `.artifacts/screens/`
 (gitignored), per `definition-of-done`.
@@ -390,7 +407,7 @@ file's header).
   the file and commits what it holds rather than creating it, and it must keep the `graphify-out/cache`
   entry. Both platforms (TOOL-1).
 
-- [ ] 0.20 [frontend-ui] Bootstrap the design system: define the three-layer tokens in
+- [x] 0.20 [frontend-ui] Bootstrap the design system: define the three-layer tokens in
   `src/styles/` (primitive → semantic → component) and the component inventory, using
   `ui-ux-pro-max` for direction only — an iOS-first, native-feeling app that scales to macOS, not a
   website — then record the result in `.opencode/skills/design-system/SKILL.md` and set its status
@@ -413,7 +430,15 @@ file's header).
   `tanstack-router-conventions` requires it — `createFileRoute` plus a thin `component` reference that
   imports the real component from a feature, not a component body declared inline in the route file.
   The inline component is tolerable only as a scaffold placeholder, so replacing the placeholder must
-  replace the shape too, or the convention violation outlives the thing that excused it.
+  replace the shape too, or the convention violation outlives the thing that excused it. Two things
+  task 0.20 handed you, so this task does not have to rediscover them: the token layers are already
+  wired — `src/main.tsx` imports `./styles/index.css`, which imports the three layers in order — so what
+  is missing is the element-level layer, `src/styles/base.css` (reset, `body` background and text,
+  font smoothing, `color-scheme`, default focus, scroll behaviour), imported from `index.css` **after**
+  the three token files rather than added to them; and the component inventory in the skill's project
+  record is 21 rows covering 23 primitives, with the `List`/`ListSection`/`ListRow` trio sharing one row,
+  and it is deliberately limited to
+  P0 needs with a named deferred list, so build from that list rather than inventing component types.
 
 - [ ] 0.22 [frontend-ui] Produce the app mark and generate the platform icon set, replacing the
   Tauri default iconset that task 0.1 shipped as a placeholder: draw a minimal flat mark from the
@@ -478,7 +503,21 @@ file's header).
   exactly what rots: read `src-tauri/tauri.conf.json`, take the port out of `build.devUrl` and the
   directory out of `build.frontendDist`, and fail unless `vite.config.ts`'s `server.port` equals that
   port (and `server.host` is still wired to `TAURI_DEV_HOST`) and its `build.outDir` resolves to the
-  same place as `frontendDist`. (TOOL-1, TOOL-2, TOOL-3, TOOL-4, TOOL-8).
+  same place as `frontendDist`. (TOOL-1, TOOL-2, TOOL-3, TOOL-4, TOOL-8). Also assert the design
+  system's **token invariants**, because task 0.20 measured them with a throwaway script that no longer
+  exists and nothing at build time guards them: fail on any `var()` reference under `src/styles/**` that
+  does not resolve to a defined custom property, on any reference cycle, and on any custom property
+  defined twice **in the same cascade context** — a genuine duplicate is two definitions of one name in
+  one block, and the check must not flag the intended overrides, because `semantic.css` deliberately
+  redefines around 47 tokens inside its `prefers-color-scheme: dark`, `prefers-reduced-motion: reduce`,
+  `@supports` and breakpoint blocks, so a naive first-definition-wins check would fail on the very file it
+  exists to guard; and assert the documented AA contrast pairs still hold, since the palette was chosen
+  around two tight
+  ones (`--color-primary` on `--color-primary-subtle-pressed` at 4.52:1, and on
+  `--color-surface-sunken` at 4.75:1). This is the assertion that matters most in this task for a reason
+  worth stating: Vite does not resolve custom properties, so a typo in a name is emitted verbatim, the
+  build stays green, and the browser silently falls back — nothing else in the gate would catch it. The
+  skill's project record already promises that a later test can do this; this is that test. (TOOL-6).
 
 - [ ] 0.25 [test-engineer] Component and E2E smoke tests against the placeholder UI at 390×844 and
   1280×800, asserting the adaptive navigation arrangement rather than only that content rendered.

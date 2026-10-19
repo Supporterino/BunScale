@@ -1,0 +1,242 @@
+/*
+ * BunScale design system — layer 1: primitives.
+ *
+ * Raw values only. Nothing in this file has a purpose beyond "this is the
+ * value"; purpose lives in `semantic.css` and per-component decisions live in
+ * `components.css`. `src/styles/index.css` imports the three layers in order.
+ *
+ * Rules for this layer:
+ *   - It is the only place a raw colour, size, radius or duration is written.
+ *   - Everything is a CSS custom property on `:root`, so it is inspectable by
+ *     reading the file and resolvable with `getComputedStyle` once imported.
+ *   - Units are deliberate: type sizes are `rem` so a preferred text size
+ *     scales them; layout, spacing, radii and touch targets are `px` because
+ *     on iOS one CSS pixel is one logical point and layout must not grow with
+ *     Dynamic Type.
+ *   - No selector other than `:root` and no declaration other than a custom
+ *     property. This layer must not restyle an unstyled screen.
+ *
+ * Platform baseline: iOS 15.0 / macOS 12.0 (design.md D0.16). That is why the
+ * palette is hex/rgb rather than oklch(), shadows use the supported syntax and
+ * no cascade layer (`@layer`, Safari 15.4+) is used.
+ */
+
+:root {
+  /* ---------------------------------------------------------------------
+   * Colour — carrot (brand accent)
+   * ------------------------------------------------------------------ */
+  --color-orange-50: #fff7ed;
+  --color-orange-100: #ffedd5;
+  --color-orange-200: #fed7aa;
+  --color-orange-300: #fdba74;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
+  --color-orange-600: #ea580c;
+  --color-orange-700: #c2410c;
+  --color-orange-800: #9a3412;
+  --color-orange-900: #7c2d12;
+  --color-orange-950: #431407;
+
+  /* ---------------------------------------------------------------------
+   * Colour — warm neutral (surfaces, text, separators)
+   * ------------------------------------------------------------------ */
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #fafaf9;
+  --color-neutral-100: #f5f5f4;
+  --color-neutral-200: #e7e5e4;
+  --color-neutral-300: #d6d3d1;
+  --color-neutral-400: #a8a29e;
+  --color-neutral-500: #78716c;
+  --color-neutral-550: #6f6a65;
+  --color-neutral-600: #57534e;
+  --color-neutral-700: #44403c;
+  --color-neutral-800: #292524;
+  --color-neutral-900: #1c1917;
+  --color-neutral-950: #0c0a09;
+
+  /* Alpha primitives for scrims and elevation (no colour-mix() on iOS 15). */
+  --color-neutral-950-alpha-06: rgb(12 10 9 / 0.06);
+  --color-neutral-950-alpha-08: rgb(12 10 9 / 0.08);
+  --color-neutral-950-alpha-12: rgb(12 10 9 / 0.12);
+  --color-neutral-950-alpha-40: rgb(12 10 9 / 0.4);
+  --color-neutral-950-alpha-60: rgb(12 10 9 / 0.6);
+
+  /* ---------------------------------------------------------------------
+   * Colour — health green (success, connected)
+   * ------------------------------------------------------------------ */
+  --color-green-50: #ecfdf5;
+  --color-green-100: #d1fae5;
+  --color-green-200: #a7f3d0;
+  --color-green-300: #6ee7b7;
+  --color-green-400: #34d399;
+  --color-green-500: #10b981;
+  --color-green-600: #059669;
+  --color-green-700: #047857;
+  --color-green-800: #065f46;
+  --color-green-900: #064e3b;
+
+  /* ---------------------------------------------------------------------
+   * Colour — alert red (destructive, failed save)
+   * ------------------------------------------------------------------ */
+  --color-red-50: #fef2f2;
+  --color-red-100: #fee2e2;
+  --color-red-200: #fecaca;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+  --color-red-700: #b91c1c;
+  --color-red-800: #991b1b;
+  --color-red-900: #7f1d1d;
+
+  /* ---------------------------------------------------------------------
+   * Colour — warning amber (offline, needs attention)
+   * ------------------------------------------------------------------ */
+  --color-amber-50: #fffbeb;
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-amber-700: #b45309;
+  --color-amber-800: #92400e;
+  --color-amber-900: #78350f;
+
+  /* ---------------------------------------------------------------------
+   * Colour — information sky (neutral status, focus ring)
+   * ------------------------------------------------------------------ */
+  --color-sky-50: #f0f9ff;
+  --color-sky-100: #e0f2fe;
+  --color-sky-200: #bae6fd;
+  --color-sky-300: #7dd3fc;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #0ea5e9;
+  --color-sky-600: #0284c7;
+  --color-sky-700: #0369a1;
+  --color-sky-800: #075985;
+  --color-sky-900: #0c4a6e;
+
+  /* ---------------------------------------------------------------------
+   * Spacing — 4pt rhythm with an 8pt dominant step (Apple HIG).
+   * ------------------------------------------------------------------ */
+  --space-0: 0;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* ---------------------------------------------------------------------
+   * Typography — SF Pro text styles. Sizes are rem; line heights are
+   * unitless so they follow a user's preferred text size.
+   * ------------------------------------------------------------------ */
+  --font-family-ui:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-family-mono:
+    ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+
+  --font-size-11: 0.6875rem;
+  --font-size-12: 0.75rem;
+  --font-size-13: 0.8125rem;
+  --font-size-15: 0.9375rem;
+  --font-size-16: 1rem;
+  --font-size-17: 1.0625rem;
+  --font-size-20: 1.25rem;
+  --font-size-22: 1.375rem;
+  --font-size-28: 1.75rem;
+  --font-size-34: 2.125rem;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-11: 1.182;
+  --line-height-12: 1.333;
+  --line-height-13: 1.385;
+  --line-height-15: 1.333;
+  --line-height-16: 1.313;
+  --line-height-17: 1.294;
+  --line-height-20: 1.25;
+  --line-height-22: 1.273;
+  --line-height-28: 1.214;
+  --line-height-34: 1.206;
+
+  --tracking-display: -0.02em;
+  --tracking-title: -0.01em;
+  --tracking-body: 0;
+  --tracking-caption: 0.01em;
+  --tracking-section: 0.06em;
+
+  --font-variant-numeric-tabular: tabular-nums lining-nums;
+
+  /* ---------------------------------------------------------------------
+   * Radii — iOS-like continuous corners, approximated with border-radius.
+   * ------------------------------------------------------------------ */
+  --radius-0: 0;
+  --radius-2: 2px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-20: 20px;
+  --radius-full: 9999px;
+
+  /* ---------------------------------------------------------------------
+   * Motion — short, eased, never decorative. 150–350 ms matches the native
+   * feel; the reduced-motion override lives in `semantic.css`.
+   * ------------------------------------------------------------------ */
+  --duration-instant: 0ms;
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 350ms;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-linear: linear;
+
+  --motion-press-scale: 0.98;
+
+  /* ---------------------------------------------------------------------
+   * Elevation — sparse by design; iOS prefers surface separation.
+   * ------------------------------------------------------------------ */
+  --shadow-none: none;
+  --shadow-1: 0 1px 2px var(--color-neutral-950-alpha-06);
+  --shadow-2: 0 4px 12px var(--color-neutral-950-alpha-08);
+  --shadow-3: 0 12px 32px var(--color-neutral-950-alpha-12);
+
+  /* ---------------------------------------------------------------------
+   * Sizes and borders — 44 px is 44 pt on iOS and the touch baseline.
+   * ------------------------------------------------------------------ */
+  --size-touch-target: 44px;
+  --size-touch-spacing: 8px;
+  --size-icon-sm: 16px;
+  --size-icon-md: 20px;
+  --size-icon-lg: 24px;
+  --size-icon-xl: 28px;
+
+  --border-width-hairline: 1px;
+  --border-width-focus: 2px;
+  --border-width-selected: 2px;
+
+  /* ---------------------------------------------------------------------
+   * Breakpoints — media queries cannot read custom properties, so these
+   * values are also written literally in the media queries below. They exist
+   * here so JavaScript (for example a later `useMediaQuery`) reads the same
+   * numbers the stylesheets use.
+   * ------------------------------------------------------------------ */
+  --breakpoint-medium: 768px;
+  --breakpoint-expanded: 1200px;
+}

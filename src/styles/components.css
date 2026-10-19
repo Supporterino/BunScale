@@ -1,0 +1,311 @@
+/*
+ * BunScale design system — layer 3: component tokens.
+ *
+ * These are the only names a primitive in `src/components/ui/` should read
+ * for the decisions that belong to a component: its height, padding, radius,
+ * colour role, border, typography role and motion. Every value resolves to
+ * `semantic.css` (and through it to `primitives.css`), so dark mode and
+ * reduced motion need no component-specific branch.
+ *
+ * Component tokens may hold a component-specific scalar (an opacity, an
+ * inset, a 22 px badge height). They may not hold a raw palette colour, type
+ * size, radius or duration; those belong to the primitives.
+ *
+ * Inventory and per-component accessibility contracts are recorded in
+ * `.opencode/skills/design-system/SKILL.md` ("BunScale project record").
+ */
+
+:root {
+  /* ---------------------------------------------------------------------
+   * Shared control behaviour
+   * ------------------------------------------------------------------ */
+  --control-min-height: var(--size-touch-target);
+  --control-pressed-opacity: 0.72;
+  --control-disabled-opacity: 0.48;
+  --control-press-scale: var(--motion-press-scale);
+  --control-focus-ring: var(--focus-ring);
+  --control-focus-offset: var(--focus-ring-offset);
+  --control-transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+
+  /* ---------------------------------------------------------------------
+   * Button
+   * ------------------------------------------------------------------ */
+  --button-min-height: var(--control-min-height);
+  --button-height: 50px;
+  --button-padding-inline: var(--space-5);
+  --button-padding-block: var(--space-3);
+  --button-radius: var(--radius-control);
+  --button-gap: var(--space-2);
+  --button-font-size: var(--text-button-size);
+  --button-line-height: var(--text-button-line-height);
+  --button-font-weight: var(--text-button-weight);
+  --button-icon-size: var(--size-icon-md);
+
+  --button-primary-background: var(--color-primary);
+  --button-primary-background-pressed: var(--color-primary-pressed);
+  --button-primary-foreground: var(--color-on-primary);
+
+  --button-secondary-background: var(--color-primary-subtle);
+  --button-secondary-background-pressed: var(--color-primary-subtle-pressed);
+  --button-secondary-foreground: var(--color-primary);
+  --button-secondary-border-color: var(--color-primary-subtle-border);
+
+  --button-plain-background: transparent;
+  --button-plain-background-pressed: var(--color-primary-subtle);
+  --button-plain-foreground: var(--color-primary);
+
+  --button-destructive-background: var(--color-danger);
+  --button-destructive-background-pressed: var(--color-danger-pressed);
+  --button-destructive-foreground: var(--color-on-danger);
+
+  --button-disabled-background: var(--color-surface-sunken);
+  --button-disabled-foreground: var(--color-text-disabled);
+
+  /* ---------------------------------------------------------------------
+   * IconButton — the hit area is always 44 x 44 even when the glyph is 20.
+   * ------------------------------------------------------------------ */
+  --icon-button-size: var(--size-touch-target);
+  --icon-button-radius: var(--radius-pill);
+  --icon-button-icon-size: var(--size-icon-md);
+  --icon-button-background: transparent;
+  --icon-button-background-pressed: var(--color-primary-subtle);
+  --icon-button-foreground: var(--color-primary);
+  --icon-button-disabled-foreground: var(--color-text-disabled);
+
+  /* ---------------------------------------------------------------------
+   * Form field and text input
+   * ------------------------------------------------------------------ */
+  --field-gap: var(--space-2);
+  --field-label-font-size: var(--text-subheadline-size);
+  --field-label-line-height: var(--text-subheadline-line-height);
+  --field-label-font-weight: var(--text-weight-semibold);
+  --field-label-color: var(--color-text-secondary);
+  --field-hint-font-size: var(--text-footnote-size);
+  --field-hint-line-height: var(--text-footnote-line-height);
+  --field-hint-color: var(--color-text-secondary);
+  --field-error-font-size: var(--text-footnote-size);
+  --field-error-line-height: var(--text-footnote-line-height);
+  --field-error-color: var(--color-danger);
+  --field-required-color: var(--color-danger);
+
+  --input-min-height: var(--control-min-height);
+  --input-height: 44px;
+  --input-padding-inline: var(--space-3);
+  --input-padding-block: var(--space-2);
+  --input-radius: var(--radius-control);
+  --input-background: var(--color-surface);
+  --input-border-color: var(--color-border-control);
+  --input-border-width: var(--border-width-hairline);
+  --input-border-focus-color: var(--color-focus-ring);
+  --input-border-invalid-color: var(--color-danger);
+  --input-foreground: var(--color-text);
+  --input-placeholder-color: var(--color-text-tertiary);
+  --input-font-size: var(--text-body-size);
+  --input-line-height: var(--text-body-line-height);
+  --input-selection-background: var(--color-selection-background);
+  --input-selection-foreground: var(--color-text);
+  --input-disabled-background: var(--color-surface-sunken);
+  --input-disabled-foreground: var(--color-text-disabled);
+
+  /* ---------------------------------------------------------------------
+   * SegmentedControl — the weight-unit choice in Settings & Profile.
+   * ------------------------------------------------------------------ */
+  --segmented-background: var(--color-surface-sunken);
+  --segmented-padding: var(--space-0-5);
+  --segmented-radius: var(--radius-control);
+  --segmented-segment-radius: var(--radius-8);
+  --segmented-min-height: var(--control-min-height);
+  --segmented-segment-padding-inline: var(--space-3);
+  --segmented-selected-background: var(--color-surface-elevated);
+  --segmented-selected-foreground: var(--color-text);
+  --segmented-unselected-foreground: var(--color-text-secondary);
+  --segmented-font-size: var(--text-subheadline-size);
+  --segmented-font-weight: var(--text-weight-semibold);
+  --segmented-shadow: var(--shadow-1);
+
+  /* ---------------------------------------------------------------------
+   * List and ListRow — grouped iOS lists, settings rows, household rows.
+   * ------------------------------------------------------------------ */
+  --list-background: var(--color-surface);
+  --list-radius: var(--radius-12);
+  --list-inset: var(--spacing-inline);
+  --list-row-min-height: var(--control-min-height);
+  --list-row-padding-inline: var(--space-4);
+  --list-row-padding-block: var(--space-2);
+  --list-row-gap: var(--space-3);
+  --list-row-title-font-size: var(--text-body-size);
+  --list-row-title-line-height: var(--text-body-line-height);
+  --list-row-title-color: var(--color-text);
+  --list-row-detail-font-size: var(--text-subheadline-size);
+  --list-row-detail-line-height: var(--text-subheadline-line-height);
+  --list-row-detail-color: var(--color-text-secondary);
+  --list-row-separator-color: var(--color-border);
+  --list-row-background-pressed: var(--color-surface-sunken);
+  --list-row-chevron-color: var(--color-text-tertiary);
+  --list-section-gap: var(--spacing-section);
+  --list-section-header-font-size: var(--text-section-header-size);
+  --list-section-header-line-height: var(--text-section-header-line-height);
+  --list-section-header-font-weight: var(--text-section-header-weight);
+  --list-section-header-color: var(--color-text-secondary);
+  --list-section-header-tracking: var(--text-section-header-tracking);
+  --list-section-header-transform: var(--text-section-header-transform);
+
+  /* ---------------------------------------------------------------------
+   * Card — a grouped surface, not a floating website panel.
+   * ------------------------------------------------------------------ */
+  --card-background: var(--color-surface);
+  --card-border-color: var(--color-border);
+  --card-border-width: var(--border-width-hairline);
+  --card-radius: var(--radius-card);
+  --card-padding: var(--space-4);
+  --card-gap: var(--space-3);
+  --card-shadow: var(--shadow-card);
+
+  /* ---------------------------------------------------------------------
+   * Navigation bar — the compact title bar and the expanded toolbar.
+   * ------------------------------------------------------------------ */
+  --nav-bar-height: var(--layout-nav-bar-height);
+  --nav-bar-background: var(--color-background);
+  --nav-bar-border-color: var(--color-border);
+  --nav-bar-title-font-size: var(--text-headline-size);
+  --nav-bar-title-line-height: var(--text-headline-line-height);
+  --nav-bar-title-font-weight: var(--text-headline-weight);
+  --nav-bar-title-color: var(--color-text);
+  --nav-bar-action-size: var(--size-touch-target);
+  --nav-bar-action-color: var(--color-primary);
+
+  /* ---------------------------------------------------------------------
+   * Tab bar — compact navigation, at most five destinations.
+   * ------------------------------------------------------------------ */
+  --tab-bar-height: var(--layout-tab-bar-height);
+  --tab-bar-background: var(--color-surface);
+  --tab-bar-border-color: var(--color-border);
+  --tab-bar-item-min-width: var(--size-touch-target);
+  --tab-bar-icon-size: var(--size-icon-lg);
+  --tab-bar-label-font-size: var(--text-caption-2-size);
+  --tab-bar-label-line-height: var(--text-caption-2-line-height);
+  --tab-bar-label-font-weight: var(--text-weight-medium);
+  --tab-bar-item-active-color: var(--color-primary);
+  --tab-bar-item-inactive-color: var(--color-text-tertiary);
+  --tab-bar-item-pressed-background: var(--color-surface-sunken);
+
+  /* ---------------------------------------------------------------------
+   * Sidebar — expanded navigation; same destinations, different arrangement.
+   * ------------------------------------------------------------------ */
+  --sidebar-width: var(--layout-sidebar-width);
+  --sidebar-background: var(--color-surface);
+  --sidebar-border-color: var(--color-border);
+  --sidebar-padding: var(--space-3);
+  --sidebar-item-height: var(--control-min-height);
+  --sidebar-item-radius: var(--radius-8);
+  --sidebar-item-padding-inline: var(--space-3);
+  --sidebar-item-gap: var(--space-1);
+  --sidebar-item-active-background: var(--color-primary-subtle);
+  --sidebar-item-active-foreground: var(--color-primary);
+  --sidebar-item-inactive-foreground: var(--color-text-secondary);
+  --sidebar-icon-size: var(--size-icon-md);
+
+  /* ---------------------------------------------------------------------
+   * Notice — inline, persistent, cause-specific; not a toast.
+   * ------------------------------------------------------------------ */
+  --notice-padding: var(--space-3);
+  --notice-radius: var(--radius-12);
+  --notice-gap: var(--space-2);
+  --notice-font-size: var(--text-footnote-size);
+  --notice-line-height: var(--text-footnote-line-height);
+  --notice-title-font-size: var(--text-subheadline-size);
+  --notice-title-font-weight: var(--text-weight-semibold);
+  --notice-icon-size: var(--size-icon-md);
+
+  --notice-info-background: var(--color-info-subtle);
+  --notice-info-border-color: var(--color-info-subtle-border);
+  --notice-info-foreground: var(--color-on-info-subtle);
+  --notice-info-icon-color: var(--color-info);
+
+  --notice-success-background: var(--color-success-subtle);
+  --notice-success-border-color: var(--color-success-subtle-border);
+  --notice-success-foreground: var(--color-on-success-subtle);
+  --notice-success-icon-color: var(--color-success);
+
+  --notice-warning-background: var(--color-warning-subtle);
+  --notice-warning-border-color: var(--color-warning-subtle-border);
+  --notice-warning-foreground: var(--color-on-warning-subtle);
+  --notice-warning-icon-color: var(--color-warning);
+
+  --notice-danger-background: var(--color-danger-subtle);
+  --notice-danger-border-color: var(--color-danger-subtle-border);
+  --notice-danger-foreground: var(--color-on-danger-subtle);
+  --notice-danger-icon-color: var(--color-danger);
+
+  /* ---------------------------------------------------------------------
+   * Badge — non-interactive status label; never colour alone.
+   * ------------------------------------------------------------------ */
+  --badge-min-height: 22px;
+  --badge-padding-inline: var(--space-2);
+  --badge-padding-block: var(--space-1);
+  --badge-radius: var(--radius-pill);
+  --badge-font-size: var(--text-caption-2-size);
+  --badge-line-height: var(--text-caption-2-line-height);
+  --badge-font-weight: var(--text-weight-semibold);
+
+  --badge-neutral-background: var(--color-surface-sunken);
+  --badge-neutral-foreground: var(--color-text-secondary);
+  --badge-success-background: var(--color-success-subtle);
+  --badge-success-foreground: var(--color-on-success-subtle);
+  --badge-warning-background: var(--color-warning-subtle);
+  --badge-warning-foreground: var(--color-on-warning-subtle);
+  --badge-danger-background: var(--color-danger-subtle);
+  --badge-danger-foreground: var(--color-on-danger-subtle);
+  --badge-info-background: var(--color-info-subtle);
+  --badge-info-foreground: var(--color-on-info-subtle);
+
+  /* ---------------------------------------------------------------------
+   * Empty and error states — the "nothing loaded + unreachable" surface is
+   * distinct from an empty collection, so it gets its own composition.
+   * ------------------------------------------------------------------ */
+  --state-padding-block: var(--space-8);
+  --state-padding-inline: var(--spacing-inline);
+  --state-gap: var(--space-3);
+  --state-icon-size: 48px;
+  --state-title-font-size: var(--text-title-2-size);
+  --state-title-line-height: var(--text-title-2-line-height);
+  --state-title-font-weight: var(--text-title-2-weight);
+  --state-body-font-size: var(--text-subheadline-size);
+  --state-body-line-height: var(--text-subheadline-line-height);
+  --state-body-color: var(--color-text-secondary);
+  --state-action-gap: var(--space-4);
+
+  /* ---------------------------------------------------------------------
+   * Loading indicator
+   * ------------------------------------------------------------------ */
+  --loading-indicator-size: 20px;
+  --loading-indicator-track-color: var(--color-border);
+  --loading-indicator-foreground: var(--color-primary);
+  --loading-label-font-size: var(--text-footnote-size);
+  --loading-label-line-height: var(--text-footnote-line-height);
+  --loading-label-color: var(--color-text-secondary);
+
+  /* ---------------------------------------------------------------------
+   * App mark — the contract for task 0.22 (design.md D0.19).
+   *
+   * Source artwork: a 1024 x 1024 full-bleed square, no rounded corners (iOS
+   * masks the icon), glyph inside the 160 px clear-space inset. The tile is
+   * the fixed brand colour, not the theme accent, because a platform icon
+   * cannot follow light/dark mode.
+   *
+   * No rounding: the source artwork is a full-bleed square and iOS applies its
+   * own mask, so the corner radius is the radius scale's zero stop
+   * (`--radius-0`, 0) rather than a raw literal — one value, one place.
+   * ------------------------------------------------------------------ */
+  --app-mark-source-size: 1024px;
+  --app-mark-tile: var(--color-brand-tile);
+  --app-mark-glyph: var(--color-brand-glyph);
+  --app-mark-accent: var(--color-brand-accent);
+  --app-mark-glyph-inset: 160px;
+  --app-mark-corner-radius: var(--radius-0);
+}
