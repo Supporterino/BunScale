@@ -844,14 +844,14 @@ file's header).
 
 ## 3. Frontend logic
 
-- [ ] 3.1 [frontend-logic] Run `bun run gen:bindings` against the frozen contract and add
+- [x] 3.1 [frontend-logic] Run `bun run gen:bindings` against the frozen contract and add
   `src/features/households/api.ts`, `src/features/settings/api.ts` and `src/features/sync/api.ts`
   wrappers; no `invoke` call anywhere outside these files. Generate a `request_id` for every
   state-changing command in these wrappers and reuse the same one when a failed command is retried
   (D0.14).
-- [ ] 3.2 [frontend-logic] Add household-scoped query keys and the loaded-data-first cache so a read
+- [x] 3.2 [frontend-logic] Add household-scoped query keys and the loaded-data-first cache so a read
   renders the local copy and a refresh replaces it rather than duplicating items (SYNC-1, SYNC-3).
-- [ ] 3.3 [frontend-logic] Implement the active-household state, house switching, and the route guard
+- [x] 3.3 [frontend-logic] Implement the active-household state, house switching, and the route guard
   that skips first-run onboarding whenever a household exists (HS-2, HS-3, HS-4, DM-3).
 - [ ] 3.4 [frontend-logic] Implement the service-status store: map every `SaveCause` to its message
   key, keep `unknown` until a fresh outcome exists, set the offline state only after **3 consecutive
@@ -892,23 +892,23 @@ file's header).
 
 ## 5. Tests
 
-- [ ] 5.1 [test-engineer] Rust tests for household creation — covers "Create the first household" and
+- [x] 5.1 [test-engineer] Rust tests for household creation — covers "Create the first household" and
   "Blank name is rejected" (HS-1) and the onboarding guard scenarios (HS-2).
-- [ ] 5.2 [test-engineer] Rust tests for multiple households — covers "A second household coexists
+- [x] 5.2 [test-engineer] Rust tests for multiple households — covers "A second household coexists
   without mixing data", "Switching the active household changes the presented data" (HS-3),
   "Selecting a household leaves exactly one active" and "Active household is replaced when it is no
   longer held" (DM-3).
-- [ ] 5.3 [test-engineer] Rust tests for collection identity — covers "Every member resolves the same
+- [x] 5.3 [test-engineer] Rust tests for collection identity — covers "Every member resolves the same
   items" and "Refreshing does not duplicate an item" (SYNC-1), including that a write re-issued with
   the same `request_id` after the service already accepted it adds no second item (D0.14).
-- [ ] 5.4 [test-engineer] Rust tests for the write path — covers "Save refused without connectivity",
+- [x] 5.4 [test-engineer] Rust tests for the write path — covers "Save refused without connectivity",
   "Save succeeds when the service is reachable" and "Save failure names its cause and offers a
   retry" (SYNC-2), plus "Writes are accepted only while reachable and identified" and "Writes are
   refused while unreachable, reads are not" (NFR-1), including that an exhausted allowance is named
   as its own cause (D0.12), that a stalled attempt resolves with the `timeout` cause inside the
   15-second bound, and that the status reports offline only after three consecutive failures
   (D0.13).
-- [ ] 5.5 [test-engineer] Rust tests for the read path — covers "Previously loaded data is shown while
+- [x] 5.5 [test-engineer] Rust tests for the read path — covers "Previously loaded data is shown while
   unreachable", "A start with connectivity refreshes loaded data" and "Nothing loaded and
   unreachable" (SYNC-3).
 - [ ] 5.6 [test-engineer] Rust tests for conflict convergence — covers "Two members edit the same

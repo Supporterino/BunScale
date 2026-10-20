@@ -627,3 +627,71 @@ No agent was permitted to run `bun install` (required before any `bun run typech
 can pass), `xcodebuild`/`xcrun` (task 0.7's deployment-floor measurement) or `rustup` (the iOS target
 precondition). Resolved as above; the orchestrator can now run all of them, which is also how the two
 `cargo check` results recorded in Q14 were reproduced independently.
+
+## Implementation findings — tasks 3.1–3.3 and 5.1–5.5 (2026-10-20)
+
+Recorded as they were raised, none of them blocking. Every one is an unowned follow-up rather than a
+defect left in a shipped path.
+
+### Q29 — The request-id retry invariant has no unit spec of its own
+
+`src/lib/request-id.ts` makes "a retry re-sends the request id" structural (one id per operation
+handle), and `src/features/households/queries.test.ts` exercises the cache, but no spec asserts the
+invariant directly. Task 3.1 had no test grant, so this was not invented into its commit. **Owner:**
+fold a `src/lib/request-id.spec.ts` into **5.13** (or 5.16, where retry is the subject) rather than
+leaving it unowned a second time. 5.3 proves the Rust half; 5.16 proves the visible half.
+
+### Q30 — `get_diagnostics_summary` lives in `settings/api.ts`
+
+The contract has a diagnostics area but the task allowed exactly three `api.ts` files, and support
+diagnostics is reached from Settings & Profile (NFR-3, no P0 screen). Recorded rather than silently
+placed. If P3 gives diagnostics its own feature directory, the wrapper moves with it.
+
+### Q31 — The held-set list and the active household are deliberately not household-keyed
+
+`householdKeys.list()`/`active()` are not keyed by the active household id: the id comes from that
+data, so keying it by itself is circular and would fragment the cache on every switch. Only
+`collection(householdId)` is household-scoped, which is where isolation can actually bite (NFR-10). A
+switch writes the confirmed post-state into `list()` and `active()` and invalidates `list()`, so the
+active row never briefly shows two actives. Owner of any change here: whoever adds a surface that
+marks active from something other than `activeHouseholdQueryOptions()`.
+
+### Q32 — Wall-clock resolution of `SAVE_ATTEMPT_TIMEOUT` is not proved by any test
+
+`a_stalled_attempt_is_refused_with_timeout_and_carries_the_documented_bound` asserts the cause, the
+constant (15 s) and the bound handed to the transport. It cannot prove the real client honours it: the
+scripted double answers immediately, and P0 exposes no seam for a stalling listener. The module doc
+says so instead of implying otherwise. **Owner:** a transport-level test around `HttpService` with a
+local stalling listener — no P0 task, and it costs ~15 s per case, so it belongs with the performance
+change (P6) or a dedicated contract-proof task, not here.
+
+### Q33 — The relaunch read path is only proved by the read module's own unit tests
+
+`AppState::with_collection_store` is `pub(crate)` and `AppState::production` needs a running
+`AppHandle`, so `src-tauri/tests/read_path.rs` cannot construct a persisted relaunch. The case is
+covered in `sync/read.rs`'s unit tests over a temporary directory, which is stated in the test file
+rather than dropped. No action unless a later phase needs the seam public.
+
+### Q34 — `/` is now the household entry; the preview moved to `/design-preview`
+
+Task 3.3 made `/` decide between onboarding, the dashboard and the connectivity slot, so the
+design-system preview (a scaffold surface) moved to its own route. The E2E fixture boots the preview
+explicitly. **Owner of the preview's fate: task 4.2** — if the shipped app does not keep
+`/design-preview`, the preview specs and the fixture's start path go with it, rather than being
+maintained as if they were product behaviour.
+
+### Q35 — One commit carried two test tasks
+
+Commits are one task each (`AGENTS.md` hard rule 4). 5.1, 5.2, 5.3 and 3.1–3.3 each have their own;
+**5.4 and 5.5 share `3efcf33`**, because they were reviewed and gated together and the splitting step
+was skipped. Both are separately verified and separately ticked, and nothing else is mixed in, but the
+record is the record. `git reset` is outside the orchestrator's allow list, so the split cannot be
+made retroactively without a permission change; future test tasks get one commit each.
+
+### Q36 — E2E remediation rode with task 3.3
+
+Making `/` the entry broke the shared E2E fixture (16/16 failing), which is a direct consequence of
+3.3 and a gate requirement for it. `src/test/mock-ipc.ts` gained the four entry commands with
+per-test overrides, the fixture boots the preview explicitly, and `e2e/household-entry.spec.ts` covers
+both entry decisions at both baselines. It is committed with 3.3 rather than as its own task, because
+it repairs the flow 3.3 introduced and 5.14–5.17 continue from it.
