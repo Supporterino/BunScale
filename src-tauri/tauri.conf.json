@@ -45,10 +45,10 @@
       "icons/icon.ico"
     ],
     "iOS": {
-      "minimumSystemVersion": "15.0"
+      "minimumSystemVersion": "16.4"
     },
     "macOS": {
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "13.3"
     }
   }
 }

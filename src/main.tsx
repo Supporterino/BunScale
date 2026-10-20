@@ -118,10 +118,16 @@ function renderApp(node: HTMLElement): void {
  * The mock is awaited before the first render, which is what makes its install
  * order deterministic (`import.meta.glob` returns a lazy loader, so the module
  * itself is fetched only when the flag is set). A top-level `await` would be the
- * shorter spelling, but `build.target` is `es2021` (design.md D0.16's
- * deployment floor) and the bundler refuses it. `void` therefore discards the
- * value and nothing else — no `catch` is attached on purpose, so a failure
- * surfaces as a loud unhandled rejection instead of a blank window.
+ * shorter spelling, but it would tie this entry to the build target, and the
+ * target is Vite's default rather than a pin: `vite.config.ts` sets no
+ * `build.target`, so `baseline-widely-available` applies — Safari 16.4+, which
+ * is why the shipped floor is iOS 16.4 / macOS 13.3 (design.md D0.16, Q16).
+ * That setting governs the build transpile only: `tauri ios dev` serves
+ * untransformed source and `tsconfig.json` is `noEmit`, so the dev loop stays
+ * inside the floor by discipline, never by configuration. The `async` function
+ * keeps the `await` in a scope both paths handle the same way. `void` therefore
+ * discards the value and nothing else — no `catch` is attached on purpose, so a
+ * failure surfaces as a loud unhandled rejection instead of a blank window.
  */
 async function bootstrap(node: HTMLElement): Promise<void> {
   await installE2eIpcMockIfEnabled();

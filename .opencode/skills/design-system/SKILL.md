@@ -421,7 +421,7 @@ new values.
 | Hover / keyboard | — | No hover-only affordance. Hover styles only inside `@media (hover: hover) and (pointer: fine)`. Pressed feedback exists on touch. Focus rings use `--focus-ring` + `--focus-ring-offset` with `:focus-visible`; keyboard operation is not an enhancement-only path. |
 | Reduced motion | `--duration-*` → 0 ms, `--motion-press-scale` → 1 | Components must read the duration tokens; a literal duration would bypass the override. Loading indicators may loop but must still be legible when motion is reduced. |
 | Dark mode | `prefers-color-scheme: dark` overrides semantic names | Components consume semantic/component tokens only; no dark-specific component branch. `color-scheme` is a base-layer declaration in 0.21, not a token. |
-| iOS 15.0 floor | — | No `color-mix()`, `oklch()`, `@layer`, `linear()` easing or container queries. `100dvh` is a progressive `@supports` upgrade over `100vh`. |
+| iOS 16.4 floor | — | The shipped floor is iOS 16.4 / macOS 13.3 (design.md D0.16, raised by product decision over the measured SDK minimum — Q16). `color-mix()` (Safari 16.2), `oklch()` and `@layer` (15.4) and container queries (16.0) are **inside** it; `linear()` easing (17.2) is the one still outside, so it stays out. `100dvh` (15.4) is inside the floor and remains a progressive `@supports` upgrade over `100vh`. |
 
 **Measured AA pairs** (Node-side resolution of the stylesheet; see the
 verification record):
@@ -575,12 +575,16 @@ A sheet or alert will also need a scrim and focus trap, which is why it is not a
   drift surface. 0.22 reads the CSS at build time.
 - No HSL conversion for opacity: the upstream skill suggests HSL, but the
   palette is authored as exact hex values and alpha is expressed with the
-  `--color-neutral-950-alpha-*` rgb primitives. The iOS 15 floor supports
-  `rgb(r g b / a)`, and keeping hex makes the brand values unambiguous.
+  `--color-neutral-950-alpha-*` rgb primitives. The iOS 16.4 / macOS 13.3 floor
+  (D0.16, Q16) supports `rgb(r g b / a)`, and keeping hex makes the brand values
+  unambiguous.
 - No web font: the system UI font is the native choice and avoids a bundled
   asset. `--font-family-mono` is only for measurements.
-- No `color-mix()`, `oklch()`, `@layer`, container queries or `linear()` easing:
-  the iOS 15.0 / macOS 12.0 floor does not support them reliably.
+- No `color-mix()`, `oklch()`, `@layer`, container queries or `linear()` easing
+  in the frozen token files. The raised iOS 16.4 / macOS 13.3 floor (D0.16, Q16)
+  supports the first four, so they stay out as the unchanged authoring choice
+  rather than a capability limit; `linear()` easing (Safari 17.2) is still
+  outside the floor and stays out on capability grounds.
 - No translucent bars or material blur: contrast over arbitrary content cannot
   be guaranteed, so bars use solid semantic surfaces.
 - No toast, sheet, alert, picker, switch or chart primitive yet: no P0 screen

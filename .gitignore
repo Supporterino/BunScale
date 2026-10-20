@@ -1,4 +1,7 @@
 graphify-out/cache
+# New dated graphify snapshots stay untracked: `2026-10-16/` is already tracked and keeps showing
+# its churn; the tooling writes a new dated directory on a rebuild and those are not committed (Q20).
+graphify-out/20??-??-??/
 node_modules
 dist
 src-tauri/target/

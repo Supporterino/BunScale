@@ -7,26 +7,19 @@ in `design.md` (D0.12 … D0.20); they are tabulated below and were never reopen
 owner. The decisions the loop follows are in "Resolutions" below; the evidence each was raised on is
 kept in "History".
 
-**Current open items:** Q15 (an environment blocker for task 0.27's iOS simulator boot, recorded rather
-than worked around) and Q16 (two configuration decisions task 0.14 recorded instead of settling alone —
-the explicit `es2021` build target, and the generated route tree's style against Biome's defaults; both
-need an owner, neither blocks 0.14). Q17 and Q18 are implementation findings rather than ambiguities,
-recorded because they change what later tasks must do: Q17 hands the git half of TOOL-4's drift check to
-the orchestrator, which made it meaningful in task 0.15's commit, and Q18 measures what task 0.18 will
-actually find. Q19 corrects a completeness claim in task 0.18's own text — the checkable surface is not
-just the frontend plus Rust — and records the measured boundary decision (D0.25) rather than leaving it
-to be rediscovered. Q20 records what task 0.19 deliberately did not cover — the dated graphify snapshots
-and the generator-owned `src-tauri/gen/schemas/` — together with the one path it added beyond its list
-on evidence. Q21 records the keyboard inset's missing assignment and hands it to task 4.1, the first
-surface with a real keyboard. Q22 records the one narrow write grant task 0.22 needed and the icon CLI's
-Android output, both decided rather than improvised. Q23 records a runtime hazard that makes an E2E run
-possible to pass while unmocked — a reused dev server started without the flag — the mechanism that caused
-it, and why the fix is behavioural rather than a config change. Q24 records a verification finding found
-while reconciling two stray edits after task 0.21 was committed — a reviewed screenshot had been captured
-from an uncommitted tree, so the image and the commit disagreed — and both were corrected. Q25 records
-the sign-in/account-acquisition gap that task 1.1's mechanism decision exposes: P0 has no sign-in
-screen, the first live account is provisioned by the deployment task, and no task owns the sign-in
-flow itself. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
+**Current open items:** none that block work. The product owner settled the remaining decisions on
+2026-10-20: **Q15** — CoreSimulator responds again (iOS 27.0 runtime and devices are listed), so task
+0.27's iOS evidence is unblocked; **Q20** — new dated `graphify-out/<date>/` snapshots are ignored;
+**Q25** — the sign-in/account-acquisition flow is folded into P3; **Q26** — the iOS region default is
+deferred and task 5.11 pins the rule; **Q28** — macOS accepts refocus plus explicit checks and no
+polling. **Q16** remains the one item awaiting a ruling on its consequence: the product owner confirmed
+"use Vite's default build target", which targets Safari 16.4+, while the measured deployment floor is
+iOS 15.0 / macOS 12.0 — so either the floor moves or the explicit lower target stays. Everything else
+is either resolved in place or an implementation finding recorded for the task that owns it: Q17 hands
+the git half of TOOL-4's drift check to the orchestrator, Q18 measures what task 0.18 finds, Q19 records
+D0.25's measured boundary, Q21 hands the keyboard inset to task 4.1, Q22 records the icon write grant,
+Q23 records the unmocked-E2E hazard and its fixture, Q24 records the screenshot/commit mismatch, Q27
+records task 2.5's loop-limit resolution. Q13 was resolved by the product owner on 2026-10-16 (harden the generated
 capability, no second file) and Q14's decision is implemented, with the obligations it carries
 recorded against task 0.10.
 
@@ -151,7 +144,15 @@ scenario is met. Two obligations carry forward:
 2. **Review expectation:** the record of this deviation lives in `design.md` D0.8/D0.11 and here; the
    generator's own artefact list is otherwise unchanged.
 
-### Q15 — CoreSimulator does not respond in this environment (open; blocks task 0.27's iOS evidence)
+### Q15 — CoreSimulator did not respond in this environment (resolved 2026-10-20: it responds again)
+
+**Decision (2026-10-20, product owner: "check again").** Re-checked on 2026-10-20 and CoreSimulator is
+healthy again: `xcrun simctl list runtimes` returns the **iOS 27.0 (24A434)** runtime and
+`xcrun simctl list devices available` lists the iPhone 18 Pro / 18 Pro Max / 17e / 17 / Air and the iPad
+line-up (the older iOS 17.5–26.5 runtimes are listed as unavailable). The iOS half of task 0.27 is
+therefore **unblocked** — it was never waived, and nothing in this change was recorded from a simulator
+run while the blocker held. Task 0.27 still owes its own iOS evidence when it is run; the measured floors
+below remain the SDKs' metadata, not a simulator observation.
 
 Task 0.7's measurement found it, and it is not a defect in this change: `xcrun simctl list runtimes` and
 `xcrun simctl list runtimes -j` both hang with no output (killed at 120 s, then again at 300 s), so the
@@ -169,7 +170,21 @@ Nothing is worked around and nothing is claimed: 0.7's floors come from the SDKs
 a simulator run. If CoreSimulator stays unresponsive, 0.27's iOS half must be reported as blocked rather
 than recorded from a `tauri ios dev` run.
 
-### Q16 — two decisions task 0.14's config carries that the gate cannot decide (open, `frontend-logic`, 2026-10-17)
+### Q16 — two decisions task 0.14's config carried that the gate could not decide (resolved 2026-10-20: Vite's default target, with the floor raised; the route-tree half was settled by 0.18)
+
+**Decision (2026-10-20, product owner).** Use **Vite's default build target**
+(`baseline-widely-available`, Safari 16.4+) and **raise the deployment floor to match**: iOS **16.4** and
+macOS **13.3** via `bundle.iOS.minimumSystemVersion` / `bundle.macOS.minimumSystemVersion`, recorded in
+D0.16 as a product decision on top of the SDK minimum (which remains 15.0 for both). `build.target` is
+removed from `vite.config.ts`, and `tsconfig.json`'s `target`/`lib` move to ES2022 so authors may use
+what the new target emits. The alternative — keeping the iOS 15 / macOS 12 floor — was rejected by the
+product owner in the same decision, so the platform promise now moves with the build target rather than
+the two disagreeing. The generated iOS project must be recreated (D0.11) so its baked
+`IPHONEOS_DEPLOYMENT_TARGET` follows; a release build that has not been recreated would carry the old
+value.
+
+The second half of this question — the generated route tree's style versus Biome's defaults — was
+settled by task 0.18 excluding both generated files from the checked set (D0.25), so it needs no owner.
 
 Raised while implementing task 0.14 (`index.html`, `tsconfig.json`, `vite.config.ts`). Neither item
 blocks 0.14 — the task's gate is green — but both need an owner before the tasks that act on them.
@@ -281,7 +296,15 @@ correctness signal for those files than JSON formatting). `opencode.jsonc` remai
 checkable-but-unlisted file, a known one-line follow-up. The task text has been corrected accordingly,
 so no later task inherits the false completeness claim.
 
-### Q20 — who commits the dated graphify snapshots, and where a graph decision belongs (open, `frontend-logic` + orchestrator, 2026-10-19)
+### Q20 — who commits the dated graphify snapshots, and where a graph decision belongs (resolved 2026-10-20: new snapshots are ignored)
+
+**Decision (2026-10-20, product owner):** **ignore new dated snapshots.** The root `.gitignore` gains a
+rule for `graphify-out/<date>/` directories so a rebuild cannot add another untracked snapshot to
+`git status`. The already-tracked `graphify-out/2026-10-16/` copy stays tracked (an ignore rule cannot
+untrack it and the convention is not rewritten retroactively); it continues to show as modified when the
+graph tooling touches it, which is visible churn rather than hidden state. The orchestrator still runs
+`graphify update .` after a change is archived, but commits only `graph.json`/the report and no new dated
+directory.
 
 Raised while implementing task 0.19. The root `.gitignore` must cover what this change's gate commands
 and tools write, while not swallowing the two generated files that must stay tracked. Two paths were
@@ -443,7 +466,16 @@ file. Nothing here changes what the 0.21 review concluded about the primitives, 
 the measurements — those were read from the code and are unaffected — but it is worth knowing before task
 0.25 asserts anything visual against these baselines.
 
-### Q25 — P0 has no sign-in or account-acquisition owner (open, `architect`, 2026-10-19)
+### Q25 — P0 has no sign-in or account-acquisition owner (resolved 2026-10-20: P3 owns it)
+
+**Decision (2026-10-20, product owner): fold into P3.** `add-household-sharing-hardening` owns the
+sign-in/account-acquisition flow. P0 is unchanged: its running app has no account, the first live
+account is still provisioned by the deployment task D0.7 names, and every state-changing command keeps
+answering `no_account` honestly until P3 lands. P3 must add the flow to its own plan — the contract
+commands (email OTP request/verify against GoTrue, session/token storage in the platform Keychain),
+the screens, and the tests — before implementing it; a note at the top of P3's `tasks.md` records the
+handoff. The mechanism side is already decided by D0.7 (GoTrue, email OTP, Keychain), so P3 inherits a
+decision rather than reopening it.
 
 Raised by task 1.1's mechanism decision (D0.7). The selected mechanism supplies the account
 (GoTrue email OTP), and NFR-1 requires a valid account for every save, but **no P0 task implements a
@@ -464,7 +496,15 @@ change (which would extend section 4 beyond its current screen list) or an expli
 named later change, with the P0 onboarding entry point (task 4.1) gated the same way HS-2 gates
 household creation.
 
-### Q26 — the device region is readable on macOS but not on iOS, and SET-4's default unit depends on it (open, `rust-backend`, 2026-10-19)
+### Q26 — the device region is readable on macOS but not on iOS, and SET-4's default unit depends on it (resolved 2026-10-20: deferred, the rule is what is tested)
+
+**Decision (2026-10-20, product owner): defer; task 5.11 pins the rule.** P0 keeps the derivation it
+has (a stored choice wins; otherwise the region when the process can read it; otherwise the canonical
+unit), which means iOS answers grams by default while macOS follows the region. No `apple-native`
+plugin and no `tauri-plugin-os` dependency is added in P0. Task 5.11's assertion for "Default unit
+follows the device region" must test the **rule**, not a device read the gate cannot perform on iOS
+(choice wins; region when readable; canonical otherwise). A native region source remains an unowned
+follow-up for a later change.
 
 Raised by the task 2.10 review. SET-4's scenario "Default unit follows the device region" is
 implemented by deriving the region in Rust, and the derivation reads the process environment
@@ -526,7 +566,14 @@ review's remaining notes are recorded here rather than deferred silently:
 None of these changes a requirement's outcome today; each is a hardening item for the phase that
 first exercises it.
 
-### Q28 — macOS lifecycle re-evaluation observes a refocus, not connectivity returning while focused (open, `rust-backend` + orchestrator, 2026-10-19)
+### Q28 — macOS lifecycle re-evaluation observes a refocus, not connectivity returning while focused (resolved 2026-10-20: accept refocus plus explicit checks)
+
+**Decision (2026-10-20, product owner): accept.** P0's macOS reading of NFR-1's "connectivity restored
+while the product continues to run" is: a re-evaluation happens on window refocus, on an explicit
+`check_service_reachability`, or on a retry — **no polling loop is added**. This is honest because the
+status is `unknown` until a fresh outcome exists (R3), so nothing presents a stale status as current;
+what is not claimed is instantaneous detection at the moment connectivity returns. A native
+connectivity-change signal is a later change's option, not P0's.
 
 NFR-1's `[macos]` scenario says a status is refreshed when connectivity is restored **while the
 product remains running**. Task 2.13 implements the macOS trigger as `WindowEvent::Focused(true)`

@@ -25,8 +25,10 @@ installs them.
    xcodebuild -showsdks
    ```
 
-The minimum iOS and macOS deployment targets are **not** chosen here: they are measured from the
-installed SDKs by task 0.7 of the P0 change and recorded in that change's `design.md` (D0.16).
+The minimum iOS and macOS deployment targets are **not** chosen here: the installed SDKs' minimum is
+measured by task 0.7 of the P0 change and recorded in that change's `design.md` (D0.16). The **shipped**
+floor is a product decision on top of that measurement — **iOS 16.4 / macOS 13.3**, raised on 2026-10-20
+to match Vite's default build target (Q16) — and is set in `src-tauri/tauri.conf.json`.
 
 ## 2. Rust and the iOS target
 

@@ -23,24 +23,61 @@
 
 /* Begin PBXFileReference section */
 		007E478DB8BC37A788C4730F /* app_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = app_iOS.entitlements; sourceTree = "<group>"; };
+		014DD17DDF9ED798F71A5E85 /* household.rs */ = {isa = PBXFileReference; path = household.rs; sourceTree = "<group>"; };
 		02B7F8347F94B067E6B27396 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		02C147095EBEA9E8FF57E415 /* records.rs */ = {isa = PBXFileReference; path = records.rs; sourceTree = "<group>"; };
+		037E64BC09EFE2F802705959 /* unit.rs */ = {isa = PBXFileReference; path = unit.rs; sourceTree = "<group>"; };
 		04B56F58E2E44DDE1D67E7B7 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		0B814427E3DA1D7E55E9FE6C /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		0D73C78FC996703722CA4F35 /* gate.rs */ = {isa = PBXFileReference; path = gate.rs; sourceTree = "<group>"; };
+		0D7777A955877F3BB290D881 /* diagnostics.rs */ = {isa = PBXFileReference; path = diagnostics.rs; sourceTree = "<group>"; };
 		0E2B15F176E4B041AE33EEEA /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		0F4D38365E77D9C809427400 /* state.rs */ = {isa = PBXFileReference; path = state.rs; sourceTree = "<group>"; };
 		1631E4CFBB715FFDBF919C8C /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		17B52554D60D361AFE791C3E /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		1A5B1B6BD96B8198E45E9090 /* probe.rs */ = {isa = PBXFileReference; path = probe.rs; sourceTree = "<group>"; };
 		1E81BD6B453D87B7F7B1597B /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		2B04329B998BB43C793F7206 /* service.rs */ = {isa = PBXFileReference; path = service.rs; sourceTree = "<group>"; };
 		306B9C1792E7B1C53FA262A6 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		3202222D0EFE2DAB7E8C3A94 /* http.rs */ = {isa = PBXFileReference; path = http.rs; sourceTree = "<group>"; };
+		33C22C5012793ADFC840AA5D /* persist.rs */ = {isa = PBXFileReference; path = persist.rs; sourceTree = "<group>"; };
+		352CF8196DE9881213CA7034 /* lifecycle.rs */ = {isa = PBXFileReference; path = lifecycle.rs; sourceTree = "<group>"; };
 		3842AE2A64FB9933D0400EA4 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		39EEC6A55698228E08917A52 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		48B42B6138DB44F16B800F07 /* region.rs */ = {isa = PBXFileReference; path = region.rs; sourceTree = "<group>"; };
+		50470E77C87BF61185EDE62D /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		537B6DB5F9942B32D7AE2EB9 /* double.rs */ = {isa = PBXFileReference; path = double.rs; sourceTree = "<group>"; };
+		59E4AD83C17CA2A2C6C5CE61 /* read.rs */ = {isa = PBXFileReference; path = read.rs; sourceTree = "<group>"; };
+		61CC9376D03182DD6051DC16 /* sink.rs */ = {isa = PBXFileReference; path = sink.rs; sourceTree = "<group>"; };
+		632BF1FBF02CA799B1BC2AAB /* merge.rs */ = {isa = PBXFileReference; path = merge.rs; sourceTree = "<group>"; };
+		64D9F73C7F86DFE8CF7D7B1C /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		682535EEFE1DA20BE07B123C /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		6F65EC481BE5BA5BE904A63A /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		72114A28508EE253F33A8C69 /* status.rs */ = {isa = PBXFileReference; path = status.rs; sourceTree = "<group>"; };
+		765A9E576B669F9F5278D34C /* settings.rs */ = {isa = PBXFileReference; path = settings.rs; sourceTree = "<group>"; };
+		793D67C08E07C889302EA41A /* identity.rs */ = {isa = PBXFileReference; path = identity.rs; sourceTree = "<group>"; };
+		7A982F53134E298CC36756C0 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		7DF63605B49982BC88F88D80 /* events.rs */ = {isa = PBXFileReference; path = events.rs; sourceTree = "<group>"; };
 		81E326B61ED92E1D1EECF952 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8B6BF758F2A308E154D7EB03 /* types.rs */ = {isa = PBXFileReference; path = types.rs; sourceTree = "<group>"; };
+		953398405A96AD9047EAB60E /* failure.rs */ = {isa = PBXFileReference; path = failure.rs; sourceTree = "<group>"; };
 		9FACFFCB6E3743955F72464C /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		AACE9CB2A238A740D00B3593 /* create.rs */ = {isa = PBXFileReference; path = create.rs; sourceTree = "<group>"; };
 		AF1DE57E7D9CF13BB2E0E038 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B4FAC2B18B16F2E05B2B5661 /* guards.rs */ = {isa = PBXFileReference; path = guards.rs; sourceTree = "<group>"; };
+		C628E25B7BA28225993BD0DB /* instant.rs */ = {isa = PBXFileReference; path = instant.rs; sourceTree = "<group>"; };
 		CE1209BFDECB28E00189B168 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		D189CD32761D6F45E1A6D241 /* identity.rs */ = {isa = PBXFileReference; path = identity.rs; sourceTree = "<group>"; };
+		D779A7FCE91C388643F874EC /* household.rs */ = {isa = PBXFileReference; path = household.rs; sourceTree = "<group>"; };
 		D8F57162F5CC7AEDD55F173D /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		DED4FD3199CDDA9DAF78D668 /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
+		E00E0AF0DF16FCEF6E351887 /* sync.rs */ = {isa = PBXFileReference; path = sync.rs; sourceTree = "<group>"; };
+		E34F5E15EBBF6F5F6AB27578 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		EB5975B4608CF41F62DE9558 /* collection.rs */ = {isa = PBXFileReference; path = collection.rs; sourceTree = "<group>"; };
+		F1B8A667D16558223C400F0B /* store.rs */ = {isa = PBXFileReference; path = store.rs; sourceTree = "<group>"; };
 		F3673D372C5ABDD1AD6E7067 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		FBC720DFA1D01F55B0A32344 /* app_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = app_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FFC23E81E843D83EB7D07B09 /* local.rs */ = {isa = PBXFileReference; path = local.rs; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +131,34 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
+		76626DFB27C190D8EE1A8C4D /* sync */ = {
+			isa = PBXGroup;
+			children = (
+				537B6DB5F9942B32D7AE2EB9 /* double.rs */,
+				0D73C78FC996703722CA4F35 /* gate.rs */,
+				3202222D0EFE2DAB7E8C3A94 /* http.rs */,
+				352CF8196DE9881213CA7034 /* lifecycle.rs */,
+				632BF1FBF02CA799B1BC2AAB /* merge.rs */,
+				7A982F53134E298CC36756C0 /* mod.rs */,
+				1A5B1B6BD96B8198E45E9090 /* probe.rs */,
+				59E4AD83C17CA2A2C6C5CE61 /* read.rs */,
+				2B04329B998BB43C793F7206 /* service.rs */,
+				72114A28508EE253F33A8C69 /* status.rs */,
+			);
+			path = sync;
+			sourceTree = "<group>";
+		};
+		785FCA6DC9E20F6681FD35AD /* domain */ = {
+			isa = PBXGroup;
+			children = (
+				AACE9CB2A238A740D00B3593 /* create.rs */,
+				D779A7FCE91C388643F874EC /* household.rs */,
+				793D67C08E07C889302EA41A /* identity.rs */,
+				64D9F73C7F86DFE8CF7D7B1C /* mod.rs */,
+			);
+			path = domain;
+			sourceTree = "<group>";
+		};
 		78CBE3E5873199C0066F12DF /* Sources */ = {
 			isa = PBXGroup;
 			children = (
@@ -107,7 +172,13 @@
 			children = (
 				17B52554D60D361AFE791C3E /* lib.rs */,
 				1631E4CFBB715FFDBF919C8C /* main.rs */,
+				0F4D38365E77D9C809427400 /* state.rs */,
+				B0F13D17CF67747B2EF2A47A /* diagnostics */,
+				785FCA6DC9E20F6681FD35AD /* domain */,
 				C8B8284D485D458C48667DAE /* ipc */,
+				EA53DD1DFBABF59542D7EBBE /* settings */,
+				8E4ABE89901B0AD27778C2BC /* storage */,
+				76626DFB27C190D8EE1A8C4D /* sync */,
 			);
 			name = src;
 			path = ../../src;
@@ -128,6 +199,41 @@
 			);
 			sourceTree = "<group>";
 		};
+		8E4ABE89901B0AD27778C2BC /* storage */ = {
+			isa = PBXGroup;
+			children = (
+				EB5975B4608CF41F62DE9558 /* collection.rs */,
+				B4FAC2B18B16F2E05B2B5661 /* guards.rs */,
+				C628E25B7BA28225993BD0DB /* instant.rs */,
+				FFC23E81E843D83EB7D07B09 /* local.rs */,
+				E34F5E15EBBF6F5F6AB27578 /* mod.rs */,
+				33C22C5012793ADFC840AA5D /* persist.rs */,
+			);
+			path = storage;
+			sourceTree = "<group>";
+		};
+		AB064F79AD35072B0E8E5A49 /* commands */ = {
+			isa = PBXGroup;
+			children = (
+				0D7777A955877F3BB290D881 /* diagnostics.rs */,
+				014DD17DDF9ED798F71A5E85 /* household.rs */,
+				D189CD32761D6F45E1A6D241 /* identity.rs */,
+				765A9E576B669F9F5278D34C /* settings.rs */,
+				E00E0AF0DF16FCEF6E351887 /* sync.rs */,
+			);
+			path = commands;
+			sourceTree = "<group>";
+		};
+		B0F13D17CF67747B2EF2A47A /* diagnostics */ = {
+			isa = PBXGroup;
+			children = (
+				50470E77C87BF61185EDE62D /* mod.rs */,
+				02C147095EBEA9E8FF57E415 /* records.rs */,
+				61CC9376D03182DD6051DC16 /* sink.rs */,
+			);
+			path = diagnostics;
+			sourceTree = "<group>";
+		};
 		BAFB695BB8415511FEC74542 /* Externals */ = {
 			isa = PBXGroup;
 			children = (
@@ -138,9 +244,25 @@
 		C8B8284D485D458C48667DAE /* ipc */ = {
 			isa = PBXGroup;
 			children = (
+				DED4FD3199CDDA9DAF78D668 /* commands.rs */,
+				7DF63605B49982BC88F88D80 /* events.rs */,
+				953398405A96AD9047EAB60E /* failure.rs */,
 				6F65EC481BE5BA5BE904A63A /* mod.rs */,
+				8B6BF758F2A308E154D7EB03 /* types.rs */,
+				AB064F79AD35072B0E8E5A49 /* commands */,
 			);
 			path = ipc;
+			sourceTree = "<group>";
+		};
+		EA53DD1DFBABF59542D7EBBE /* settings */ = {
+			isa = PBXGroup;
+			children = (
+				0B814427E3DA1D7E55E9FE6C /* mod.rs */,
+				48B42B6138DB44F16B800F07 /* region.rs */,
+				F1B8A667D16558223C400F0B /* store.rs */,
+				037E64BC09EFE2F802705959 /* unit.rs */,
+			);
+			path = settings;
 			sourceTree = "<group>";
 		};
 		EE72B6AC647386A11F795E44 /* Products */ = {
@@ -246,7 +368,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cargo tauri ios xcode-script -v --platform \"${PLATFORM_DISPLAY_NAME:?}\" --sdk-root \"${SDKROOT:?}\" --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration \"${CONFIGURATION:?}\" ${FORCE_COLOR} ${ARCHS:?}\n";
+			shellScript = "bun tauri ios xcode-script -v --platform \"${PLATFORM_DISPLAY_NAME:?}\" --sdk-root \"${SDKROOT:?}\" --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration \"${CONFIGURATION:?}\" ${FORCE_COLOR} ${ARCHS:?}\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -338,7 +460,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -431,7 +553,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

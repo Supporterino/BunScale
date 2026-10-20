@@ -48,11 +48,14 @@ export default defineConfig({
     // i.e. `dist` relative to this file). The two sides are reconciled only by
     // hand.
     outDir: 'dist',
-    // The deployment floor is iOS 15.0 / macOS 12.0 (design.md D0.16), whose
-    // WebKit implements ES2021. Vite 8's default target
-    // ('baseline-widely-available': Safari 16.4+) would emit syntax that floor
-    // cannot parse.
-    target: 'es2021',
+    // No `target` on purpose: Vite 8's default is
+    // 'baseline-widely-available' (Chrome/Edge 111+, Firefox 114+, Safari
+    // 16.4+). That default is why the deployment floor is iOS 16.4 /
+    // macOS 13.3 (design.md D0.16, Q16): emitted syntax and shipped minimum
+    // describe the same WebKit.
+    // Caveat: `build.target` governs the build transpile only. `tauri ios dev`
+    // serves untransformed source, so the dev loop must stay inside that floor
+    // by discipline — this setting cannot enforce it.
   },
 
   // Rust compile errors are the point of the Tauri dev loop; do not let Vite

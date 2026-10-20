@@ -10,6 +10,14 @@ Native platform behaviour — the notification surface, background delivery and 
 verified manually on **both iOS and macOS** (task 5.15), because `testing-strategy` records that native
 lifecycle behaviour cannot be driven by `tauri-driver` there.
 
+**Carried from P0 (Q25, decided 2026-10-20):** this change owns the account sign-in/acquisition flow.
+P0 deliberately ships no sign-in screen, so its running app answers `no_account` on every
+state-changing command; the mechanism is already decided by P0's D0.7 (Supabase Auth/GoTrue, email OTP,
+the refresh token in the platform Keychain) and the first live account is provisioned by the
+deployment task. Before implementation, add the flow to this plan — the contract commands (request and
+verify an OTP against GoTrue, session/token handling), the screens, and the tests — and do not reopen
+the mechanism decision.
+
 ## 1. Contract and native surface
 
 - [ ] 1.1 [architect] Extend the P0 IPC contract in `src-tauri/src/ipc/`: the invitation lifecycle
@@ -82,8 +90,8 @@ lifecycle behaviour cannot be driven by `tauri-driver` there.
   (`unknown | not_determined | granted | denied`), so `add-vet-export-and-reminders` consumes that one
   surface instead of declaring a second authorization (D-H14), and raise a local notification naming the
   household only. It lands before 1.6–1.7 raise anything
-  through it; `UNUserNotificationCenter` requires macOS 10.14, far below the deployment target P0 derives
-  (D0.16), so no target change follows (HS-11).
+  through it; `UNUserNotificationCenter` requires macOS 10.14, far below P0's shipped deployment floor
+  (iOS 16.4 / macOS 13.3, D0.16), so no target change follows (HS-11).
 
 ## 2. Backend (Rust)
 

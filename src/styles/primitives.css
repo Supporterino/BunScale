@@ -16,9 +16,13 @@
  *   - No selector other than `:root` and no declaration other than a custom
  *     property. This layer must not restyle an unstyled screen.
  *
- * Platform baseline: iOS 15.0 / macOS 12.0 (design.md D0.16). That is why the
- * palette is hex/rgb rather than oklch(), shadows use the supported syntax and
- * no cascade layer (`@layer`, Safari 15.4+) is used.
+ * Platform baseline: the shipped floor is iOS 16.4 / macOS 13.3 — a product
+ * decision on top of the measured SDK minimum (design.md D0.16, Q16). That
+ * floor supports `oklch()`, `@layer` (Safari 15.4+) and `color-mix()` (16.2),
+ * so the palette staying hex/rgb, the shadows' syntax and the absence of a
+ * cascade layer are unchanged authoring choices, not capability limits. The
+ * one feature still outside the floor is `linear()` easing (Safari 17.2),
+ * which is why no token uses it.
  */
 
 :root {
@@ -54,7 +58,12 @@
   --color-neutral-900: #1c1917;
   --color-neutral-950: #0c0a09;
 
-  /* Alpha primitives for scrims and elevation (no colour-mix() on iOS 15). */
+  /*
+   * Alpha primitives for scrims and elevation. The alpha is authored
+   * explicitly as `rgb(r g b / a)` rather than derived with `color-mix()`:
+   * that function is inside the iOS 16.4 / macOS 13.3 floor (Safari 16.2), so
+   * this is the design system's chosen form, not a capability limit.
+   */
   --color-neutral-950-alpha-06: rgb(12 10 9 / 0.06);
   --color-neutral-950-alpha-08: rgb(12 10 9 / 0.08);
   --color-neutral-950-alpha-12: rgb(12 10 9 / 0.12);

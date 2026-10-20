@@ -1135,6 +1135,24 @@ iOS and for macOS in this change. Task 0.8 then **applies the recorded floor** i
 a version, and the same recorded floor constrains the Rust skeleton (task 0.10). A hand-written
 version number here is a defect, not a decision.
 
+##### The shipped floor, raised by product decision (Q16, 2026-10-20)
+
+**The shipped floor is iOS 16.4 and macOS 13.3, and it is a product decision, not a re-measurement.**
+The derivation rule above is not reopened: the installed toolchain's minimum is still 15.0 for iOS and
+12.0 for macOS, and the measurement below stands as the historical record. What changed is the
+*platform promise* the product makes on top of it: Vite 8's default build target is
+`baseline-widely-available` (Safari 16.4+), whose output cannot be parsed by iOS 15 / macOS 12, and the
+product owner chose to raise the floor so the promise moves with the build target rather than the two
+disagreeing — keeping `build.target` pinned below the default was the rejected alternative, so
+`vite.config.ts` no longer overrides it and `tsconfig.json` moves to ES2022 to let authors use what the
+target emits. The values are set through `bundle.iOS.minimumSystemVersion` /
+`bundle.macOS.minimumSystemVersion` in `tauri.conf.json` — the single source of truth from which
+`tauri-build` emits `IPHONEOS_DEPLOYMENT_TARGET`/`MACOSX_DEPLOYMENT_TARGET` — and the generated iOS
+project is recreated so its baked value follows (D0.11). The guarantee is narrower than it reads:
+`build.target` governs only the build transpile and `tsconfig.json` is `noEmit`-only, so the dev loop
+still has to stay inside the floor by discipline. Q16 in `questions.md` holds the full decision and its
+rejected alternative; the measured floor below is superseded **as the shipped floor** only.
+
 ##### The measured floor (task 0.7, `apple-native`)
 
 | Platform | SDK | Key read from its `SDKSettings.plist` | Floor |

@@ -13,29 +13,32 @@
 # lists for CI belong to the release workflow and to task 0.26's recorded
 # full-gate run, not here: a device `tauri ios build` needs signing credentials,
 # which this workflow must not hold, and only the macOS deployment floor is
-# dev-inert — the iOS compile check above compiles the app crate at the 15.0
-# floor, so what a non-dev build adds is the *shipped* value. This workflow reads
-# no secret at all — the gate is headless and the E2E IPC layer is mocked — which
-# is why `permissions:` is `contents: read` and no more.
+# dev-inert — the iOS compile check above compiles the app crate at the 16.4
+# floor (D0.16), so what a non-dev build adds is the *shipped* value. This
+# workflow reads no secret at all — the gate is headless and the E2E IPC layer
+# is mocked — which is why `permissions:` is `contents: read` and no more.
 #
 # Pinning: every third-party action is pinned to a full commit SHA, with the
 # release tag that SHA belongs to in a trailing comment, so a reader sees both.
 #
 # Runner (facts checked 2026-10-16, and not re-derivable from this repository):
 # `macos-latest` is the macOS 26 arm64 image, whose default Xcode is 26.6
-# (17F113). The deployment floors this repository ships — iOS 15.0, macOS 12.0 —
-# were measured locally (task 0.7, design.md D0.16) on Xcode 27.1 with the iOS
-# 27.1 and macOS 27.0 SDKs, so the runner builds against different SDKs than the
-# ones the floors were derived from. That skew cannot break this workflow as
-# written for macOS: every step here is a *dev* build and `tauri-build` emits
-# `MACOSX_DEPLOYMENT_TARGET` only when `!is_dev()`, so no step here proves or
-# breaks the macOS floor. The iOS floor is not inert: `tauri-build` 2.7.3 emits
-# `IPHONEOS_DEPLOYMENT_TARGET` unconditionally for `*ios*` targets
-# (`src/lib.rs:786-791`), so the iOS compile check above compiles the app crate
-# at the 15.0 floor — it neither links nor bundles, but it would catch an
-# above-floor API use; what no step here can prove is the *shipped* value, which
-# only a built artefact gives: task 0.26's `bun run tauri build` for macOS, the
-# generated project plus Xcode for iOS.
+# (17F113). The deployment floors this repository ships — iOS 16.4, macOS 13.3 —
+# are a product decision recorded in design.md D0.16 (Q16, 2026-10-20): Vite's
+# default `baseline-widely-available` build target emits Safari 16.4+ syntax, so
+# the shipped floor moved to match it. They sit above the SDK minimum, which
+# remains the locally measured 15.0 / 12.0 (task 0.7, D0.16), taken on Xcode 27.1
+# with the iOS 27.1 and macOS 27.0 SDKs. The runner therefore builds against
+# different SDKs than the ones that measurement came from. That skew cannot break
+# this workflow as written for macOS: every step here is a *dev* build and
+# `tauri-build` emits `MACOSX_DEPLOYMENT_TARGET` only when `!is_dev()`, so no
+# step here proves or breaks the macOS floor. The iOS floor is not inert:
+# `tauri-build` 2.7.3 emits `IPHONEOS_DEPLOYMENT_TARGET` unconditionally for
+# `*ios*` targets (`src/lib.rs:786-791`), so the iOS compile check above compiles
+# the app crate at the 16.4 floor — it neither links nor bundles, but it would
+# catch an above-floor API use; what no step here can prove is the *shipped*
+# value, which only a built artefact gives: task 0.26's `bun run tauri build`
+# for macOS, the generated project plus Xcode for iOS.
 # The runner image's own SDK floors have NOT been verified from here.
 #
 # Cost: GitHub allows at most 5 concurrent macOS jobs and bills macOS minutes at a

@@ -19,9 +19,11 @@ import { classNames } from './class-names';
  *   - `overscroll-behavior: contain` stops the scroll chaining that would
  *     otherwise rubber-band the document on iOS.
  *
- * `--layout-viewport-height` is the iOS 15 floor's `100vh` with a `100dvh`
- * upgrade (defined in `semantic.css`), so the height is right before the
- * dynamic-viewport APIs exist.
+ * `--layout-viewport-height` is `100vh` with a deliberate progressive `100dvh`
+ * upgrade (defined in `semantic.css` under `@supports`). `100dvh` is inside the
+ * iOS 16.4 / macOS 13.3 floor (design.md D0.16, Q16), so the upgrade is a
+ * choice rather than a capability gap: the base value always resolves, and the
+ * dynamic viewport wins where it exists.
  *
  * `variant="fixed"` is for a screen that lays itself out (a form pinned above
  * the keyboard); it clips instead of scrolling. The content column is capped at

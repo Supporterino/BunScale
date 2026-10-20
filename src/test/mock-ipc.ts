@@ -102,8 +102,12 @@ export type MockCommandHandler = (args?: InvokeArgs) => unknown;
  * command]` would resolve `Object.prototype`'s members, so a command named
  * `toString`, `constructor`, `valueOf`, `hasOwnProperty` or `__proto__` would be
  * dispatched instead of throwing — exactly the silent hole the throw below
- * exists to close. `Object.create(null)` leaves no prototype to fall back to;
- * `lib` is ES2021, so `Object.hasOwn` is not available to gate the lookup.
+ * exists to close. `Object.hasOwn` is available at `lib: ES2022` (Q16) and could
+ * gate that read, but it does not make `{}` safe to write to: assigning a
+ * handler under the name `__proto__` would invoke `Object.prototype`'s setter
+ * and replace the registry's prototype rather than store a command.
+ * `Object.create(null)` removes the prototype both the read and the write would
+ * fall back to, so the lookup stays a plain index with no per-read guard.
  */
 const commandHandlers: Record<string, MockCommandHandler> = Object.create(null);
 

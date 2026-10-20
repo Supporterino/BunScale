@@ -1,16 +1,17 @@
 {
   "compilerOptions": {
     /* Language and environment.
-       `target`/`lib` are the deployment syntax floor measured in design.md
-       D0.16 (iOS 15.0, macOS 12.0), whose WebKit (Safari 15) implements ES2021
-       in full while leaving some ES2022 features unsupported. Nothing is ever
-       emitted from here (`noEmit`), so this only decides which standard-library
-       APIs the typechecker accepts; the real syntax lowering is Vite's
-       (`build.target` in vite.config.ts). `useDefineForClassFields` is set
-       explicitly so tsc and the bundler agree on field semantics rather than
-       each falling back to a target-dependent default. */
-    "target": "ES2021",
-    "lib": ["ES2021", "DOM", "DOM.Iterable"],
+       `target`/`lib` follow the build target: ES2022, the level Vite's default
+       target ('baseline-widely-available', Safari 16.4+) emits — and that is
+       why the deployment floor is iOS 16.4 / macOS 13.3 (design.md D0.16,
+       Q16). Nothing is ever emitted from here (`noEmit`), so this is
+       type-level only: it decides which standard-library APIs the typechecker
+       accepts, while the real syntax lowering is Vite's (`build.target` in
+       vite.config.ts). `useDefineForClassFields` is set explicitly so tsc and
+       the bundler agree on field semantics rather than each falling back to a
+       target-dependent default. */
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
     "moduleDetection": "force",
     "useDefineForClassFields": true,
