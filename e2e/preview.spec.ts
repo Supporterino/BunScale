@@ -30,6 +30,15 @@ const PREVIEW_SECTIONS = [
   'States',
 ];
 
+/*
+ * The preview's own route, stated by the spec rather than inherited from the
+ * fixture's start path: `/` is the household entry guard since task 3.3, so the
+ * screen under test is reached at `/#/design-preview` and nowhere else.
+ */
+test.beforeEach(async ({ page }) => {
+  await page.goto('/#/design-preview');
+});
+
 test('The preview renders every section', async ({ page }) => {
   const screenTitle = page.getByRole('heading', {
     level: 1,

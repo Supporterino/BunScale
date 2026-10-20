@@ -52,16 +52,19 @@ import {
  *
  * One destination is declared, not three. A destination has to be a real route —
  * `to` is typed as the router's own path union — and the scaffold has exactly
- * one (`/`). Three links to it would put `aria-current` on three elements and
+ * one for this screen (`/design-preview`; `/` is the household entry since task
+ * 3.3). Three links to it would put `aria-current` on three elements and
  * describe a navigation that does not exist; the array grows as the P0 screens
- * add routes, and the primitives already take a list of up to five.
+ * add routes, and the primitives already take a list of up to five. The demo
+ * `Our warren` row links to this route for the same reason: no link on this
+ * screen points at the household entry, so nothing here triggers the guard.
  */
 
 type WeightUnit = 'kg' | 'lb';
 
 const DESTINATIONS: NavigationDestination[] = [
   {
-    to: '/',
+    to: '/design-preview',
     label: 'Design system',
     icon: <GlyphDashboard />,
   },
@@ -227,7 +230,7 @@ export function DesignSystemPreview() {
                 accessory="chevron"
                 detail="2 rabbits"
                 title="Our warren"
-                to="/"
+                to="/design-preview"
               />
               <ListRow detail="Current household" selected title="The Burrow" />
               <ListRow

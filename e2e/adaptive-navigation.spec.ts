@@ -43,6 +43,16 @@ const SCENARIO =
 const ARRANGEMENT_TEST = `${SCENARIO} — the arrangement matches the viewport`;
 const DESTINATION_TEST = `${SCENARIO} — the destination is current`;
 
+/*
+ * The preview is the only surface that renders `AppShell` today, and it lives at
+ * `/#/design-preview` since task 3.3 gave `/` to the household entry. Stating the
+ * route here keeps the arrangement assertion about the screen under test rather
+ * than about whatever the entry guard decides on a given day.
+ */
+test.beforeEach(async ({ page }) => {
+  await page.goto('/#/design-preview');
+});
+
 /**
  * The band the running project is in, read from the real viewport. The
  * baselines themselves are declared in `playwright.config.ts` and checked

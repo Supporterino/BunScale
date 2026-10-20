@@ -23,9 +23,11 @@
  * under jsdom), no density, no pointer behaviour, no arrangement.
  *
  * The screen is reached through the app's own route tree — `createTestRouter`
- * over `src/routes/index.tsx` — rather than by rendering the component in
- * isolation, because the screen's links and the nav bar's actions need a router
- * in context and a spec that rendered it bare would have to invent one.
+ * over `src/routes/design-preview.tsx` — rather than by rendering the component
+ * in isolation, because the screen's links and the nav bar's actions need a
+ * router in context and a spec that rendered it bare would have to invent one.
+ * The route is `/design-preview` since task 3.3 gave `/` to the household entry;
+ * the preview is the scaffold's own surface and keeps its own path.
  */
 import { RouterProvider } from '@tanstack/react-router';
 import { render, screen, within } from '@testing-library/react';
@@ -61,8 +63,8 @@ const PREVIEW_SECTIONS = [
   'States',
 ];
 
-async function renderStartScreen(): Promise<void> {
-  const router = createTestRouter({ initialEntries: ['/'] });
+async function renderPreviewScreen(): Promise<void> {
+  const router = createTestRouter({ initialEntries: ['/design-preview'] });
 
   /*
    * Loaded before the first render, and the render is then awaited through a
@@ -103,7 +105,7 @@ describeAtBothBaselines('DesignSystemPreview', (baseline) => {
   });
 
   it('Renders the navigation bar and every section', async () => {
-    await renderStartScreen();
+    await renderPreviewScreen();
 
     const title = screen.getByRole('heading', { name: START_TITLE });
 
@@ -117,7 +119,7 @@ describeAtBothBaselines('DesignSystemPreview', (baseline) => {
   });
 
   it('Renders both arrangements from one destinations array', async () => {
-    await renderStartScreen();
+    await renderPreviewScreen();
 
     const tabs = navigationLandmark('tabs');
     const sidebar = navigationLandmark('sidebar');
@@ -142,7 +144,7 @@ describeAtBothBaselines('DesignSystemPreview', (baseline) => {
   });
 
   it('Exposes the primitives with their names and states', async () => {
-    await renderStartScreen();
+    await renderPreviewScreen();
 
     const skip = screen.getByRole('link', { name: SKIP });
     const group = screen.getByRole('radiogroup', { name: UNIT });
@@ -180,7 +182,7 @@ describeAtBothBaselines('DesignSystemPreview', (baseline) => {
   });
 
   it('Responds to a live control', async () => {
-    await renderStartScreen();
+    await renderPreviewScreen();
 
     const user = userEvent.setup();
     const row = screen.getByRole('button', { name: REMINDERS });
@@ -193,7 +195,7 @@ describeAtBothBaselines('DesignSystemPreview', (baseline) => {
   });
 
   it('Opens the navigation bar action without a service', async () => {
-    await renderStartScreen();
+    await renderPreviewScreen();
 
     const user = userEvent.setup();
     const actions = screen.getAllByRole('button', { name: 'Settings' });

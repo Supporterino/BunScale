@@ -4,25 +4,30 @@
  * replaces the cached collection instead of accumulating items (SYNC-1,
  * SYNC-3).
  *
- * These run against the query layer with `./api` mocked — that wrapper is the
- * seam the module exists to provide, so the cache is asserted against the
- * contract's value and no IPC is involved. The cross-household spec also renders
- * the hook through the test harness's provider, because a placeholder carried
- * between keys only appears at an observer, never in the cache itself.
+ * These run against the query layer with IPC mocked — not the `./api` wrapper —
+ * because the route tree now imports the household query module eagerly through
+ * `src/test/setup.ts`, so a `vi.mock('./api')` would register after that module
+ * graph had already been built and the real wrapper would stay bound. Mocking
+ * at `invoke` is the seam `testing-strategy` prescribes for specs in this layer,
+ * and it has the useful side effect of exercising the real wrappers: what
+ * arrives in the cache is what `typedError` produced from the mocked command
+ * answer, including a thrown `CommandError`.
+ *
+ * No React and no IPC beyond the mock for the cache-level specs; the
+ * cross-household spec renders the hook through the test harness's provider,
+ * because a placeholder carried between keys only appears at an observer, never
+ * in the cache itself.
  */
 import type { QueryClient } from '@tanstack/react-query';
+import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('./api', () => ({ loadHousehold: vi.fn() }));
-
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createTestQueryClient,
   TestQueryClientProvider,
 } from '../../test/setup';
-import { loadHousehold } from './api';
 import { householdKeys } from './keys';
 import type { HouseholdCollection } from './queries';
 import {
@@ -65,10 +70,35 @@ function deferred<T>() {
 
 describe('the household collection cache', () => {
   let client: QueryClient;
+  /** What the next `load_household` call answers: a value, or a throw. */
+  let answers: Array<() => unknown>;
+  /** The arguments each `load_household` call was given. */
+  let calls: unknown[];
 
   beforeEach(() => {
     client = createTestQueryClient();
-    vi.mocked(loadHousehold).mockReset();
+    answers = [];
+    calls = [];
+
+    mockIPC((command, args) => {
+      if (command !== 'load_household') {
+        throw new Error(`unexpected mocked command "${command}"`);
+      }
+
+      calls.push(args);
+
+      const answer = answers.shift();
+
+      if (answer === undefined) {
+        throw new Error('no load_household answer was queued');
+      }
+
+      return answer();
+    });
+  });
+
+  afterEach(() => {
+    clearMocks();
   });
 
   it('keys a collection by its household, so rows cannot cross households', () => {
@@ -90,14 +120,12 @@ describe('the household collection cache', () => {
   it('keeps a pending household from showing another household’s rows', async () => {
     const first = collection('household-a', ['item-1']);
     const next = collection('household-b', ['item-2']);
+    const pending = deferred<HouseholdCollection>();
 
-    vi.mocked(loadHousehold).mockResolvedValueOnce({
-      status: 'ok',
-      data: first,
-    });
-
-    const pending = deferred<Awaited<ReturnType<typeof loadHousehold>>>();
-    vi.mocked(loadHousehold).mockReturnValueOnce(pending.promise);
+    answers.push(
+      () => first,
+      () => pending.promise,
+    );
 
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(TestQueryClientProvider, { client, children });
@@ -120,7 +148,7 @@ describe('the household collection cache', () => {
       client.getQueryData(householdKeys.collection('household-b')),
     ).toBeUndefined();
 
-    pending.resolve({ status: 'ok', data: next });
+    pending.resolve(next);
 
     await waitFor(() => {
       expect(result.current.data).toEqual(next);
@@ -131,21 +159,19 @@ describe('the household collection cache', () => {
   });
 
   it('reads the household its key names', async () => {
-    vi.mocked(loadHousehold).mockResolvedValue({
-      status: 'ok',
-      data: collection('household-b', []),
-    });
+    answers.push(() => collection('household-b', []));
 
     await client.fetchQuery(householdCollectionQueryOptions('household-b'));
 
-    expect(loadHousehold).toHaveBeenCalledWith('household-b');
+    expect(calls).toEqual([{ householdId: 'household-b' }]);
   });
 
   it('replaces a refreshed collection instead of appending to it', async () => {
-    vi.mocked(loadHousehold).mockResolvedValueOnce({
-      status: 'ok',
-      data: collection('household-a', ['item-1', 'item-2']),
-    });
+    answers.push(
+      () => collection('household-a', ['item-1', 'item-2']),
+      () => collection('household-a', ['item-1']),
+    );
+
     const first = await client.fetchQuery(
       householdCollectionQueryOptions('household-a'),
     );
@@ -155,10 +181,6 @@ describe('the household collection cache', () => {
       'item-2',
     ]);
 
-    vi.mocked(loadHousehold).mockResolvedValueOnce({
-      status: 'ok',
-      data: collection('household-a', ['item-1']),
-    });
     const refreshed = await client.fetchQuery(
       householdCollectionQueryOptions('household-a'),
     );
@@ -172,21 +194,19 @@ describe('the household collection cache', () => {
   it('keeps the previously loaded collection when a refresh fails', async () => {
     const loaded = collection('household-a', ['item-1']);
 
-    vi.mocked(loadHousehold).mockResolvedValueOnce({
-      status: 'ok',
-      data: loaded,
-    });
-    await client.fetchQuery(householdCollectionQueryOptions('household-a'));
-
-    vi.mocked(loadHousehold).mockResolvedValueOnce({
-      status: 'error',
-      error: {
-        cause: 'connectivity',
-        retryable: true,
-        message_key: 'error.connectivity',
-        request_id: null,
+    answers.push(
+      () => loaded,
+      () => {
+        throw {
+          cause: 'connectivity',
+          retryable: true,
+          message_key: 'error.connectivity',
+          request_id: null,
+        };
       },
-    });
+    );
+
+    await client.fetchQuery(householdCollectionQueryOptions('household-a'));
 
     await expect(
       client.fetchQuery(householdCollectionQueryOptions('household-a')),
@@ -198,14 +218,13 @@ describe('the household collection cache', () => {
   });
 
   it('surfaces the typed failure as the query error, cause intact', async () => {
-    vi.mocked(loadHousehold).mockResolvedValue({
-      status: 'error',
-      error: {
+    answers.push(() => {
+      throw {
         cause: 'validation',
         retryable: false,
         message_key: 'error.validation',
         request_id: null,
-      },
+      };
     });
 
     await expect(

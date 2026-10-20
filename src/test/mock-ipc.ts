@@ -25,11 +25,7 @@
  * new dependency, and nothing is hand-rolled that the pinned package already
  * provides.
  *
- * **How per-command handlers slot in later, without restructuring this file.**
- * The app calls no command yet — the IPC contract is empty until task 1.3
- * (`src-tauri/src/ipc/`, `collect_commands![]`) — so today the mock's whole job
- * is to make the flag harmless and the app renderable. When commands arrive,
- * each one is registered by name:
+ * **How commands are answered.** Each command is registered by name:
  *
  * ```ts
  * registerMockCommand('load_household', (args) => ({ … }));
@@ -42,6 +38,26 @@
  * (`src/features/<name>/api.ts` is the only caller, per the project rules), and
  * a handler may return a promise — the registry's dispatch is awaited by
  * `invoke` itself.
+ *
+ * The handler returns the command's **value**, not a `Result` envelope: Tauri
+ * rejects an `Err` and resolves an `Ok(T)` to the bare `T`, and the generated
+ * `typedError` wrapper is what turns that into the frontend's
+ * `{ status: 'ok', data }` union (`src/bindings.ts`). A handler that returned
+ * the envelope would be wrapped a second time and every `CommandData<…>`
+ * consumer would read the envelope as the value.
+ *
+ * **Defaults and per-test overrides.** The module registers the answers the
+ * household entry guard (task 3.3) needs, so `/` can resolve without a spec
+ * registering anything: a device that holds no household, with a fresh
+ * `reachable` status whose account is valid. That is the state that lets the
+ * guard reach a *conclusion* — "no household" only counts with a fresh
+ * reachable-and-identified status (SYNC-3; design.md, "No household is a
+ * fresh-outcome conclusion") — so the default is not an empty value that could
+ * mean "nothing was loaded". A spec that needs another state overrides one
+ * command for the rest of the page's document through the
+ * `window.__BUNSCALE_E2E_MOCK__` seam below (tasks 5.14–5.17), and an override
+ * is consulted before the registered default. Each fresh document starts from
+ * the defaults again, so nothing leaks between tests.
  *
  * **One way this module silently does not run, measured while task 0.23 was
  * verified.** The flag reaches the page only through the dev server's own
@@ -81,22 +97,24 @@
 
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { mockIPC } from '@tauri-apps/api/mocks';
+import type { Household, HouseholdSummary, ServiceStatus } from '../bindings';
 
 /**
  * One mocked command: receives the command's arguments (the object
  * `invoke(cmd, args)` was given, i.e. what the generated bindings pass) and
- * returns the command's result, synchronously or as a promise.
+ * returns the command's value — never a `Result` envelope, which the generated
+ * `typedError` adds (see the header) — synchronously or as a promise.
  */
 export type MockCommandHandler = (args?: InvokeArgs) => unknown;
 
 /*
  * The registry. A plain object keyed by the command name the Rust side exposes
  * (`collect_commands![]`) and the generated bindings call — so adding a command
- * is one entry. The key is a **hand-written literal** today, matched to the
- * generated command name by eye; the intended fix, once task 1.3 lands the first
- * command, is to type it as the generated bindings' command union (e.g.
- * `keyof typeof commands` from `src/bindings.ts`) so a mismatch is a compile
- * error rather than a runtime throw.
+ * is one entry. The key is a **hand-written literal**, matched to the generated
+ * command name by eye; typing it as the generated bindings' command union (e.g.
+ * `keyof typeof commands` from `src/bindings.ts`) would turn a mismatch into a
+ * compile error instead of a runtime throw, and is the follow-up this shape
+ * leaves open.
  *
  * The object is **null-prototype** on purpose. With `{}`, `commandHandlers[
  * command]` would resolve `Object.prototype`'s members, so a command named
@@ -111,17 +129,26 @@ export type MockCommandHandler = (args?: InvokeArgs) => unknown;
  */
 const commandHandlers: Record<string, MockCommandHandler> = Object.create(null);
 
+/*
+ * The per-document overrides (tasks 5.14–5.17). Separate from the registry so
+ * `reset()` can drop an override and fall back to the default that was
+ * registered above it, rather than editing the default itself. Null-prototype
+ * for the same reason as the registry: a name such as `__proto__` must be a key,
+ * not a prototype write.
+ */
+const overrideHandlers: Record<string, MockCommandHandler | undefined> =
+  Object.create(null);
+
 /**
  * Registers `handler` for `command`, replacing any previous registration for the
- * same name. Registration happens **at this module's top level**, which is the
- * only place it can happen today: a component spec never loads this module (it
- * is the Vitest half and mocks IPC itself — see the header), and a Playwright
- * spec's own module graph is Node's, so it cannot import this module and get the
- * page's instance. Varying an answer per E2E spec would therefore need a seam
- * this file does not provide yet — a hook exposed on `window`, or the spec
- * driving the page (e.g. `page.evaluate` dynamically importing the served
- * module, which is how task 0.23 verified the throw, and which is not a
- * per-test handler API). Tasks 1.3 and 3.6 must not assume one exists.
+ * same name. Registration happens **at this module's top level** for the
+ * defaults, which is the only durable place it can happen: a component spec
+ * never loads this module (it is the Vitest half and mocks IPC itself — see the
+ * header), and a Playwright spec's own module graph is Node's, so it cannot
+ * import this module and get the page's instance. Varying an answer per E2E
+ * spec therefore goes through the page-side seam below
+ * (`window.__BUNSCALE_E2E_MOCK__`), which layers an override on top of these
+ * defaults and is what tasks 5.14–5.17 drive.
  */
 export function registerMockCommand(
   command: string,
@@ -130,19 +157,122 @@ export function registerMockCommand(
   commandHandlers[command] = handler;
 }
 
-/** The names currently registered. Read-only view, for diagnostics and specs. */
+/** The names currently registered, defaults and overrides alike. */
 export function registeredMockCommands(): string[] {
-  return Object.keys(commandHandlers);
+  const names = new Set(Object.keys(commandHandlers));
+
+  for (const command of Object.keys(overrideHandlers)) {
+    names.add(command);
+  }
+
+  return [...names];
 }
+
+/*
+ * The page-side override seam (tasks 5.14–5.17).
+ *
+ * Why it exists: a Playwright spec runs in Node and this module runs in the
+ * page, so a spec cannot hand a handler to `registerMockCommand` — the function
+ * would have to cross the browser boundary. This object is installed on the
+ * page's `window` and is the one stable handle a spec can reach through
+ * `page.evaluate` (the same technique with which task 0.23 verified the
+ * unknown-command throw). It only ever exists in a document where the flag is
+ * set, because this module is only loaded then.
+ *
+ * `setResult` is the common case: a fixed answer for one command, for example
+ * `get_service_status` as `unreachable` so the guard shows the
+ * connectivity-required state. `setHandler` takes a function the spec builds
+ * **inside** the page context, which is what a sequence needs (a first attempt
+ * failing, a retry succeeding — task 5.16). `reset` restores the defaults:
+ * `reset()` for the whole document, `reset(command)` for one command.
+ *
+ * All three write the overrides map, never the registry, so a spec's changes
+ * cannot outlive the document: the next `page.goto` loads this module again and
+ * starts from the defaults.
+ */
+export type MockCommandSeam = {
+  /** Answer `command` with a fixed value for the rest of this document. */
+  setResult(command: string, result: unknown): void;
+  /** Answer `command` with a function, built in the page context. */
+  setHandler(command: string, handler: MockCommandHandler): void;
+  /** Drop one override, or every override when `command` is omitted. */
+  reset(command?: string): void;
+  /** The names currently answerable, defaults and overrides alike. */
+  registered(): string[];
+};
+
+declare global {
+  interface Window {
+    __BUNSCALE_E2E_MOCK__?: MockCommandSeam;
+  }
+}
+
+const mockSeam: MockCommandSeam = {
+  setResult(command, result) {
+    overrideHandlers[command] = () => result;
+  },
+  setHandler(command, handler) {
+    overrideHandlers[command] = handler;
+  },
+  reset(command) {
+    const names =
+      command === undefined ? Object.keys(overrideHandlers) : [command];
+
+    for (const name of names) {
+      delete overrideHandlers[name];
+    }
+  },
+  registered: registeredMockCommands,
+};
+
+window.__BUNSCALE_E2E_MOCK__ = mockSeam;
+
+/*
+ * The defaults the household entry guard (task 3.3) calls, shaped exactly as the
+ * frozen contract states them (`src/bindings.ts` is generated from it, so these
+ * literals are type-checked against it): `HouseholdSummary[]` with
+ * `{ id, name, created_at, is_active, is_owner, member_count }`, `Household` with
+ * `{ id, name, created_at, owner_member_id, is_active, is_owner }`, and
+ * `ServiceStatus` with `{ state, account_valid, cause, observed_at }`.
+ *
+ * No household plus a fresh `reachable`/`account_valid: true` status is the one
+ * state in which "the person holds no household" is a conclusion rather than an
+ * unloaded device (SYNC-3), so it is the honest default: the guard may start
+ * onboarding from it, and a spec that needs an unreachable or populated device
+ * overrides the one command whose answer differs.
+ *
+ * `observed_at` is a fixed instant rather than `new Date()`: the entry guard
+ * treats a status without an observation as "not looked yet" and probes, so a
+ * null here would silently exercise a different branch, and a clock read would
+ * make the default non-deterministic (`testing-strategy`).
+ */
+const OBSERVED_AT = '2026-10-20T09:00:00Z';
+
+const DEFAULT_SERVICE_STATUS: ServiceStatus = {
+  state: 'reachable',
+  account_valid: true,
+  cause: null,
+  observed_at: OBSERVED_AT,
+};
+
+registerMockCommand('list_households', (): HouseholdSummary[] => []);
+
+registerMockCommand('get_active_household', (): Household | null => null);
+
+registerMockCommand('get_service_status', () => DEFAULT_SERVICE_STATUS);
+
+registerMockCommand('check_service_reachability', () => DEFAULT_SERVICE_STATUS);
 
 /*
  * The install itself. `mockIPC` replaces `window.__TAURI_INTERNALS__.invoke`
  * with a function that runs this callback for every `invoke` call, so this is
  * the single dispatch point every mocked command goes through — which is also
- * what makes the registry above the only thing a later task has to extend. The
- * lookup is a plain index into the null-prototype registry, so an unregistered
- * name — including one that names an `Object.prototype` member — reads
- * `undefined` and reaches the throw rather than dispatching something inherited.
+ * what makes the registry above the one place every answer lives. The lookup
+ * consults the per-document overrides first and the registered defaults second,
+ * so an override shadows a default without rewriting it. Both are plain indexes
+ * into null-prototype objects, so an unregistered name — including one that
+ * names an `Object.prototype` member — reads `undefined` and reaches the throw
+ * rather than dispatching something inherited.
  *
  * The callback is deliberately not `async`: a handler's promise is returned
  * as-is and awaited by `invoke`, and the throw for an unknown command reaches
@@ -152,7 +282,8 @@ export function registeredMockCommands(): string[] {
  */
 mockIPC(
   (command, args) => {
-    const handler = commandHandlers[command];
+    const handler: MockCommandHandler | undefined =
+      overrideHandlers[command] ?? commandHandlers[command];
 
     if (handler === undefined) {
       throw new Error(

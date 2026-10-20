@@ -10,33 +10,75 @@
  *
  * The second test asserts behaviour rather than appearance: the way forward is a
  * route, not `history.back()` (`tanstack-router-conventions`: an in-UI control a
- * cold launch from a bad URL can actually use), so pressing it must land on the
- * start screen's own `h1` and leave the not-found surface behind.
+ * cold launch from a bad URL can actually use), so pressing it must leave the
+ * not-found surface and land on the start route. Since task 3.3 that route is
+ * `/`, the household entry, whose screen depends on the household state — so the
+ * assertion is the destination and the surface left behind, never a particular
+ * screen's copy, which tasks 4.1/4.2 will own. The household reads are stubbed
+ * so the entry resolves deterministically instead of failing on absent IPC: with
+ * none mocked, jsdom has no Tauri internals and `/` would render its error
+ * boundary, which would make this test pass for the wrong reason.
  *
  * Nothing about the arrangement is asserted here, and this screen is why the
  * distinction is easy to keep: it renders no `AppShell`, so there is no
  * navigation landmark to arrange at all.
  */
 import { RouterProvider } from '@tanstack/react-router';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { createTestRouter, describeAtBothBaselines } from '../../../test/setup';
+import type { Household, HouseholdSummary } from '../../households/queries';
+
+vi.mock('../../households/api');
+
+import { getActiveHousehold, listHouseholds } from '../../households/api';
 
 const NOT_FOUND = 'Not found';
 const BODY = 'This screen does not exist';
-const START_TITLE = 'Design system';
 const WAY_FORWARD = 'Go to the start screen';
 const SCENARIO =
   'TOOL-5: Component tests exercise the compact baseline — ' +
   'Component tests exercise the expanded baseline';
 
-async function renderUnmatchedRoute(): Promise<void> {
+/** One household, so the entry guard decides "household" without a probe. */
+const HOUSEHOLD: Household = {
+  id: 'household-a',
+  name: 'Household A',
+  created_at: '2026-10-20T09:00:00Z',
+  owner_member_id: 'member-a',
+  is_active: true,
+  is_owner: true,
+};
+
+const SUMMARY: HouseholdSummary = {
+  id: HOUSEHOLD.id,
+  name: HOUSEHOLD.name,
+  created_at: HOUSEHOLD.created_at,
+  is_active: true,
+  is_owner: true,
+  member_count: 1,
+};
+
+beforeEach(() => {
+  vi.mocked(listHouseholds).mockResolvedValue({
+    status: 'ok',
+    data: [SUMMARY],
+  });
+  vi.mocked(getActiveHousehold).mockResolvedValue({
+    status: 'ok',
+    data: HOUSEHOLD,
+  });
+});
+
+async function renderUnmatchedRoute() {
   const router = createTestRouter({ initialEntries: ['/no-such-route'] });
 
   await router.load();
   render(<RouterProvider router={router} />);
   await screen.findByRole('heading', { name: NOT_FOUND });
+
+  return router;
 }
 
 describeAtBothBaselines(`${SCENARIO} — NotFoundScreen`, () => {
@@ -55,18 +97,16 @@ describeAtBothBaselines(`${SCENARIO} — NotFoundScreen`, () => {
   });
 
   it('Offers a way forward to the start screen', async () => {
-    await renderUnmatchedRoute();
+    const router = await renderUnmatchedRoute();
 
     const user = userEvent.setup();
     const button = screen.getByRole('button', { name: WAY_FORWARD });
 
     await user.click(button);
 
-    const startScreen = await screen.findByRole('heading', {
-      name: START_TITLE,
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/');
     });
-
-    expect(startScreen).toBeVisible();
     expect(screen.queryByRole('heading', { name: BODY })).toBeNull();
   });
 });
