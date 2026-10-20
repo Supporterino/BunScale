@@ -137,7 +137,9 @@ export async function resolveHouseholdEntry(
     }),
   ]);
   const presence: HouseholdPresence = { households, activeHousehold };
-  const status = hasHousehold(presence) ? null : await readEntryServiceStatus();
+  const status = hasHousehold(presence)
+    ? null
+    : await readEntryServiceStatus(queryClient);
 
   return householdEntryDecision(presence, status);
 }
