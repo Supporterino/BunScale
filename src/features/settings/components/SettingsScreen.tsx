@@ -39,8 +39,17 @@
  * contains the active id has the marker follow the refreshed active answer
  * instead of a stale cached one (Q45). An active refetch that fails keeps its
  * last cached answer by design (see `settings/households`), so the pair is a
- * truthful re-read, not an absolute guarantee. The unit read has only its own
- * key to re-read.
+ * truthful re-read, not an absolute guarantee.
+ *
+ * **A retrying read has no control to press twice (Q46).** Starting the pair's
+ * refetch clears the failed read's error, so the section reports `pending` and
+ * the failure notice — the retry included — is replaced by the section's
+ * `LoadingIndicator` until the list read settles (the pair is started together;
+ * the section's kind follows the list read). A second tap therefore has no
+ * button to land on, and no separate busy prop is needed. When the re-read fails
+ * again the pending state ends and the notice and its cause return; when it
+ * succeeds, the rows do. The indicator announces `settings.households.loading`
+ * (Q48, task 7.6). The unit read has only its own key to re-read.
  *
  * **Arriving here moves focus.** SET-1's gear is a route change; the screen
  * focuses its `main` on mount so a keyboard or screen-reader user lands inside
@@ -266,7 +275,24 @@ function HouseholdsSection() {
   /*
    * Q45: both reads settle together. The marker is the active read's answer, so
    * re-reading the list alone could leave no row marked active when the active
-   * id is no longer held. The busy state while these run is task 7.5's.
+   * id is no longer held.
+   *
+   * Q46: no busy prop, because the state swap already supplies one. Starting
+   * the refetch clears the failed read's error, so
+   * `useSettingsHouseholdList` reports `pending` and this notice is replaced by
+   * the section's `LoadingIndicator` until the list read settles — the pair is
+   * started together, but the section's kind follows the list read, so the
+   * notice returns even if the active refetch is still running. The retry
+   * control does not exist while the list is in flight, so a second tap cannot
+   * land. When the re-read fails again the notice and its cause return; when it
+   * succeeds, the rows do. The indicator announces
+   * `settings.households.loading` (Q48, task 7.6).
+   *
+   * Accepted trade-off: unmounting the focused retry drops keyboard focus to
+   * the document body for the flight, which the polite status covers by
+   * announcing the pending state; keeping the notice alive through `pending` to
+   * hold that focus would need a different state model, which is why Q52's save
+   * surface — where the control outlives the write — decides the other way.
    */
   function refreshHouseholds() {
     void Promise.all([listRead.refetch(), activeRead.refetch()]);
@@ -282,7 +308,9 @@ function HouseholdsSection() {
 
   return (
     <ListSection header={t('settings.households.heading')}>
-      {households.kind === 'pending' ? <LoadingIndicator /> : null}
+      {households.kind === 'pending' ? (
+        <LoadingIndicator label={t('settings.households.loading')} />
+      ) : null}
 
       {readFailure === null ? null : (
         <Notice
@@ -388,7 +416,9 @@ function HouseholdsSection() {
         </Notice>
       )}
 
-      {switchHousehold.isPending ? <LoadingIndicator /> : null}
+      {switchHousehold.isPending ? (
+        <LoadingIndicator label={t('settings.households.switching')} />
+      ) : null}
 
       {households.kind === 'pending' ? null : creating ? (
         <CreateHouseholdForm onClose={() => setCreating(false)} />
@@ -526,7 +556,7 @@ function DisplayUnitSection() {
     return (
       <ListSection header={t('settings.displayUnit.heading')}>
         {readFailure === null ? (
-          <LoadingIndicator />
+          <LoadingIndicator label={t('settings.displayUnit.loading')} />
         ) : (
           <Notice
             action={

@@ -79,7 +79,7 @@ export function EntryPendingPlaceholder() {
       className="bs-entry-status"
       data-household-entry="pending"
     >
-      <LoadingIndicator variant="screen" />
+      <LoadingIndicator label={t('entry.loading')} variant="screen" />
     </Screen>
   );
 }

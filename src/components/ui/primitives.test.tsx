@@ -72,8 +72,8 @@ describeAtBothBaselines('design-system primitives', () => {
     expect(status).toHaveTextContent('You are offline');
   });
 
-  it('LoadingIndicator is a polite status unless the caller announces it', () => {
-    render(
+  it('LoadingIndicator announces the label it is given, and only that', () => {
+    const { container } = render(
       <>
         <LoadingIndicator label="Loading the household" />
         <LoadingIndicator decorative />
@@ -84,6 +84,31 @@ describeAtBothBaselines('design-system primitives', () => {
 
     expect(statuses).toHaveLength(1);
     expect(statuses[0]).toHaveTextContent('Loading the household');
+
+    // `decorative` is the caller-announces-it form: `aria-hidden`, no role and
+    // no copy of its own, so it cannot talk over the caller's own status.
+    const decorative = container.querySelector(
+      '[aria-hidden="true"].bs-loading-indicator',
+    );
+
+    expect(decorative).not.toBeNull();
+    expect(decorative?.textContent).toBe('');
+
+    // The removed fallback: an unlabelled ring used to announce a hard-coded
+    // "Loading". No English copy lives in this primitive any more.
+    expect(screen.queryByText('Loading')).toBeNull();
+  });
+
+  it('LoadingIndicator cannot announce anything outside the catalog', () => {
+    // The type is the assertion: `label` is required unless `decorative` is
+    // true, so the old bare `<LoadingIndicator />` — which fell back to a
+    // hard-coded English string — no longer compiles (task 7.6, Q48).
+    // @ts-expect-error - a non-decorative spinner requires a label.
+    render(<LoadingIndicator />);
+
+    // And if a cast got past the type, the live region would stay silent rather
+    // than announce copy the catalog does not hold.
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 
   it('SegmentedControl is a radiogroup of real radios', () => {

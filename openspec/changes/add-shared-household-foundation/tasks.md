@@ -1005,12 +1005,12 @@ names the scenario or the `questions.md` entry it closes.
   when the active id is no longer in the list. Unreachable in P0 today and made reachable by P3's
   deletion, which is why it lands now rather than being inherited. Closes Q45; HS-4's "All households
   are listed with the active one indicated".
-- [ ] 7.5 [frontend-ui] Give the Settings read retry a busy state while the refetch is in flight —
+- [x] 7.5 [frontend-ui] Give the Settings read retry a busy state while the refetch is in flight —
   the disabled control or the inline indicator, whichever the conventions already use for a pending
   read — so a second tap cannot land and the screen says it is working. Screenshots at 390×844 and
   1280×800 in `.artifacts/screens/` if the rendered result changes. Closes Q46; HS-4's Settings read
   path.
-- [ ] 7.6 [frontend-ui] Make `LoadingIndicator` announce copy from the i18n catalog — a required
+- [x] 7.6 [frontend-ui] Make `LoadingIndicator` announce copy from the i18n catalog — a required
   `label`, or a `messageKey` resolved through `t()` — update every call site including the pending
   entry surface that passes none, and **remove the hard-coded English "Loading" fallback**, so no P0
   string is announced outside the catalog. Confirm the visual result is unchanged at both baselines

@@ -284,7 +284,7 @@ export function DesignSystemPreview() {
             The list below may be a moment behind.
           </Notice>
           <div className="bs-preview__row">
-            <LoadingIndicator />
+            <LoadingIndicator label="Loading the preview" />
             <LoadingIndicator label="Loading the household" />
           </div>
           <LoadingIndicator label="Loading every household" variant="screen" />

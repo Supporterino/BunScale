@@ -811,6 +811,20 @@ correct once the event lands and the state is currently unreachable.
 
 ### Q46 — The Settings read retry has no busy state
 
+**Resolved (2026-10-21, task 7.5) — by measurement, not by a new prop.** The premise was wrong: the
+retry button does not survive the refetch. Starting the pair's re-read clears the failed read's error,
+so `useSettingsHouseholdList` reports `pending` and the screen replaces the notice *and its retry* with
+the section's polite `LoadingIndicator`; there is no control left to press twice, and the whole point of
+a disabled state is already met by the control not existing. A `loading` prop was implemented, then
+removed as unreachable when a capture showed the button never coexists with an in-flight read. The
+pending indicator announces `settings.households.loading` (Q48/7.6 made the label required), so the
+screen now *says* it is working too. `src/test/settings-households.component.test.tsx`'s
+`removes the retry while the re-read is in flight` pins it at both baselines: notice and control gone,
+labelled status present, and the notice back with an idle control after a failed re-read. Accepted
+trade-off: the focused retry unmounts, so keyboard focus falls to the body for the flight; the live
+region announces the state, and keeping the notice through `pending` would need a different state model
+(contrast Q52, where the save surface's control outlives the write). Original finding follows.
+
 The retry button on a failed household read stays enabled while the refetch runs. Minor: the button is
 idempotent and the refetch is the same query, so no wrong state is shown — but a disabled state or the
 inline indicator is what the conventions ask for. **Owner:** task 4.4/4.5 (which own the remaining
@@ -906,3 +920,12 @@ contract (task 0.21, decision 9), not something 7.9 may change without a design-
 task text and the Q49 record now state what is delivered. A busy state that literally retains focus
 would need `aria-disabled` plus a no-op activation, recorded here as the follow-up if a later phase
 wants it.
+
+### Q53 — Tasks 7.5 and 7.6 share one commit
+
+Task 7.5's proposal was measured to be dead code (Q46), and task 7.6 changed the very call sites 7.5
+touched on `SettingsScreen.tsx` (three `LoadingIndicator` labels plus the pending-indicator copy). Both
+landed in the same working tree, and separating their hunks in one file is not possible through the
+orchestrator's allow-listed commands, so they share one commit. 7.5's contribution is comments plus the
+in-flight spec; 7.6's is the primitive contract and the labels. Recorded on the same precedent as
+5.4+5.5, 4.2+4.3 and 7.7+7.9.

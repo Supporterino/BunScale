@@ -24,6 +24,16 @@
  * alone. The two read counts are what make that regression fail: a retry that
  * refreshed only the list would pass every other assertion in this suite.
  *
+ * What the retry does *while* it runs is asserted too (task 7.5; HS-4, Q46).
+ * Starting the pair's refetch clears the failed read's error, so the section
+ * reports `pending`: the failure notice — and the retry control inside it —
+ * unmounts and the section shows its loading status until the list read settles
+ * (the pair is started together). There is no busy-button state to assert
+ * because there is no button during the flight; that absence is the mechanism
+ * which makes a second tap impossible. The status's copy is asserted as well —
+ * `settings.households.loading`, the label task 7.6 made required — so the
+ * screen is shown to *say* it is working, not only to expose a region.
+ *
  * The display-unit section's failure is asserted here too (task 7.3; SET-4,
  * Q44). The unit pair reports only `cause: unknown`, which the backend marks
  * `retryable: false`, so the section offers **no retry control at all** — and
@@ -54,7 +64,7 @@
 import { RouterProvider } from '@tanstack/react-router';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
@@ -266,6 +276,24 @@ function connectivityFailure(requestId: unknown) {
   };
 }
 
+/**
+ * A promise whose settlement the test controls.
+ *
+ * The retry's second read is held open on one of these instead of on a timer,
+ * so "in flight" is a state the test owns rather than a race against the clock.
+ */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason: unknown) => void = () => {};
+
+  const promise = new Promise<T>((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+
+  return { promise, reject, resolve };
+}
+
 /** Open Settings over one held household, with the ordinary reads answered. */
 function seedSettings(): void {
   handlers.set('list_households', () => [HOME]);
@@ -289,6 +317,25 @@ function unitSection(): HTMLElement {
 
   if (section === null) {
     throw new Error('the Weight unit heading is not inside a section');
+  }
+
+  return section;
+}
+
+/**
+ * The Households section, located the same way: `ListSection` labels its
+ * `<section>` with the heading that names it, so "the section reports the read"
+ * is scoped to a real named group rather than to the whole screen — which also
+ * carries the profile and display-unit sections.
+ */
+function householdsSection(): HTMLElement {
+  const heading = screen.getByRole('heading', {
+    name: t('settings.households.heading'),
+  });
+  const section = heading.closest('section');
+
+  if (section === null) {
+    throw new Error('the Households heading is not inside a section');
   }
 
   return section;
@@ -519,8 +566,9 @@ describeAtBothBaselines('Settings: held households (HS-4)', () => {
       /*
        * The click happens before any refetch starts, so it needs no enabled
        * button during flight. Nothing below reads the control's enabled or
-       * disabled state: task 7.5 adds a busy state to this same button, and
-       * this regression must hold whether or not that state exists.
+       * disabled state: task 7.5 measured that the control is unmounted for the
+       * whole flight (the case below asserts that), so this regression holds
+       * without depending on any busy state.
        */
       await user.click(screen.getByRole('button', { name: RETRY }));
 
@@ -548,6 +596,113 @@ describeAtBothBaselines('Settings: held households (HS-4)', () => {
       expect(within(activeRow).getByText('Home household')).toBeVisible();
       expect(within(activeRow).getByText('Active')).toBeVisible();
       expect(screen.getAllByText('Active')).toHaveLength(1);
+    });
+
+    /*
+     * Task 7.5 / Q46: what the retry looks like *while* it runs, and what it
+     * leaves behind when the re-read fails again.
+     *
+     * There is deliberately **no busy-button assertion**, and none is possible:
+     * starting the pair's refetch clears the failed read's error, so
+     * `useSettingsHouseholdList` reports `pending`, the notice — the `Try again`
+     * control inside it — unmounts, and the section shows its `LoadingIndicator`
+     * until the list read settles. The control is not rendered while the list is
+     * in flight, which is exactly the mechanism that stops a second tap from
+     * starting a second pair; a disabled or `aria-busy` retry would be a state
+     * this screen never reaches (`Button`'s `loading` form is not used here).
+     *
+     * The status is asserted with its copy, not only its role: task 7.6 made a
+     * label required and the section announces `settings.households.loading`,
+     * so "the screen says it is working" is a fact here rather than an inference
+     * from a live region's presence.
+     *
+     * The second read is held on a deferred promise rather than a timer, so the
+     * flight is a state the test enters and leaves deliberately: the same
+     * `connectivity` failure the first attempt got is rejected into it, and the
+     * notice must come back with its copy and an idle, enabled control.
+     */
+    it('removes the retry while the re-read is in flight', async () => {
+      const refetch = deferred<HouseholdSummary[]>();
+
+      let listAttempts = 0;
+
+      seedSettings();
+      handlers.set('list_households', () => {
+        listAttempts += 1;
+
+        if (listAttempts === 1) {
+          throw connectivityFailure(null);
+        }
+
+        // The retry's answer is this test's to hold and settle.
+        return refetch.promise;
+      });
+
+      await openSettings();
+
+      const notice = await screen.findByRole('alert');
+
+      expect(notice).toHaveTextContent(t('error.connectivity'));
+      expect(within(notice).getByRole('button', { name: RETRY })).toBeVisible();
+
+      const user = userEvent.setup();
+
+      await user.click(screen.getByRole('button', { name: RETRY }));
+
+      // The tap issued the second read and it has not answered: the list is
+      // held on the deferred promise. Awaiting the call itself is what makes
+      // "in flight" a fact here rather than a race against a settled read.
+      await waitFor(() => {
+        expect(listCalls()).toHaveLength(2);
+      });
+
+      // The failure notice, and with it the retry control, is unmounted. The
+      // failure is the only source of the section's `alert`, and the list is
+      // held, so this also means the section settled into `pending` rather than
+      // into rows.
+      await waitFor(() => {
+        expect(screen.queryByRole('alert')).toBeNull();
+      });
+
+      /*
+       * Nothing named the retry label exists anywhere on the screen — not a
+       * button and not a link, so there is no second path to the same re-read
+       * either. This is the double-tap guard Q46 asked for, stated as the
+       * absence it is.
+       */
+      expect(screen.queryAllByRole('button', { name: RETRY })).toHaveLength(0);
+      expect(screen.queryAllByRole('link', { name: RETRY })).toHaveLength(0);
+
+      /*
+       * The Households section reports the read as running, through the
+       * primitive's polite status. Since 7.6 the label is required, so the copy
+       * is part of the contract: the screen has to *say* it is working, not
+       * only expose a live region.
+       */
+      const status = within(householdsSection()).getByRole('status');
+
+      expect(status).toBeVisible();
+      expect(status).toHaveTextContent(t('settings.households.loading'));
+
+      /*
+       * The re-read fails the same way the first attempt did. The flight ends
+       * where it started: the notice returns with its cause and an idle retry,
+       * so the failure the person is looking at is still actionable.
+       */
+      await act(async () => {
+        refetch.reject(connectivityFailure(null));
+      });
+
+      const again = await screen.findByRole('alert');
+      const retry = within(again).getByRole('button', { name: RETRY });
+
+      expect(again).toHaveTextContent(t('error.connectivity'));
+
+      // The pending state ended: the section's only read report is the notice.
+      expect(within(householdsSection()).queryByRole('status')).toBeNull();
+
+      expect(retry).toBeEnabled();
+      expect(retry).not.toHaveAttribute('aria-busy');
     });
   });
 });

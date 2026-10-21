@@ -20,8 +20,9 @@
  * `role` and no `aria-live`, and `aria-busy` is exposed state rather than a
  * region. The notice's own `role="alert"` (from `Notice`'s danger tone) is the
  * single announcement, so the in-flight change cannot be spoken twice. Keeping
- * that call site decorative is part of this contract if a later task gives
- * `LoadingIndicator` a required label.
+ * that call site decorative is part of this contract: `LoadingIndicator` has no
+ * unlabelled announcing form (task 7.6), so the `Button` stays `decorative` and
+ * the alert remains the single announcement.
  *
  * **Where it is used.** Three render sites, all live, and no others. The route
  * shell presents the store's record through `SaveFailureSurface`, with
