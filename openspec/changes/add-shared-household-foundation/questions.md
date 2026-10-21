@@ -795,6 +795,13 @@ button. Q42 already owns the missing test for that mapping.
 
 ### Q45 — The Settings refresh re-reads the list but not the active household
 
+**Resolved (2026-10-21, task 7.4):** the retry now refetches the held-set pair —
+`householdKeys.list()` and `householdKeys.active()` — in one `Promise.all`, so the marker follows the
+refreshed active answer instead of a stale cached one; an active refetch that fails keeps its last
+cached answer by design. The pair is asserted at the component layer (`re-reads the held-set pair and
+keeps one active marker`), which fails if the retry is reverted to the list alone. Original finding
+follows.
+
 `SettingsScreen`'s read-failure retry refetches `householdKeys.list()` only. The Active marker comes
 from the active read (`useActiveHousehold`), so if the active id is no longer in the list after the
 refresh, no row is marked active until the next `household:changed` event. Not reachable today (P0 has
@@ -839,6 +846,28 @@ store-backed `SaveFailureSurface` mount was removed because nothing in P0 calls 
 the first recorder (P3's shared-service writes, or a P0 follow-up), which mounts the surface and wires
 the recorder together; Q37 owns the same gap on the Rust side.
 
+**Resolved (2026-10-21):** task 7.7 makes the household creation flow the first recorder and mounts the
+store-backed surface once. `HouseholdOnboardingScreen` calls `recordFailedSave` for every create
+failure **except** `validation`, which stays the field's own inline alert and clears any older record so
+the latest attempt is the one described. The recorded handle carries the attempt's `request_id`, and
+its `run()` re-issues the same `createHousehold` handle through `useCreateHousehold`'s `mutateAsync`,
+so the surface's retry re-sends the identity D0.14 requires and a confirmed retry still performs the
+mutation's cache writes. `src/routes/__root.tsx` renders `SaveFailureSurface` after `<Outlet />` (it is
+fixed-position, so document order stays the Tab order); it presents through the single
+`SaveFailureNotice` component: the same `Not saved` header and per-cause copy as before, and `Try
+again` only when the backend marks the cause retryable. `validation` is the one cause the shell never
+presents: `settleRetryFailure` clears the record when a re-issued attempt settles with it, after the
+identity guard, so a superseded retry cannot clear or overwrite a newer record; the form field's alert
+is then the only live region. A non-retryable cause stays copy-only, exactly as the inline create
+notice did. The inline `SaveFailureNotice` was removed from the create form, so one failed save
+produces exactly one notice — on the first attempt and on a retry. A successful create clears the
+record via `dismissFailedSave`, and while a retry is in flight the surface keeps the same control in
+the primitive's `loading` form (label and node preserved, `aria-busy`, disabled — the `Button`
+contract releases focus, which the primitive owns). Task 7.9 placed the surface: `position: fixed`,
+bottom-anchored above the tab bar or the safe area, inline gutter and content measure, out of
+`.bs-app-shell`'s height flow, with `.artifacts/screens/7.9-{compact,expanded}-save-failure.png` as
+evidence at both baselines. `src/features/sync/save-retry.ts` is no longer dead code.
+
 ### Q50 — The request-id retry invariant now has a component-level spec
 
 Q29 is closed: `src/test/household-onboarding.component.test.tsx` and
@@ -846,3 +875,34 @@ Q29 is closed: `src/test/household-onboarding.component.test.tsx` and
 `request_id`, at the screen layer. The remaining half Q29 asked for — two *different* intents mints two
 different ids — is asserted at the hook level in `src/features/households/create.test.ts`; the
 component specs cover the reuse half.
+
+### Q51 — The save-failure surface's shell-route branch is verified by reading, not by evidence
+
+Task 7.9's `.bs-save-failure` rules include two `:root:has(.bs-app-shell)` branches (above the tab bar,
+and clear of the sidebar at ≥768). They cannot be exercised in P0: the only production recorder is the
+create flow on the standalone onboarding screen, and a household that exists sends `/` to the dashboard
+and `/onboarding` back to `/`, while a successful create dismisses the record. So the shell branches are
+read-only code until the first recorder that can fail on a shell route (P3's shared-service writes).
+
+**Recorded, not fixed.** Evidence is the two screenshots plus the declaration review; when the first
+shell-route recorder lands, capture the surface over the dashboard at both baselines before treating
+that branch as verified. The review also noted that the surface's `max-height` reserve is a bar's worth
+of clearance rather than a header's height — true today because the copy is one sentence — and that the
+keyboard-inset expression can lift the notice over the in-flow submit button on a short screen; both
+are documented trades in the rule's comment, not defects observed in the captures.
+
+### Q52 — Tasks 7.7 and 7.9 share one commit, and 7.9's focus claim was corrected
+
+Task 7.7 (recorder wiring, shell mount) and task 7.9 (surface placement, in-flight retry form) are
+circularly dependent: the surface passes the `retrying` prop and the `bs-save-failure` class that 7.9
+adds, and 7.9's screenshots can only be produced once 7.7's recorder and mount exist. Committing them
+separately would leave one commit ungated, so they land as one commit (`fix(...): 7.7 + 7.9`), on the
+same precedent as 5.4+5.5 and 4.2+4.3 in this change.
+
+Task 7.9's text said the in-flight form keeps the control's *focus*. The delivered form keeps the
+node, the label and the position, but the `Button` primitive sets the real `disabled` attribute while
+`loading`, and WebKit blurs a disabled control — so focus is released. That is the primitive's
+contract (task 0.21, decision 9), not something 7.9 may change without a design-system decision; the
+task text and the Q49 record now state what is delivered. A busy state that literally retains focus
+would need `aria-disabled` plus a no-op activation, recorded here as the follow-up if a later phase
+wants it.

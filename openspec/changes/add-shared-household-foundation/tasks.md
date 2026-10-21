@@ -1017,7 +1017,7 @@ names the scenario or the `questions.md` entry it closes.
   and capture screenshots. Closes Q48; 3.7's no-hard-coded-copy rule. **Depends on 7.8**: the four
   loading-state strings this needs do not exist in the catalog yet, and `src/features/i18n/**` is
   `frontend-logic`'s.
-- [ ] 7.7 [frontend-logic] Wire the first real `recordFailedSave` caller — the household creation flow
+- [x] 7.7 [frontend-logic] Wire the first real `recordFailedSave` caller — the household creation flow
   — and mount `SaveFailureSurface` at the route shell, so `src/features/sync/save-retry.ts` is no
   longer dead code. Keep `SaveFailureNotice` as the **single** failure presentation rather than showing
   two surfaces for one failed save, and update `questions.md` Q49 when done. Closes Q49; SYNC-2's "Save
@@ -1027,10 +1027,11 @@ names the scenario or the `questions.md` entry it closes.
   for the generic inline read (the preview keeps a literal because it is not product copy). Keys are
   added to `src/features/i18n/messages.ts` only, with the catalog's typographic conventions; no call
   site changes and no consumer yet. Lands before 7.6, which owns the component contract.
-- [ ] 7.9 [frontend-ui] Style the shell-mounted save-failure surface and give its retry an in-flight state:
+- [x] 7.9 [frontend-ui] Style the shell-mounted save-failure surface and give its retry an in-flight state:
   place it with the design system's safe areas and inline gutter and keep it out of `.bs-app-shell`'s
   viewport height flow (today `bs-save-failure` has no rule at all, so on iOS it would sit in the notch
   region and on a shell route it would push the tab bar off-screen), and replace the surface's
-  remove-the-button-while-retrying behaviour with the `Button`'s `loading` form so the control keeps
-  focus and the label. Capture the failure state at 390×844 and 1280×800 in `.artifacts/screens/`.
-  Closes 7.7's presentation findings; SYNC-2's retry offer and the design system's safe-area rule.
+  remove-the-button-while-retrying behaviour with the `Button`'s `loading` form so the control keeps its
+  node, label and position (the primitive's `disabled` loading state releases focus — see Q52).
+  Capture the failure state at 390×844 and 1280×800 in `.artifacts/screens/`. Closes 7.7's presentation
+  findings; SYNC-2's retry offer and the design system's safe-area rule.

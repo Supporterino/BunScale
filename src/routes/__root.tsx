@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, Outlet } from '@tanstack/react-router';
 import { NotFoundScreen } from '../features/design-preview/components/NotFoundScreen';
+import { SaveFailureSurface } from '../features/sync/components/SaveFailureSurface';
 
 /*
  * The root of the file-based route tree: every route under `src/routes/` is a
@@ -22,10 +23,22 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 );
 
 /*
- * The root layout is a pass-through: it exists so route layout (adaptive
- * navigation, fixed bars, safe areas) has one place to live, and
- * `frontend-conventions` puts all of that in the UI layer rather than here.
+ * The root layout is a pass-through with one shell-level surface: the
+ * store-backed save failure (task 7.7). It is mounted **after** `<Outlet />`
+ * because the surface is fixed to the bottom edge: document order is Tab
+ * order, so the route's heading and field come first and the notice's action
+ * follows them, matching the visual order (design-system convention 9). It is
+ * still mounted once for every route, so a save that failed on the screen that
+ * started it is presented after a navigation. A single slot means the surface
+ * shows exactly one notice; the styling hook is `bs-save-failure` (placement
+ * and safe-area treatment belong to `frontend-ui`). All other layout (adaptive
+ * navigation, fixed bars, safe areas) lives in the UI layer, not here.
  */
 function RootLayout() {
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <SaveFailureSurface />
+    </>
+  );
 }

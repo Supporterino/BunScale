@@ -15,6 +15,16 @@
  *   - "A failed save is visible and specific" — every cause produces its own
  *     copy, so a classified cause can never fall back to "something went wrong".
  *
+ * `retrying` is asserted as a state of that same retry offer rather than as a
+ * fourth scenario (task 7.9): while an attempt is in flight the control keeps
+ * its node and its label and takes the `Button`'s busy form (`disabled` and
+ * `aria-busy`) instead of being withdrawn, and the notice stays the only live
+ * region; a non-retryable cause has no control at all, `retrying` or not. The
+ * file renders `SaveFailureNotice` by props — that is the honest layer for the
+ * prop; the store-to-surface forwarding (`SaveFailureSurface` reads `retrying`
+ * from `useSaveRetry` and hands it down) is a wiring fact this file does not
+ * render, and the store itself is `save-retry.test.tsx`'s.
+ *
  * The cause list is read from `SAVE_CAUSE_MESSAGE_KEYS`, the map that defines the
  * taxonomy, so a cause added to the contract is covered by these specs rather
  * than silently skipped. Every fixture carries `error.unknown` as the backend's
@@ -184,6 +194,54 @@ describeAtBothBaselines('Save failure surface (SYNC-2, NFR-8)', () => {
         expect(retry).not.toHaveBeenCalled();
       });
     }
+
+    /*
+     * Task 7.9: the in-flight state is `Button`'s `loading` form, not an
+     * absent action. The control the person pressed stays where it is, with the
+     * label that says what is running; the form disables it and exposes
+     * `aria-busy`, which is what keeps the attempt from landing twice and from
+     * being announced by a second live region.
+     */
+    it('keeps the retry control in its busy form while the retry runs', () => {
+      const retry = vi.fn();
+
+      render(
+        <SaveFailureNotice
+          error={failure('connectivity')}
+          onRetry={retry}
+          retrying
+        />,
+      );
+
+      const notice = screen.getByRole('alert');
+      const control = within(notice).getByRole('button', { name: 'Try again' });
+
+      // Still there, still labelled: the node is not replaced or unmounted.
+      expect(control).toBeVisible();
+      expect(control).toHaveTextContent('Try again');
+
+      // The Button's loading contract: unreachable and announced as busy. Focus
+      // is deliberately not asserted — the native `disabled` releases it.
+      expect(control).toBeDisabled();
+      expect(control).toHaveAttribute('aria-busy', 'true');
+
+      // The busy form adds no live region: one alert, no polite status.
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    // The shell mount passes no dismissal (SaveFailureSurface), so a
+    // non-retryable record is copy alone — and `retrying` cannot conjure a
+    // control into that state.
+    it('offers no control for a non-retryable cause while retrying', () => {
+      render(<SaveFailureNotice error={failure('validation')} retrying />);
+
+      const notice = screen.getByRole('alert');
+
+      expect(notice).toHaveTextContent(t(SAVE_CAUSE_MESSAGE_KEYS.validation));
+      expect(within(notice).queryAllByRole('button')).toHaveLength(0);
+      expect(screen.queryByRole('status')).toBeNull();
+    });
   });
 
   describe('"A failed save is visible and specific"', () => {

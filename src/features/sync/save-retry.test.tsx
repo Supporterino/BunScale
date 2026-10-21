@@ -8,19 +8,49 @@
  * updates the cause instead of clearing the record, and nothing is ever shown as
  * saved when no answer arrived (a rejected `run()` included).
  *
+ * One cause settles as a clear rather than a record: a retry the backend refuses
+ * with `validation` belongs to the form field that owns the input, so the slot is
+ * dropped without a second notice (task 7.7) — and, like every other outcome,
+ * only for the attempt the slot still holds, so a superseded retry that settles
+ * late as `validation` cannot clear a newer failure.
+ *
  * The interleaving specs are the other half: the slot can move on while an
  * attempt is in flight. A newer failure supersedes it (and its late result is
  * dropped, whichever way it settles), and a dismissal is refused while a retry
  * is running because that operation may land — so a late success can never
  * clear a newer failure, call a callback that has moved on, or resurrect a
  * dismissed record.
+ *
+ * The last group renders the store-backed mount itself (`SaveFailureSurface`)
+ * rather than the hook: the surface is the only reader that turns the store's
+ * `retrying` into the notice's busy form, so that forwarding is a fact about
+ * this file's fixture arrangement (the record, the `deferred()` operation and
+ * `resetSaveRetry` all live here). `save-failure.component.test.tsx` owns the
+ * notice's `retrying` prop and deliberately does not render the mount; deleting
+ * `retrying={retrying}` from the mount must fail here. The cases are:
+ *
+ *   - "shows the store retrying and unmounts on success" — with a retryable
+ *     record on a deferred operation and `retryFailedSave()` started but not
+ *     awaited, the store's `retrying` reaches the notice: one `alert`, no
+ *     `status`, and the `Try again` control present, labelled, disabled and
+ *     `aria-busy`. The attempt then succeeds, and the surface unmounts;
+ *   - "re-enables the retry when the attempt fails" — the same arrangement, the
+ *     attempt failing instead, so the control comes back enabled without
+ *     `aria-busy` (the forwarding of `retrying: false`, not just of `true`).
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { act, renderHook } from '@testing-library/react';
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandResult } from '../../lib/request-id';
 import { createHousehold } from '../households/api';
 import type { Household } from '../households/queries';
+import { SaveFailureSurface } from './components/SaveFailureSurface';
 import type { SaveCommandError } from './failure';
 import type { SaveFailure } from './save-retry';
 import {
@@ -60,6 +90,16 @@ function rateLimited(requestId: string): SaveCommandError {
     cause: 'rate_limited',
     retryable: true,
     message_key: 'error.rate_limited',
+    request_id: requestId,
+  };
+}
+
+/** The backend's `validation` refusal: the form field's own error. */
+function validation(requestId: string): SaveCommandError {
+  return {
+    cause: 'validation',
+    retryable: false,
+    message_key: 'error.validation',
     request_id: requestId,
   };
 }
@@ -169,6 +209,24 @@ describe('the failed-save retry state', () => {
     expect(saved).not.toHaveBeenCalled();
   });
 
+  it('clears the record when the retry is refused as validation', async () => {
+    const saved = vi.fn();
+    const refused = operation(async () => ({
+      status: 'error',
+      error: validation('request-1'),
+    }));
+
+    recordFailedSave(refused, connectivity(refused.requestId), saved);
+
+    await retryFailedSave();
+
+    // The refusal is the form field's to present, so the shell's record goes
+    // rather than becoming a second notice for one refusal. A clear is not a
+    // confirmation: the recorded success callback does not run.
+    expect(getSaveRetryState()).toEqual({ failure: null, retrying: false });
+    expect(saved).not.toHaveBeenCalled();
+  });
+
   it('treats a rejected retry as an unclassified failure, never a success', async () => {
     const failing = operation(async () => {
       throw new Error('the bridge broke');
@@ -264,6 +322,33 @@ describe('the failed-save retry state', () => {
     expect(recorded?.cause).toBe('rate_limited');
   });
 
+  it('does not clear a newer record when a superseded retry settles as validation', async () => {
+    const pending = deferred<CommandResult<unknown, SaveFailure>>();
+    const older = operation(() => pending.promise, 'request-older');
+    const newer = operation(
+      async () => ({ status: 'ok', data: null }),
+      'request-newer',
+    );
+
+    recordFailedSave(older, connectivity(older.requestId));
+    const retry = retryFailedSave();
+
+    recordFailedSave(newer, rateLimited(newer.requestId));
+
+    // The older attempt is refused as validation after the newer failure owns
+    // the slot. `validation` clears the attempt it belongs to, but this is not
+    // that attempt: the identity guard wins and the newer record stands.
+    pending.resolve({ status: 'error', error: validation(older.requestId) });
+    await retry;
+
+    const recorded = getSaveRetryState().failure;
+
+    expect(recorded?.operation).toBe(newer);
+    expect(recorded?.cause).toBe('rate_limited');
+    expect(recorded?.messageKey).toBe('error.rate_limited');
+    expect(getSaveRetryState().retrying).toBe(false);
+  });
+
   it('refuses a dismissal while a retry is running', async () => {
     const saved = vi.fn();
     const pending = deferred<CommandResult<unknown, SaveFailure>>();
@@ -304,5 +389,98 @@ describe('the failed-save retry state', () => {
     });
 
     expect(result.current).toEqual({ failure: null, retrying: false });
+  });
+
+  /*
+   * The wiring half of task 7.9, and the reason it lives here: the notice's
+   * `retrying` prop is pinned by `save-failure.component.test.tsx`, but only
+   * `SaveFailureSurface` reads that flag from the store. These render the mount
+   * with this file's own record/`deferred()` arrangement, so removing
+   * `retrying={retrying}` from the mount leaves the control enabled and fails.
+   */
+  describe('the store-backed surface forwards an in-flight retry', () => {
+    it('shows the store retrying and unmounts on success', async () => {
+      const pending = deferred<CommandResult<unknown, SaveFailure>>();
+      const slow = operation(() => pending.promise);
+
+      recordFailedSave(slow, connectivity(slow.requestId));
+
+      render(<SaveFailureSurface />);
+
+      // Before the attempt: the same control is usable, so the busy form below
+      // can only come from the store's `retrying`.
+      expect(
+        within(screen.getByRole('alert')).getByRole('button', {
+          name: 'Try again',
+        }),
+      ).toBeEnabled();
+
+      let retry: Promise<void> | undefined;
+
+      act(() => {
+        retry = retryFailedSave();
+      });
+
+      const notice = screen.getByRole('alert');
+      const control = within(notice).getByRole('button', { name: 'Try again' });
+
+      // The control is not withdrawn while busy: same node, same label, the
+      // Button's loading form.
+      expect(control).toBeVisible();
+      expect(control).toHaveTextContent('Try again');
+      expect(control).toBeDisabled();
+      expect(control).toHaveAttribute('aria-busy', 'true');
+
+      // The busy form adds no second live region.
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+      expect(screen.queryByRole('status')).toBeNull();
+
+      await act(async () => {
+        pending.resolve({ status: 'ok', data: 'saved' });
+        await retry;
+      });
+
+      // The retry succeeded, so the record is gone and the surface with it.
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('re-enables the retry when the attempt fails', async () => {
+      const pending = deferred<CommandResult<unknown, SaveFailure>>();
+      const slow = operation(() => pending.promise);
+
+      recordFailedSave(slow, connectivity(slow.requestId));
+
+      render(<SaveFailureSurface />);
+
+      let retry: Promise<void> | undefined;
+
+      act(() => {
+        retry = retryFailedSave();
+      });
+
+      expect(
+        within(screen.getByRole('alert')).getByRole('button', {
+          name: 'Try again',
+        }),
+      ).toBeDisabled();
+
+      await act(async () => {
+        pending.resolve({
+          status: 'error',
+          error: rateLimited(slow.requestId),
+        });
+        await retry;
+      });
+
+      const notice = screen.getByRole('alert');
+      const control = within(notice).getByRole('button', { name: 'Try again' });
+
+      // The failure keeps the record and the offer: `retrying` went back to
+      // false, so the forwarding must carry that too.
+      expect(control).toHaveTextContent('Try again');
+      expect(control).toBeEnabled();
+      expect(control).not.toHaveAttribute('aria-busy');
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+    });
   });
 });

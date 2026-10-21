@@ -2,9 +2,11 @@
  * Screen composition (task 4.1 onward).
  *
  * Not a token layer and not a primitive: these classes lay out one feature's
- * screen out of the frozen primitives. Imported after `ui.css` so a screen rule
- * can override a primitive's own spacing where the screen owns the decision —
- * here, the safe areas of a surface that renders without `AppShell`.
+ * screen — or, at the end of the file, one feature's shell-level surface — out
+ * of the frozen primitives. Imported after `ui.css` so a screen rule can
+ * override a primitive's own spacing where the screen owns the decision — here,
+ * the safe areas of a surface that renders without `AppShell`, and the
+ * placement of the one surface that renders outside it.
  *
  * The first entry is the first-run household creation screen.
  */
@@ -198,4 +200,125 @@
   justify-content: center;
   align-items: center;
   text-align: center;
+}
+
+/*
+ * The shell-mounted save-failure surface (task 7.9; SYNC-2, NFR-8).
+ *
+ * `SaveFailureSurface` renders this from the root layout, above `<Outlet />`,
+ * so the notice is a **sibling** of whatever route is mounted — neither a child
+ * of a screen nor a child of `.bs-app-shell`. Two consequences decide the rules
+ * below:
+ *
+ *   - a block in the document flow would sit in front of a shell that is
+ *     exactly `--layout-viewport-height` tall, which pushes the tab bar off the
+ *     bottom of a compact screen (and the whole shell off a desktop window) for
+ *     as long as the failure lasts. The surface is therefore out of flow:
+ *     `position: fixed` takes no height from the shell's frame and cannot move
+ *     the tab bar. `absolute` is rejected because the box would resolve against
+ *     the document and scroll with it, while the safe-area insets describe the
+ *     *viewport's* edges — the box `fixed` is anchored to;
+ *   - nothing above the surface adds the bottom or inline insets for it: it is
+ *     not inside the nav bar, the tab bar or `Screen`. Each inset is added
+ *     here, at the nearest viewport edge, exactly once — and the rules for a
+ *     shell route below hand the bottom edge to the tab bar and the leading
+ *     edge to the sidebar rather than adding them a second time.
+ *
+ * **Anchored to the bottom edge, not the top.** P0's only production recorder
+ * is the household creation flow (`HouseholdOnboardingScreen`), and the
+ * onboarding route renders without `AppShell`: the failure therefore always
+ * appears over a standalone screen whose header — `Create your household` and
+ * its intro — is the top of the scroll region. A top-anchored overlay sat on
+ * exactly that and hid the screen it was reporting about (7.9's first
+ * captures). The bottom edge is also the conventional place for a persistent
+ * failure with one action: the title, the field and the primary control stay in
+ * view, the retry is within thumb reach, and no navigation bar occupies that
+ * edge. The trade is that a form scrolled to its end can pass beneath it; the
+ * header and the field cannot, and the surface's own action is the control it
+ * has to keep reachable.
+ *
+ * The gap to the bottom is `max(--safe-area-inset-bottom, --keyboard-inset)`,
+ * the same reservation `.bs-onboarding` makes: the notice then sits above
+ * whichever box owns the bottom — the home indicator, or the software keyboard
+ * that screen's own hook assigns — with no measurement here. The 8 px of
+ * breathing space is the scale step `--space-2`.
+ *
+ * The inline gutter is the semantic `--spacing-inline`, which widens at 768 and
+ * 1200 with the rest of the layout, and the measure is `--layout-content-max`,
+ * the same cap `.bs-screen__content` uses, so the notice lines up with the
+ * content column it reports about instead of stretching across a wide window.
+ * The danger tone's own border and surface separate the notice from the content
+ * that scrolls beneath it; no elevation token is invented for it.
+ */
+.bs-save-failure {
+  position: fixed;
+  /*
+   * Above the screen's content, which is unlayered and paints in tree order.
+   * The only other z-index in the app is the skip link's `1`, at the top-left
+   * edge; this surface sits at the bottom, so the two never meet. The framework
+   * has no z-index scale, so the two literals are the placement fact; a third
+   * overlay should introduce the scale.
+   */
+  z-index: 2;
+  inset-block-end: calc(
+    var(--space-2) +
+    max(var(--safe-area-inset-bottom), var(--keyboard-inset))
+  );
+  inset-inline-start: calc(var(--spacing-inline) + var(--safe-area-inset-left));
+  inset-inline-end: calc(var(--spacing-inline) + var(--safe-area-inset-right));
+  max-width: var(--layout-content-max);
+  /*
+   * A fixed box with both inline edges set and a width cap: the auto margins
+   * are what centre it in the band those edges define.
+   */
+  margin-inline: auto;
+  /*
+   * A cap, never a height: a large preferred text size wraps and grows the
+   * notice. Past the viewport the surface scrolls its own content rather than
+   * growing off-screen, so the retry — the notice's only action — stays
+   * reachable. The reserve is the top inset plus a bar's worth of clearance,
+   * not a header's height: today's one-sentence causes sit far under the cap,
+   * and a header-height token would be needed to make it a guarantee.
+   */
+  max-height: calc(
+    var(--layout-viewport-height) -
+    var(--safe-area-inset-top) -
+    var(--nav-bar-height) -
+    var(--space-6)
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/*
+ * Compact shell route: the tab bar is the box flush to the bottom edge and
+ * already carries the home indicator in `--layout-tab-bar-height`, so the
+ * notice sits above the bar instead of over it and adds no bottom inset of its
+ * own. `:has()` is how the surface asks what is mounted: the shell is its
+ * sibling, so no selector can climb from the notice to the frame. It is inside
+ * the shipped engine range (Safari 15.4+; the floor is iOS 16.4 / macOS 13.3,
+ * design.md D0.16), and `:root` is a pseudo-class rather than an element
+ * selector, so this file still names no HTML element — `base.css` remains the
+ * only stylesheet that does.
+ */
+:root:has(.bs-app-shell) .bs-save-failure {
+  inset-block-end: calc(var(--layout-tab-bar-height) + var(--space-2));
+}
+
+@media (min-width: 768px) {
+  /*
+   * Medium and expanded: the tab bar is `display: none`, so the base rule's
+   * safe-area expression is the whole bottom gap again, and the sidebar is the
+   * box flush to the leading edge — it carries the leading inset, so the notice
+   * begins after the navigation column rather than adding that inset twice.
+   * Without the offset a content-width notice centred on the window would cover
+   * the sidebar's rows across the 768-1080 px band.
+   */
+  :root:has(.bs-app-shell) .bs-save-failure {
+    inset-block-end: calc(
+      var(--space-2) +
+      max(var(--safe-area-inset-bottom), var(--keyboard-inset))
+    );
+    inset-inline-start: calc(var(--sidebar-width) + var(--spacing-inline));
+  }
 }

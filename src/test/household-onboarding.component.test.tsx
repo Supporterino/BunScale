@@ -20,6 +20,12 @@
  * this assertion for the screens, so task 5.12 folds it in here (and in the
  * Settings create form, which keeps the same handle discipline).
  *
+ * Plus the rule that task 7.7's review found broken: `validation` belongs to the
+ * field. Now that a create failure is recorded for the route shell to present,
+ * a retry whose answer is `validation` (reachable — the service maps 400/422
+ * there, `src-tauri/src/sync/gate.rs`) must leave the form's blank-name prompt
+ * as the *only* alert, not that prompt *and* a shell `Not saved` notice.
+ *
  * What is NOT assertable at this layer, and who owns it:
  *   - "the creator is recorded as its first member" and "that household is the
  *     active household" are domain facts behind the command, which takes only a
@@ -50,6 +56,7 @@ import type {
   HouseholdSummary,
 } from '../features/households/queries';
 import type { ServiceStatus } from '../features/sync/entry-status';
+import { resetSaveRetry } from '../features/sync/save-retry';
 import {
   createTestQueryClient,
   createTestRouter,
@@ -115,6 +122,13 @@ function createCalls(): MockCall[] {
 beforeEach(() => {
   calls = [];
   handlers = new Map();
+
+  /*
+   * The retry store lives at module scope, so one test's record would be the
+   * next test's shell notice. These specs assert on what the shell presents,
+   * which only holds when each one starts with an empty slot.
+   */
+  resetSaveRetry();
 
   mockIPC(
     (command, args) => {
@@ -378,6 +392,123 @@ describeAtBothBaselines('Household onboarding (HS-1)', () => {
       expect(creates[0].args.name).toBe(CREATED.name);
       expect(creates[1].args.name).toBe(CREATED.name);
       expect(creates[1].args.requestId).toBe(creates[0].args.requestId);
+    });
+  });
+
+  /*
+   * Task 7.7's review: the create flow now records its failures into the shell
+   * (`recordFailedSave`), which the route shell presents once
+   * (`SaveFailureSurface`). The one refusal that must stay out of that record is
+   * `validation` — it belongs to the field, in the same words as a blank name.
+   * A retry answers through the recorded handle rather than through this
+   * screen's submit path, so the field is the only place left for it once the
+   * shell drops the record; otherwise one refusal reads as two notices.
+   */
+  describe('"Validation belongs to the field" (7.7 review)', () => {
+    it('shows only the field prompt after a validation retry', async () => {
+      let attempts = 0;
+
+      answerNoHousehold();
+      handlers.set('create_household', (args) => {
+        attempts += 1;
+
+        // The first attempt cannot reach the service, so the shell offers the
+        // retry and the same operation identity is re-sent.
+        if (attempts === 1) {
+          throw {
+            cause: 'connectivity',
+            retryable: true,
+            message_key: 'error.connectivity',
+            request_id: args.requestId,
+          };
+        }
+
+        // The retry's answer: the refusal a 400/422 becomes in `gate.rs`.
+        throw {
+          cause: 'validation',
+          retryable: false,
+          message_key: 'error.validation',
+          request_id: args.requestId,
+        };
+      });
+
+      const router = await launch('/onboarding');
+
+      await screen.findByRole('heading', { name: 'Create your household' });
+
+      const user = userEvent.setup();
+      const field = screen.getByRole('textbox', { name: /Household name/ });
+      const submit = screen.getByRole('button', { name: 'Create household' });
+
+      await user.type(field, CREATED.name);
+      await user.click(submit);
+
+      /*
+       * 1. The first refusal is the shell's alone: one assertive notice, the
+       *    `Not saved` header and the connectivity cause (7.7's wiring, seen
+       *    from the screen that records it).
+       */
+      const firstAlerts = await screen.findAllByRole('alert');
+
+      expect(firstAlerts).toHaveLength(1);
+
+      const [notice] = firstAlerts;
+
+      expect(
+        within(notice).getByRole('heading', { name: 'Not saved' }),
+      ).toBeVisible();
+      expect(notice).toHaveTextContent(
+        'No connection. Check your internet connection and try again.',
+      );
+
+      // A failed create never looks like a created household.
+      expect(router.state.location.pathname).toBe('/onboarding');
+      expect(
+        screen.getByRole('heading', { name: 'Create your household' }),
+      ).toBeVisible();
+
+      // 2. The shell's retry control re-issues the attempt under its own id.
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+      // The retry has settled when its second answer is in and the first
+      // attempt's copy is no longer presented.
+      await waitFor(() => {
+        expect(createCalls()).toHaveLength(2);
+        expect(
+          screen.queryByText(
+            'No connection. Check your internet connection and try again.',
+          ),
+        ).toBeNull();
+      });
+
+      const creates = createCalls();
+
+      expect(creates[1].args.requestId).toBe(creates[0].args.requestId);
+
+      /*
+       * 3. `validation` belongs to the field: the blank-name prompt is the only
+       *    alert, and the shell's notice — `Not saved`, its header, its copy —
+       *    is gone rather than replaced by the same refusal.
+       */
+      const alerts = screen.getAllByRole('alert');
+
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toHaveTextContent('Enter a name for your household.');
+      expect(
+        within(alerts[0]).queryByRole('heading', { name: 'Not saved' }),
+      ).toBeNull();
+
+      expect(screen.queryByRole('heading', { name: 'Not saved' })).toBeNull();
+      expect(
+        screen.queryByText('That change is not valid. Check it and try again.'),
+      ).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+
+      // The prompt is the field's own: invalid, described by the alert, and the
+      // screen has not moved.
+      expect(field).toHaveAttribute('aria-invalid', 'true');
+      expect(field.getAttribute('aria-describedby')).toContain(alerts[0].id);
+      expect(router.state.location.pathname).toBe('/onboarding');
     });
   });
 });

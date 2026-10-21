@@ -23,15 +23,17 @@
  * first rather than queue behind it. The limit is stated rather than implied; a
  * queue is P1's if item writes make it reachable.
  *
- * Clear paths, stated exactly: the slot is cleared only by an `ok` for the
- * attempt the slot still holds — and then that attempt's recorded success
- * callback runs — or by an explicit dismissal, which is **refused while a retry
- * is running** because the operation is in flight and may land. Every other
- * outcome, including a typed `CommandError`, an IPC-level `Error` and a value
- * that is neither, keeps a failure on record (`unknown` when unclassifiable). A
- * result that arrives for an attempt the slot no longer holds is dropped: a
- * newer failure owns the surface by then, and adopting the older one's success
- * would claim a save the newer attempt never completed.
+ * Clear paths, stated exactly: the slot is cleared by an `ok` for the attempt
+ * the slot still holds — and then that attempt's recorded success callback
+ * runs — by an explicit dismissal, which is **refused while a retry is running**
+ * because the operation is in flight and may land, or by a retry the backend
+ * refuses with `validation`, which is the form field's own error rather than a
+ * save the shell presents (task 7.7). Every other outcome, including a typed
+ * `CommandError`, an IPC-level `Error` and a value that is neither, keeps a
+ * failure on record (`unknown` when unclassifiable). A result that arrives for
+ * an attempt the slot no longer holds is dropped: a newer failure owns the
+ * surface by then, and adopting the older one's success would claim a save the
+ * newer attempt never completed.
  */
 import { useSyncExternalStore } from 'react';
 import type { CommandResult, RequestOperation } from '../../lib/request-id';
@@ -163,12 +165,16 @@ export function dismissFailedSave(): void {
  *
  * The handle is the identity: `operation.run()` sends the `request_id` minted
  * when the operation was created (D0.14). On `ok` the slot is cleared and that
- * attempt's recorded success callback runs; on any failure the slot is updated
- * with the new cause and kept, so the surface shows the new attempt's cause and
- * can still retry. A rejected `run()` (an IPC-level `Error`) is treated the same
- * way — a save that produced no answer has not succeeded — and is described as
- * `unknown` rather than re-thrown, because the surface it belongs to is this
- * store's caller; nothing is swallowed silently, it is recorded and observable.
+ * attempt's recorded success callback runs. A `validation` refusal clears the
+ * slot without recording it: that cause belongs to the form field that owns the
+ * input, and recording it would put a second live region on screen (the field's
+ * alert and this surface) for one refusal. Every other failure updates the
+ * slot's cause and keeps it, so the surface shows the new attempt's cause; when
+ * that cause is retryable the surface offers another retry. A rejected `run()`
+ * (an IPC-level `Error`) is treated the same way — a save that produced no
+ * answer has not succeeded — and is described as `unknown` rather than
+ * re-thrown, because the surface it belongs to is this store's caller; nothing
+ * is swallowed silently, it is recorded and observable.
  *
  * The attempt is captured before the `await` and the slot is compared by
  * identity afterwards. `recordFailedSave` always publishes a new record and a
@@ -200,7 +206,7 @@ export async function retryFailedSave(): Promise<void> {
       return;
     }
 
-    publish({ failure: withDescription(attempt, error), retrying: false });
+    settleRetryFailure(attempt, error);
     return;
   }
 
@@ -217,8 +223,35 @@ export async function retryFailedSave(): Promise<void> {
     return;
   }
 
+  settleRetryFailure(attempt, outcome.error);
+}
+
+/**
+ * Settle a retry that did not succeed.
+ *
+ * The caller has already established that `attempt` is still the slot's
+ * record, so a superseded retry cannot clear or overwrite a newer failure here.
+ * `validation` is the one cause the shell does not present: it belongs to the
+ * form field, which shows it from its own mutation error. Clearing here is
+ * therefore only sound for a recorder whose own surface renders that refusal:
+ * the create flow's `mutateAsync` does (the mutation error drives the field).
+ * A future recorder must keep that true — a bare handle would leave the
+ * refusal shown nowhere. Recording it here instead would create a second live
+ * region and a non-retryable notice with no action. Every other cause replaces
+ * the record's description and keeps it.
+ */
+function settleRetryFailure(attempt: FailedSave, error: unknown): void {
+  const description = describeSaveFailure(error);
+
+  if (description.cause === 'validation') {
+    onSaved = null;
+    publish({ failure: null, retrying: false });
+
+    return;
+  }
+
   publish({
-    failure: withDescription(attempt, outcome.error),
+    failure: { ...attempt, ...description },
     retrying: false,
   });
 }
@@ -234,12 +267,4 @@ export async function retryFailedSave(): Promise<void> {
 export function resetSaveRetry(): void {
   onSaved = null;
   state = { failure: null, retrying: false };
-}
-
-/*
- * The same operation, re-described from a later attempt: the handle (and so the
- * request id) survives, only the cause and its copy change.
- */
-function withDescription(current: FailedSave, error: unknown): FailedSave {
-  return { ...current, ...describeSaveFailure(error) };
 }

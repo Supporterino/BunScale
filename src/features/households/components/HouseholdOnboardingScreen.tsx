@@ -20,10 +20,22 @@
  * prompt appears underneath it in the error row, which is a live region
  * (`role="alert"`) — a screen-reader user hears it without focus moving. The
  * backend's `validation` refusal gets the same field treatment. Every other
- * cause is rendered by the shared `SaveFailureNotice`, with a retry only when
- * the failure says it is retryable. There is no optimistic state: the button
- * stays in its loading state until the command answers, and a failure never
- * looks like a created household.
+ * cause is handed to the save-retry store (`recordFailedSave`), which the route
+ * shell presents through `SaveFailureSurface` / `SaveFailureNotice`; the form
+ * renders no failure notice of its own, so one failed create produces exactly
+ * one notice (task 7.7). There is no optimistic state: the button stays in its
+ * loading state until the command answers, and a failure never looks like a
+ * created household.
+ *
+ * **Why the recorded handle wraps the mutation.** The store's retry calls the
+ * handle's `run()`. Recording `create_household`'s bare handle would skip
+ * `useCreateHousehold`'s success write, leaving the guard to re-decide on stale
+ * cache after a retry that actually landed. The recorded handle therefore keeps
+ * the original `requestId` and sends the same `createHousehold` handle through
+ * this screen's `mutateAsync`, so the identity is unchanged (D0.14) and a
+ * confirmed retry writes exactly what the first attempt would have. The
+ * recorded success callback is the navigation, because the cache is already
+ * written by the mutation by the time it runs.
  *
  * **Layout.** One layout for both baselines: compact-first, the form capped at
  * `--layout-form-max` from the first breakpoint up. It is a standalone `Screen`
@@ -37,11 +49,16 @@ import { Heading } from '../../../components/ui/Heading';
 import { Screen } from '../../../components/ui/Screen';
 import { Text } from '../../../components/ui/Text';
 import { TextField } from '../../../components/ui/TextField';
+import type { RequestOperation } from '../../../lib/request-id';
 import { t } from '../../i18n';
-import { SaveFailureNotice } from '../../sync/components/SaveFailureNotice';
 import { describeSaveFailure } from '../../sync/failure';
+import {
+  dismissFailedSave,
+  recordFailedSave,
+  type SaveFailure,
+} from '../../sync/save-retry';
 import { createHousehold } from '../api';
-import { useCreateHousehold } from '../queries';
+import { type Household, useCreateHousehold } from '../queries';
 import { useKeyboardInset } from './use-keyboard-inset';
 
 /** One create intent: the handle and the name it was created for. */
@@ -69,8 +86,6 @@ export function HouseholdOnboardingScreen() {
 
   const validationFailure =
     failure !== null && failure.cause === 'validation' ? failure : null;
-  const otherFailure =
-    failure !== null && failure.cause !== 'validation' ? failure : null;
 
   /*
    * HS-1's only create refusal is a blank name, so the field says that one thing
@@ -83,6 +98,27 @@ export function HouseholdOnboardingScreen() {
       : undefined;
 
   /*
+   * The handle the shell records. It is a `RequestOperation` in its own right —
+   * same `requestId`, and `run()` re-issues the same `createHousehold` handle
+   * through the mutation — so `retryFailedSave()` re-sends the identity D0.14
+   * requires *and* keeps `useCreateHousehold`'s confirmed-write cache updates.
+   * The wrapper is built at failure time, when the mutation it belongs to is
+   * the one that just answered.
+   */
+  function retryHandle(
+    operation: CreateOperation,
+  ): RequestOperation<Household, SaveFailure> {
+    return {
+      requestId: operation.requestId,
+      run: () =>
+        creation.mutateAsync(operation).then((household) => ({
+          status: 'ok' as const,
+          data: household,
+        })),
+    };
+  }
+
+  /*
    * One path for both "Create household" and "Try again". A submit whose trimmed
    * name is the name the last attempt was created with is a retry of that
    * operation, not a new one: it re-runs the stored handle so the same
@@ -93,16 +129,40 @@ export function HouseholdOnboardingScreen() {
    *
    * `useCreateHousehold` owns what happens once the backend confirms: it writes
    * the returned household into the active cache and the held set. Navigation is
-   * the screen's own follow-up, so it is passed per call — the route re-runs the
-   * guard against a fresh read and lands on the dashboard. This screen never
-   * renders a "created" state of its own.
+   * the screen's own follow-up, so it runs after that confirmed write here and
+   * again from the recorded callback when the shell's retry lands. This screen
+   * never renders a "created" state of its own.
+   *
+   * A failure is recorded for the route shell unless it is a `validation`
+   * refusal: that one belongs to the field (the same words as a blank name), and
+   * recording it would present the same refusal twice.
    */
   function run(operation: CreateOperation) {
-    creation.mutate(operation, {
-      onSuccess: () => {
+    void creation.mutateAsync(operation).then(
+      () => {
+        /*
+         * A create that lands makes any earlier failure's record stale. The
+         * store refuses this while a retry of that older record is in flight;
+         * that retry's own result then settles the slot.
+         */
+        dismissFailedSave();
         void navigate({ to: '/' });
       },
-    });
+      (error: unknown) => {
+        if (describeSaveFailure(error).cause === 'validation') {
+          /*
+           * The field owns this refusal. Clearing any earlier record keeps the
+           * shell from presenting a cause the latest attempt did not report.
+           */
+          dismissFailedSave();
+          return;
+        }
+
+        recordFailedSave(retryHandle(operation), error, () => {
+          void navigate({ to: '/' });
+        });
+      },
+    );
   }
 
   function submit() {
@@ -172,13 +232,6 @@ export function HouseholdOnboardingScreen() {
           required
           value={name}
         />
-
-        {otherFailure === null ? null : (
-          <SaveFailureNotice
-            error={creation.error}
-            onRetry={otherFailure.retryable ? submit : undefined}
-          />
-        )}
 
         <Button fullWidth loading={pending} type="submit">
           {pending ? t('household.creating') : t('household.create')}

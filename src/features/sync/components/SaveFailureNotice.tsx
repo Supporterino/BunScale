@@ -8,17 +8,42 @@
  * cause retryable, and dismissal otherwise. A caller that offers neither gets the
  * copy only — it still does not look saved.
  *
- * **Where it is used.** The screens that own a mutation's failure render it
- * inline: 4.1's create form, and 4.3's create form and display-unit change. The
- * switch keeps its own `Notice` because its validation refusal has screen-specific
- * copy and a re-read action rather than the cause map.
+ * **A retry in flight keeps the control (task 7.9).** `retrying` is handed to
+ * the same `Button` as its `loading` form rather than toggling `onRetry` off:
+ * the label stays, `aria-busy` says the work is running, and the Button's own
+ * contract disables it so a second attempt cannot land. Withdrawing the button
+ * instead would unmount the node the person just pressed and leave the alert
+ * with a different layout under their hand.
  *
- * **What is deliberately not here.** A store-wired wrapper around
- * `src/features/sync/save-retry.ts`. Nothing in production calls
- * `recordFailedSave` yet, so mounting that surface would create a second,
- * invisible mechanism for the same failure. The store and its tested handle
- * discipline stay in place; the task that introduces a recorder owns adding the
- * wrapper and mounting it once.
+ * **One live region, not two.** The `Button`'s busy state adds none:
+ * `LoadingIndicator` is rendered `decorative`, which is `aria-hidden` with no
+ * `role` and no `aria-live`, and `aria-busy` is exposed state rather than a
+ * region. The notice's own `role="alert"` (from `Notice`'s danger tone) is the
+ * single announcement, so the in-flight change cannot be spoken twice. Keeping
+ * that call site decorative is part of this contract if a later task gives
+ * `LoadingIndicator` a required label.
+ *
+ * **Where it is used.** Three render sites, all live, and no others. The route
+ * shell presents the store's record through `SaveFailureSurface`, with
+ * `bs-save-failure` as its placement hook (`src/styles/screens.css`); 4.3's
+ * Settings screen renders the notice inline for its create form and for the
+ * display-unit change, which is the pattern the shell mount generalises. The
+ * create flow (`HouseholdOnboarding`) does not render it at all: it hands
+ * every non-`validation` failure to `recordFailedSave` — the store's first
+ * production caller — and the shell presents that record. The switch keeps its
+ * own `Notice` because its validation refusal has screen-specific copy and a
+ * re-read action rather than the cause map.
+ *
+ * **`validation` is never the shell's.** A `validation` refusal belongs to the
+ * field that owns it, so the create flow keeps `validation` out of the record
+ * (it records only the other causes) and the store's retry path clears it
+ * (`settleRetryFailure`). The shell presenting it would put the same refusal on
+ * screen twice, once without a field to fix.
+ *
+ * **What is deliberately not here.** The store itself
+ * (`src/features/sync/save-retry.ts`) and the shell mount; this file stays
+ * driven by props so both an inline form and the shell can use it without a
+ * second wording.
  */
 import { Button } from '../../../components/ui/Button';
 import { Notice } from '../../../components/ui/Notice';
@@ -29,6 +54,14 @@ export type SaveFailureNoticeProps = {
   /** The raw failure value a mutation or command produced. */
   error: unknown;
   onRetry?: () => void;
+  /**
+   * True while the retry `onRetry` started is in flight.
+   *
+   * Ignored unless a retry is on screen: the non-retryable cause stays copy-only
+   * (or dismissal-only) either way. The control is not withdrawn while busy —
+   * see the header.
+   */
+  retrying?: boolean;
   onDismiss?: () => void;
   className?: string;
 };
@@ -36,6 +69,7 @@ export type SaveFailureNoticeProps = {
 export function SaveFailureNotice({
   error,
   onRetry,
+  retrying = false,
   onDismiss,
   className,
 }: SaveFailureNoticeProps) {
@@ -43,7 +77,12 @@ export function SaveFailureNotice({
   const showRetry = failure.retryable && onRetry !== undefined;
 
   const action = showRetry ? (
-    <Button onClick={onRetry} size="compact" variant="secondary">
+    <Button
+      loading={retrying}
+      onClick={onRetry}
+      size="compact"
+      variant="secondary"
+    >
       {t('error.retry')}
     </Button>
   ) : onDismiss === undefined ? undefined : (
