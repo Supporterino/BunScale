@@ -695,3 +695,40 @@ Making `/` the entry broke the shared E2E fixture (16/16 failing), which is a di
 per-test overrides, the fixture boots the preview explicitly, and `e2e/household-entry.spec.ts` covers
 both entry decisions at both baselines. It is committed with 3.3 rather than as its own task, because
 it repairs the flow 3.3 introduced and 5.14–5.17 continue from it.
+
+### Q37 — The diagnostics sink has no production call site, while the docs say it has three
+
+Found by task 5.9's review and verified in the tree: `src-tauri/src/diagnostics/mod.rs` states in the
+present tense that the recording call sites are the save path (2.4), a load (2.5) and the probe
+(2.13), and `src-tauri/src/sync/mod.rs` says "the diagnostics sink is 2.12's". In fact
+`diagnostics::record` is called nowhere in `src/`, and the only production use of the module is
+`summary()` in `ipc/commands/diagnostics.rs`. So **task 2.12 is ticked on a sink nothing writes to**,
+and the two module docs contradict each other.
+
+5.9 did the honest thing and did not weaken its assertions: it composes the sink the save path would
+use (the real capacity, the real constructors, a real gate failure) and states the limit in its module
+doc. NFR-3's guarantee (the record's shape, and the absence of any transport) is still exercised.
+
+**Needed:** an owner for the first real recorder. Candidates: a P0 follow-up task wiring
+`record()` into 2.4/2.5/2.13, or P3 (which reuses the sink for its shared-service flows and is named in
+`proposal.md` as P0's consumer for `get_diagnostics_summary`). Whichever it is, `diagnostics/mod.rs`
+and `sync/mod.rs` must stop disagreeing, and 2.12's claim must either gain its call sites or be
+corrected. No requirement's outcome changes today — nothing reads the sink except the summary — which
+is why this is recorded rather than treated as a broken build.
+
+### Q38 — P0 copy is still hard-coded in the 3.3 placeholders
+
+The i18n scaffold (3.7) is complete and typed, but no module imports it yet:
+`src/features/households/components/HouseholdEntryScreens.tsx` still carries literal copy from 3.3.
+**Owner:** tasks 4.1–4.5, which replace those placeholders with the real screens. The keys already
+exist for every P0 string the screens need (41 keys, including the seven cause-specific failure
+messages and `settings.identity.you`); a screen that needs a new key adds it to the catalog rather
+than writing a literal.
+
+### Q39 — The `frontend-ui` sessions for tasks 4.1/4.2 timed out twice
+
+Two delegations of 4.1 (and one combined 4.1+4.2) returned "subagent timed out" before writing any
+file; the working tree shows no UI output. This is a harness/provider failure, not a task finding —
+nothing was half-written and no claim was made. The tasks remain open; the next attempt narrows the
+scope to a single screen per session and leaves the screenshots to the same session only if it
+completes the screen first.

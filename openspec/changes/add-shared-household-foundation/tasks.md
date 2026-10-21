@@ -853,15 +853,15 @@ file's header).
   renders the local copy and a refresh replaces it rather than duplicating items (SYNC-1, SYNC-3).
 - [x] 3.3 [frontend-logic] Implement the active-household state, house switching, and the route guard
   that skips first-run onboarding whenever a household exists (HS-2, HS-3, HS-4, DM-3).
-- [ ] 3.4 [frontend-logic] Implement the service-status store: map every `SaveCause` to its message
+- [x] 3.4 [frontend-logic] Implement the service-status store: map every `SaveCause` to its message
   key, keep `unknown` until a fresh outcome exists, set the offline state only after **3 consecutive
   failed checks without an intervening success** (D0.13), and hold retry state for a failed save
   (SYNC-2, NFR-8).
-- [ ] 3.5 [frontend-logic] Implement the Settings data hooks: household list with the active one
+- [x] 3.5 [frontend-logic] Implement the Settings data hooks: household list with the active one
   indicated, identity with its fallback chain, and the display-unit preference (HS-4, SET-2, SET-4).
-- [ ] 3.6 [frontend-logic] Subscribe to `household:changed` and `service:status-changed` and
+- [x] 3.6 [frontend-logic] Subscribe to `household:changed` and `service:status-changed` and
   invalidate only the affected queries (SYNC-1, NFR-1).
-- [ ] 3.7 [frontend-logic] Add the i18n scaffold with the P0 string keys, including the localized
+- [x] 3.7 [frontend-logic] Add the i18n scaffold with the P0 string keys, including the localized
   "You"-style placeholder and the cause-specific failure messages, so that no P0 string is
   hard-coded (SET-2, NFR-8). Full German/English coverage stays NFR-5 in P4.
 
@@ -911,16 +911,16 @@ file's header).
 - [x] 5.5 [test-engineer] Rust tests for the read path — covers "Previously loaded data is shown while
   unreachable", "A start with connectivity refreshes loaded data" and "Nothing loaded and
   unreachable" (SYNC-3).
-- [ ] 5.6 [test-engineer] Rust tests for conflict convergence — covers "Two members edit the same
+- [x] 5.6 [test-engineer] Rust tests for conflict convergence — covers "Two members edit the same
   item", "Convergence does not duplicate or fail" (SYNC-5) and "Concurrent edits resolve without
   failing", "Resolution leaves no duplicate" (NFR-2).
-- [ ] 5.7 [test-engineer] Rust tests for the storage boundary — covers "No item is readable from
+- [x] 5.7 [test-engineer] Rust tests for the storage boundary — covers "No item is readable from
   another household", "Canonical representation survives presentation changes" and "Writes to
   immutable entities are refused" (NFR-10).
-- [ ] 5.8 [test-engineer] Rust tests for timestamps — covers "A timestamp defaults to now", "A
+- [x] 5.8 [test-engineer] Rust tests for timestamps — covers "A timestamp defaults to now", "A
   supplied instant is stored unchanged" and "Stored instants do not shift with the device offset"
   (DM-6).
-- [ ] 5.9 [test-engineer] Rust tests for diagnostics — covers "Diagnostics carry no content" and
+- [x] 5.9 [test-engineer] Rust tests for diagnostics — covers "Diagnostics carry no content" and
   asserts no third-party analytics transport is configured (NFR-3), including a case where a save
   fails with a health-payload-like input.
 - [ ] 5.10 [test-engineer] Rust tests for the failure surface — covers "A failed save is visible and
