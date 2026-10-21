@@ -53,11 +53,14 @@
  * guard reach a *conclusion* — "no household" only counts with a fresh
  * reachable-and-identified status (SYNC-3; design.md, "No household is a
  * fresh-outcome conclusion") — so the default is not an empty value that could
- * mean "nothing was loaded". A spec that needs another state overrides one
- * command for the rest of the page's document through the
- * `window.__BUNSCALE_E2E_MOCK__` seam below (tasks 5.14–5.17), and an override
- * is consulted before the registered default. Each fresh document starts from
- * the defaults again, so nothing leaks between tests.
+ * mean "nothing was loaded". The household reads are backed by one page-local
+ * **book** that `create_household` and `set_active_household` mutate (see below),
+ * so a spec can drive a creation or a switch through the UI and have the next
+ * navigation see it. A spec that needs another state overrides one command for
+ * the rest of the page's document through the `window.__BUNSCALE_E2E_MOCK__`
+ * seam below (tasks 5.14–5.17), and an override is consulted before the
+ * registered default. Each fresh document starts from the defaults again, so
+ * nothing leaks between tests.
  *
  * **One way this module silently does not run, measured while task 0.23 was
  * verified.** The flag reaches the page only through the dev server's own
@@ -97,7 +100,15 @@
 
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import type { Household, HouseholdSummary, ServiceStatus } from '../bindings';
+import type {
+  CommandError,
+  Household,
+  HouseholdCollection,
+  HouseholdSummary,
+  Identity,
+  ServiceStatus,
+  WeightUnit,
+} from '../bindings';
 
 /**
  * One mocked command: receives the command's arguments (the object
@@ -237,9 +248,9 @@ window.__BUNSCALE_E2E_MOCK__ = mockSeam;
  *
  * No household plus a fresh `reachable`/`account_valid: true` status is the one
  * state in which "the person holds no household" is a conclusion rather than an
- * unloaded device (SYNC-3), so it is the honest default: the guard may start
- * onboarding from it, and a spec that needs an unreachable or populated device
- * overrides the one command whose answer differs.
+ * unloaded device (SYNC-3), so it is the honest starting point: the guard may
+ * start onboarding from it, and a spec that needs an unreachable or populated
+ * device overrides the one command whose answer differs.
  *
  * `observed_at` is a fixed instant rather than `new Date()`: the entry guard
  * treats a status without an observation as "not looked yet" and probes, so a
@@ -255,13 +266,221 @@ const DEFAULT_SERVICE_STATUS: ServiceStatus = {
   observed_at: OBSERVED_AT,
 };
 
-registerMockCommand('list_households', (): HouseholdSummary[] => []);
+/*
+ * **The mocked household book** (tasks 5.14–5.17).
+ *
+ * The four household reads are not independent answers: the guard (task 3.3),
+ * the dashboard (4.2) and Settings (4.3) each read the same book, and the two
+ * writes change it. Registering `create_household` as a fixed value while
+ * `list_households` kept answering `[]` would let a spec drive a creation that
+ * the very next navigation forgot — the guard would send the person straight
+ * back to onboarding — so the write handlers below mutate this page-local book
+ * and the read handlers derive their answers from it. It starts empty, which is
+ * the same "no household" default the entry guard had before there were writes.
+ *
+ * This is one document's state, not one run's: the next `page.goto` loads this
+ * module again (a spec's per-test page is a fresh document), so nothing leaks
+ * between tests. An override registered through the seam shadows these handlers
+ * for the rest of the document and is not consulted by the book, so a spec that
+ * overrides one of the reads keeps the other three at their defaults — the
+ * entry specs' "a household exists" state (task 3.3's) is exactly that shape.
+ *
+ * Values are the contract's own shapes (`src/bindings.ts` is generated from it,
+ * so these literals are type-checked against it). The timestamps are fixed
+ * instants rather than clock reads, for the same determinism reason as
+ * `DEFAULT_SERVICE_STATUS` (`testing-strategy`).
+ */
+let householdBook: Household[] = [];
 
-registerMockCommand('get_active_household', (): Household | null => null);
+/** How many households this document has created, for stable opaque ids. */
+let householdsCreated = 0;
+
+/**
+ * The `request_id`s this document's creations were given, mapped to the
+ * household each produced — the replay lookup that makes a retry idempotent
+ * (D0.14) without a second household appearing.
+ */
+const createdByRequestId = new Map<string, string>();
+
+/** The book's active row, as a copy so a cache cannot alias the book. */
+function activeHousehold(): Household | null {
+  const active = householdBook.find((household) => household.is_active);
+
+  return active === undefined ? null : { ...active };
+}
+
+/** One row of the held set (HS-4). The creator is the first member (HS-1). */
+function toSummary(household: Household): HouseholdSummary {
+  return {
+    id: household.id,
+    name: household.name,
+    created_at: household.created_at,
+    is_active: household.is_active,
+    is_owner: household.is_owner,
+    member_count: 1,
+  };
+}
+
+/** The held set as `list_households` answers it, in acquisition order. */
+function householdSummaries(): HouseholdSummary[] {
+  return householdBook.map(toSummary);
+}
+
+/**
+ * A command's `validation` refusal as the contract sends it (HS-1, DM-3).
+ *
+ * A handler reports a failure by **throwing** the `CommandError` value:
+ * `mockIPC` rejects with whatever the handler threw, and the generated
+ * `typedError` wrapper turns a non-`Error` rejection into the error branch
+ * rather than re-throwing it (`src/bindings.ts`). A real `Error` would be
+ * re-thrown as an IPC-level defect, which is why this is a value and not one.
+ */
+function validationError(requestId: unknown): CommandError {
+  return {
+    cause: 'validation',
+    retryable: false,
+    message_key: 'error.validation',
+    request_id: typeof requestId === 'string' ? requestId : null,
+  };
+}
+
+/*
+ * The command's arguments as the generated bindings send them: an object keyed
+ * by the Rust parameter names. `InvokeArgs` also admits binary payloads, which
+ * no command in this app takes, so anything else is treated as an empty set
+ * rather than read as one.
+ */
+function objectArgs(args: InvokeArgs | undefined): Record<string, unknown> {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+    return {};
+  }
+
+  return args as unknown as Record<string, unknown>;
+}
+
+registerMockCommand('list_households', householdSummaries);
+
+registerMockCommand('get_active_household', activeHousehold);
+
+/*
+ * `create_household` idempotent on `request_id` (D0.14): a replay answers the
+ * household the first attempt created instead of adding a second one. The new
+ * household becomes active and every row before it does not, which is HS-1's
+ * "the created household is the active household" and DM-3's at-most-one.
+ */
+registerMockCommand('create_household', (args): Household => {
+  const { name, requestId } = objectArgs(args);
+  const replayKey = typeof requestId === 'string' ? requestId : '';
+  const replayed = householdBook.find(
+    (household) => household.id === createdByRequestId.get(replayKey),
+  );
+
+  if (replayed !== undefined) {
+    return { ...replayed };
+  }
+
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+
+  if (trimmed === '') {
+    throw validationError(requestId);
+  }
+
+  householdsCreated += 1;
+
+  const created: Household = {
+    id: `household-${householdsCreated}`,
+    name: trimmed,
+    created_at: OBSERVED_AT,
+    owner_member_id: `member-${householdsCreated}`,
+    is_active: true,
+    is_owner: true,
+  };
+
+  householdBook = [
+    ...householdBook.map((household) => ({ ...household, is_active: false })),
+    created,
+  ];
+  createdByRequestId.set(replayKey, created.id);
+
+  return { ...created };
+});
+
+/*
+ * `set_active_household` is the local selection over the held set (task 2.2's
+ * ruling), so it answers the household that is active afterwards and touches no
+ * other row beyond its `is_active` flag. An id the book does not hold is the
+ * contract's `validation` refusal and leaves the previous selection in place.
+ */
+registerMockCommand('set_active_household', (args): Household => {
+  const { householdId, requestId } = objectArgs(args);
+
+  if (typeof householdId !== 'string') {
+    throw validationError(requestId);
+  }
+
+  const target = householdBook.find(
+    (household) => household.id === householdId,
+  );
+
+  if (target === undefined) {
+    throw validationError(requestId);
+  }
+
+  householdBook = householdBook.map((household) => ({
+    ...household,
+    is_active: household.id === target.id,
+  }));
+
+  return { ...target, is_active: true };
+});
+
+/*
+ * `load_household` for a collection this device has never loaded: `source:
+ * 'local'` with `loaded_at: null` is SYNC-3's explicit "nothing was ever
+ * loaded" value, never an empty collection presented as current data. The
+ * dashboard's local-copy notice (task 4.4) renders nothing for it, and the
+ * connectivity surface (task 5.15) owns the state.
+ */
+registerMockCommand('load_household', (args): HouseholdCollection => {
+  const { householdId } = objectArgs(args);
+
+  if (typeof householdId !== 'string' || householdId === '') {
+    throw new Error(
+      'load_household was called without a household id; the generated wrapper always passes one',
+    );
+  }
+
+  return {
+    household_id: householdId,
+    items: [],
+    source: 'local',
+    loaded_at: null,
+  };
+});
 
 registerMockCommand('get_service_status', () => DEFAULT_SERVICE_STATUS);
 
 registerMockCommand('check_service_reachability', () => DEFAULT_SERVICE_STATUS);
+
+/*
+ * Settings & Profile's own reads (tasks 4.3, 5.14). They are registered here
+ * because the screen mounts them (the profile row and the display-unit
+ * section); without them, opening Settings would reach the unknown-command
+ * throw below and the screen would present a failed read instead of its content.
+ * `get_identity` answers the account tier (SET-2) and `get_display_weight_unit`
+ * the canonical unit (SET-4); `set_display_weight_unit` stays unregistered
+ * because no P0 flow changes the unit yet, and the throw for an unregistered
+ * command must keep naming it.
+ */
+const DEFAULT_IDENTITY: Identity = {
+  account_user_id: 'account-1',
+  display_name: 'Alex Morgan',
+  resolved: true,
+};
+
+registerMockCommand('get_identity', () => DEFAULT_IDENTITY);
+
+registerMockCommand('get_display_weight_unit', (): WeightUnit => 'grams');
 
 /*
  * The install itself. `mockIPC` replaces `window.__TAURI_INTERNALS__.invoke`
