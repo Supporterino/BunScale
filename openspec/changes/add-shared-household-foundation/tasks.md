@@ -934,11 +934,11 @@ file's header).
   household", "Blank name is rejected" (HS-1), "Create an additional household without onboarding",
   "All households are listed with the active one indicated" (HS-4) and "Gear control opens Settings
   as its own screen" (SET-1).
-- [ ] 5.13 [test-engineer] Component tests for the connectivity and failure surfaces — covers
+- [x] 5.13 [test-engineer] Component tests for the connectivity and failure surfaces — covers
   "Nothing loaded and unreachable", "Previously loaded data is shown while unreachable" (SYNC-3),
   "Save refused without connectivity", "Save failure names its cause and offers a retry" (SYNC-2)
   and "A failed save is visible and specific" (NFR-8).
-- [ ] 5.14 [test-engineer] E2E (Playwright WebKit, mocked IPC, 390×844): launch with no household →
+- [x] 5.14 [test-engineer] E2E (Playwright WebKit, mocked IPC, 390×844): launch with no household →
   onboarding refuses a blank name → create → dashboard → gear → Settings → switch household; covers
   the `[mobile]` scenario of SET-1 and the US-HS-01/US-HS-04 flows.
 - [ ] 5.15 [test-engineer] E2E: offline launch with previously loaded data, and offline launch with
