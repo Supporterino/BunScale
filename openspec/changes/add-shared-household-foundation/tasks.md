@@ -942,7 +942,7 @@ file's header).
 - [x] 5.14 [test-engineer] E2E (Playwright WebKit, mocked IPC, 390×844): launch with no household →
   onboarding refuses a blank name → create → dashboard → gear → Settings → switch household; covers
   the `[mobile]` scenario of SET-1 and the US-HS-01/US-HS-04 flows.
-- [ ] 5.15 [test-engineer] E2E: offline launch with previously loaded data, and offline launch with
+- [x] 5.15 [test-engineer] E2E: offline launch with previously loaded data, and offline launch with
   nothing ever loaded, asserting the explicit connectivity-required state; covers the two SYNC-3
   offline scenarios.
 - [ ] 5.16 [test-engineer] E2E: save failure for each cause with a visible cause-specific message and
