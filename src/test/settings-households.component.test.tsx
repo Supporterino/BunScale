@@ -1,6 +1,6 @@
 /*
  * Settings & Profile's household and display-unit sections at the component
- * layer (tasks 5.12 and 7.3; HS-4, SET-4, D0.14, Q44).
+ * layer (tasks 5.12, 7.3 and 7.4; HS-4, SET-4, D0.14, Q44, Q45).
  *
  * Two acceptance scenarios are asserted here:
  *
@@ -17,6 +17,12 @@
  * its own handle discipline ("one operation per intent, reused on retry while
  * the name is unchanged"), so the retry is worth its own test here and not only
  * on onboarding.
+ *
+ * The household read's retry is asserted as well (task 7.4; HS-4, Q45). The
+ * active marker comes from the active read, not from the list, so the retry
+ * re-reads the held-set pair — the list and the active read — and not the list
+ * alone. The two read counts are what make that regression fail: a retry that
+ * refreshed only the list would pass every other assertion in this suite.
  *
  * The display-unit section's failure is asserted here too (task 7.3; SET-4,
  * Q44). The unit pair reports only `cause: unknown`, which the backend marks
@@ -171,6 +177,16 @@ function createCalls(): MockCall[] {
   return calls.filter((call) => call.command === 'create_household');
 }
 
+/** Every `list_households` call, in order (the held set). */
+function listCalls(): MockCall[] {
+  return calls.filter((call) => call.command === 'list_households');
+}
+
+/** Every `get_active_household` call, in order (the marker's own read). */
+function activeCalls(): MockCall[] {
+  return calls.filter((call) => call.command === 'get_active_household');
+}
+
 beforeEach(() => {
   calls = [];
   handlers = new Map();
@@ -232,6 +248,22 @@ function unitFailure(requestId: unknown) {
 /** Every `set_display_weight_unit` call, in order. */
 function setUnitWrites(): MockCall[] {
   return calls.filter((call) => call.command === 'set_display_weight_unit');
+}
+
+/**
+ * A **read** failure the backend marks retryable: no HTTP answer arrived, so
+ * the same read is promised to be worth re-issuing. Same shape as
+ * `unitFailure`, with the cause this regression needs; the copy is derived from
+ * `cause` (task 3.4's rule), and `message_key` is carried for shape
+ * completeness.
+ */
+function connectivityFailure(requestId: unknown) {
+  return {
+    cause: 'connectivity',
+    message_key: 'error.connectivity',
+    request_id: typeof requestId === 'string' ? requestId : null,
+    retryable: true,
+  };
 }
 
 /** Open Settings over one held household, with the ordinary reads answered. */
@@ -433,6 +465,89 @@ describeAtBothBaselines('Settings: held households (HS-4)', () => {
       expect(creates[0].args.name).toBe('Beach house');
       expect(creates[1].args.name).toBe('Beach house');
       expect(creates[1].args.requestId).toBe(creates[0].args.requestId);
+    });
+  });
+
+  /*
+   * Task 7.4 / Q45: HS-4's "All households are listed with the active one
+   * indicated" survives a retry of a failed read. The retry refetches the
+   * held-set pair — the list and the active read its marker comes from — not
+   * the list alone. The fix's entire content is *which two reads* the retry
+   * performs, so both counts are asserted; a regression that refreshed the
+   * list only would pass every other assertion in this suite.
+   *
+   * The active read answers normally (`HOME_ACTIVE`) on mount, so the cached
+   * marker exists when the list fails: the read failure is the list's alone,
+   * which is the state Q45 describes. The retried list carries both held
+   * households, so the marker assertion is made over a real set rather than a
+   * one-row list.
+   */
+  describe('HS-4: retrying a failed read', () => {
+    it('re-reads the held-set pair and keeps one active marker', async () => {
+      let listAttempts = 0;
+
+      seedSettings();
+      handlers.set('list_households', () => {
+        listAttempts += 1;
+
+        if (listAttempts === 1) {
+          throw connectivityFailure(null);
+        }
+
+        return [HOME, BEACH];
+      });
+
+      await openSettings();
+
+      const notice = await screen.findByRole('alert');
+
+      // The read's cause, under the section, with no "Not saved" header: the
+      // failure is a read, not a write.
+      expect(notice).toHaveTextContent(t('error.connectivity'));
+      expect(within(notice).getByRole('button', { name: RETRY })).toBeVisible();
+
+      // One read of each on mount: the list's attempt failed, the active read
+      // answered and supplies the marker's data.
+      const listsBefore = listCalls().length;
+      const activesBefore = activeCalls().length;
+
+      expect(listsBefore).toBe(1);
+      expect(activesBefore).toBe(1);
+
+      const user = userEvent.setup();
+
+      /*
+       * The click happens before any refetch starts, so it needs no enabled
+       * button during flight. Nothing below reads the control's enabled or
+       * disabled state: task 7.5 adds a busy state to this same button, and
+       * this regression must hold whether or not that state exists.
+       */
+      await user.click(screen.getByRole('button', { name: RETRY }));
+
+      /*
+       * The pair, not the list. Each count is asserted to have grown by exactly
+       * one so a retry that refetched only the list fails on the second line.
+       */
+      await waitFor(() => {
+        expect(listCalls()).toHaveLength(listsBefore + 1);
+        expect(activeCalls()).toHaveLength(activesBefore + 1);
+      });
+
+      // The re-read list settled and the failure is gone.
+      expect(await screen.findByText('Beach house')).toBeVisible();
+      expect(screen.queryByRole('alert')).toBeNull();
+
+      // HS-4's outcome after the pair settles: exactly one active marker, on
+      // the active household's row, and one Active badge in the section.
+      const current = document.querySelectorAll('[aria-current="true"]');
+
+      expect(current).toHaveLength(1);
+
+      const activeRow = current[0] as HTMLElement;
+
+      expect(within(activeRow).getByText('Home household')).toBeVisible();
+      expect(within(activeRow).getByText('Active')).toBeVisible();
+      expect(screen.getAllByText('Active')).toHaveLength(1);
     });
   });
 });

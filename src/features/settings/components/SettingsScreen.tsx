@@ -32,9 +32,15 @@
  *
  * **Read failures carry a cause and, when the backend says the same attempt can
  * succeed, a re-read.** A failed household or unit read runs through
- * `describeSaveFailure` like a write; the notice shows `failure.messageKey`, and
- * its action refetches the same query key. A cause marked non-retryable gets no
- * action, because no re-read is promised to fix it.
+ * `describeSaveFailure` like a write; the notice shows `failure.messageKey`. A
+ * cause marked non-retryable gets no action, because no re-read is promised to
+ * fix it. The household retry re-reads the **held-set pair** — the list and the
+ * active read its marker comes from — so a refresh whose held set no longer
+ * contains the active id has the marker follow the refreshed active answer
+ * instead of a stale cached one (Q45). An active refetch that fails keeps its
+ * last cached answer by design (see `settings/households`), so the pair is a
+ * truthful re-read, not an absolute guarantee. The unit read has only its own
+ * key to re-read.
  *
  * **Arriving here moves focus.** SET-1's gear is a route change; the screen
  * focuses its `main` on mount so a keyboard or screen-reader user lands inside
@@ -83,6 +89,7 @@ import {
 } from '../../design-preview/components/glyphs';
 import { createHousehold, setActiveHousehold } from '../../households/api';
 import {
+  useActiveHousehold,
   useCreateHousehold,
   useHouseholdList,
   useSwitchActiveHousehold,
@@ -213,6 +220,7 @@ function ProfileSection() {
 function HouseholdsSection() {
   const households = useSettingsHouseholdList();
   const listRead = useHouseholdList();
+  const activeRead = useActiveHousehold();
   const switchHousehold = useSwitchActiveHousehold();
   const [creating, setCreating] = useState(false);
 
@@ -225,9 +233,14 @@ function HouseholdsSection() {
   /*
    * The read's own failure is a `HouseholdListFailure`, so it goes through the
    * same cause map as a write. It is not "something went wrong": the copy is
-   * `failure.messageKey`, and the retry re-reads this book (`refetch` on the
-   * same key `useSettingsHouseholdList` subscribed to). A cause the backend
-   * marked non-retryable gets no button — there is nothing the retry could do.
+   * `failure.messageKey`, and the retry re-reads the held-set pair — this book's
+   * list and the active read the marker comes from — because
+   * `SettingsHousehold` marks rows from the active answer once it has one, with
+   * the list's own `is_active` flag as the fallback only while that read has
+   * none. The marker therefore follows the refreshed active answer, not a stale
+   * cached one; an active refetch that fails keeps its last cached answer by
+   * design. A cause the backend marked non-retryable gets no button — there
+   * is nothing a retry could do.
    */
   const readFailure =
     households.kind === 'failed' ? describeSaveFailure(households.error) : null;
@@ -237,7 +250,8 @@ function HouseholdsSection() {
    * available"); every other cause keeps its `failure.ts` mapping. A retryable
    * cause re-runs the stored handle (same `request_id`). A `validation` refusal
    * is not retryable, so its action is the re-read the copy names: refresh the
-   * held set, drop the stale failure and let the person pick a row that exists.
+   * held-set pair, drop the stale failure and let the person pick a row that
+   * exists.
    */
   const failureCopy =
     switchFailure === null
@@ -249,8 +263,13 @@ function HouseholdsSection() {
   const empty =
     households.kind === 'ready' && households.households.length === 0;
 
+  /*
+   * Q45: both reads settle together. The marker is the active read's answer, so
+   * re-reading the list alone could leave no row marked active when the active
+   * id is no longer held. The busy state while these run is task 7.5's.
+   */
   function refreshHouseholds() {
-    void listRead.refetch();
+    void Promise.all([listRead.refetch(), activeRead.refetch()]);
   }
 
   function switchTo(householdId: string) {

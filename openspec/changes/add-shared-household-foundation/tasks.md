@@ -1000,7 +1000,7 @@ names the scenario or the `questions.md` entry it closes.
   a retry button" is proved by a spec instead of recorded in a design note. Extend the existing
   Settings component specs; no product code changes unless the assertion fails. Closes Q44; SET-4's
   "Display weight unit is per-device and applied at the boundary".
-- [ ] 7.4 [frontend-logic] Make the Settings read-failure retry refetch the active household together
+- [x] 7.4 [frontend-logic] Make the Settings read-failure retry refetch the active household together
   with the household list — the held-set pair — so the Active marker cannot be lost after a refresh
   when the active id is no longer in the list. Unreachable in P0 today and made reachable by P3's
   deletion, which is why it lands now rather than being inherited. Closes Q45; HS-4's "All households
@@ -1027,3 +1027,10 @@ names the scenario or the `questions.md` entry it closes.
   for the generic inline read (the preview keeps a literal because it is not product copy). Keys are
   added to `src/features/i18n/messages.ts` only, with the catalog's typographic conventions; no call
   site changes and no consumer yet. Lands before 7.6, which owns the component contract.
+- [ ] 7.9 [frontend-ui] Style the shell-mounted save-failure surface and give its retry an in-flight state:
+  place it with the design system's safe areas and inline gutter and keep it out of `.bs-app-shell`'s
+  viewport height flow (today `bs-save-failure` has no rule at all, so on iOS it would sit in the notch
+  region and on a shell route it would push the tab bar off-screen), and replace the surface's
+  remove-the-button-while-retrying behaviour with the `Button`'s `loading` form so the control keeps
+  focus and the label. Capture the failure state at 390×844 and 1280×800 in `.artifacts/screens/`.
+  Closes 7.7's presentation findings; SYNC-2's retry offer and the design system's safe-area rule.
