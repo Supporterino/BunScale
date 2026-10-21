@@ -22,15 +22,23 @@
  * `loaded_at`. Neither an empty list nor `null` proves the person holds no
  * household: only a fresh `ServiceStatus` with `state: reachable` and
  * `account_valid: true` does that (SYNC-3; the guard is task 3.3).
+ *
+ * The subscription to `household:changed` also lives here (task 3.6). The
+ * generated event descriptor is part of the same bindings seam, so this module
+ * remains the feature's one place that imports `src/bindings.ts`; `./events`
+ * holds only the invalidation policy and imports no generated code.
  */
+
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import type {
   CommandError,
   Household,
+  HouseholdChanged,
   HouseholdCollection,
   HouseholdId,
   HouseholdSummary,
 } from '../../bindings';
-import { commands } from '../../bindings';
+import { commands, events } from '../../bindings';
 import type { CommandResult, RequestOperation } from '../../lib/request-id';
 import { requestOperation } from '../../lib/request-id';
 
@@ -39,6 +47,9 @@ type Outcome<T> = Promise<CommandResult<T, CommandError>>;
 
 /** A state-changing command's handle; `run()` again re-uses the request id. */
 type Operation<T> = RequestOperation<T, CommandError>;
+
+/** The `household:changed` payload, as the contract defines it (task 3.6). */
+export type HouseholdChange = HouseholdChanged;
 
 /**
  * Create a household and make it the active one (HS-1, HS-2).
@@ -109,4 +120,25 @@ export function loadHousehold(
   householdId: HouseholdId,
 ): Outcome<HouseholdCollection> {
   return commands.loadHousehold(householdId);
+}
+
+/**
+ * Subscribe to `household:changed` (task 3.6; SYNC-1, HS-4, DM-3).
+ *
+ * The generated event descriptor is imported here, beside the commands, because
+ * project hard rule 2 names this module — and only this module per feature — as
+ * the one that may touch `src/bindings.ts`. `./events` holds the invalidation
+ * policy and imports no generated code; it receives the payload this function
+ * unwraps from Tauri's event envelope.
+ *
+ * The returned promise is the Tauri `listen` promise: the caller keeps it and
+ * calls the resolved unlisten on cleanup (convention 4). No payload is buffered
+ * here — an event is a change report, and the queries own the data.
+ */
+export function subscribeToHouseholdChanges(
+  handler: (change: HouseholdChange) => void,
+): Promise<UnlistenFn> {
+  return events.householdChanged.listen((event) => {
+    handler(event.payload);
+  });
 }
