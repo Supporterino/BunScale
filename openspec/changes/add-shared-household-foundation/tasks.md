@@ -982,7 +982,7 @@ an explicit deferral of the production recorder (`questions.md` → Q37); the ot
 in code each already has an owner for. Every task below is one owner, one commit and under an hour, and
 names the scenario or the `questions.md` entry it closes.
 
-- [ ] 7.1 [rust-backend] Correct the module docs in `src-tauri/src/diagnostics/mod.rs` and
+- [x] 7.1 [rust-backend] Correct the module docs in `src-tauri/src/diagnostics/mod.rs` and
   `src-tauri/src/sync/mod.rs` so they state that `diagnostics::record` has **no production call site
   yet** and that the sink is exercised only by tests, instead of naming the save path (2.4), a load
   (2.5) and the probe (2.13) as its recorders or each other as its owner. Documentation only: no

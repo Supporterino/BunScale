@@ -57,8 +57,9 @@
 //! the last-write-wins comparator is 2.6's; the storage invariants are 2.7's; the absolute-instant
 //! clock and its formatting are 2.8's (which is why nothing here reads a clock — an instant that
 //! has to be recorded is supplied by the caller, exactly as `storage::local` does); the diagnostics
-//! sink is 2.12's; and the two status commands plus the platform lifecycle hooks are 2.13's, which
-//! consume [`probe`] and [`StatusTracker`] rather than re-deriving either.
+//! sink is 2.12's, and nothing here records into it, because P0 ships the sink with no production
+//! recorder at all (Q37, 2026-10-21); and the two status commands plus the platform lifecycle hooks
+//! are 2.13's, which consume [`probe`] and [`StatusTracker`] rather than re-deriving either.
 //!
 //! Task 2.5 implements that read path in [`read`]: the local copy is served first, a fresh probe
 //! decides whether a refresh is attempted, and the guarded load replaces the copy. Task 2.13

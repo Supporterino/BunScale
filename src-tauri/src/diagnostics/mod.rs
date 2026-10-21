@@ -39,9 +39,17 @@
 //! aggregates or uploads. Only one view of the sink is frozen —
 //! [`DiagnosticsSummary`](crate::ipc::types::DiagnosticsSummary) with its count and two timestamps,
 //! the value `get_diagnostics_summary` returns (task 1.3) — so the records themselves never cross the
-//! IPC boundary. The call sites that record are the tasks that observe the outcomes: the save path
-//! (2.4), a collection load (2.5) and the reachability probe (2.13); this module owns the shape they
-//! record into, the bound they record under and the summary the command returns.
+//! IPC boundary.
+//!
+//! **Nothing records yet, and that is a decision rather than an omission.** P0 ships the sink as
+//! unit-tested scaffolding: [`record`] has no production call site, and a test is its only caller
+//! today. The only production use of this module is [`summary`], which `get_diagnostics_summary`
+//! reads (task 2.12). The three outcomes that will eventually be recorded — a save failure (2.4), a
+//! collection load (2.5), a reachability probe (2.13) — have no recorder in this change; the first
+//! real recorder is deferred to P3 (Q37, 2026-10-21). A P0 build therefore records nothing and the
+//! summary reports an empty sink. This module owns the shape a recorder will write into, the bound
+//! it will write under and the summary the command returns today; adding the call sites changes no
+//! type here.
 
 pub mod records;
 pub mod sink;
