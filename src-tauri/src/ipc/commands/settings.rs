@@ -44,6 +44,19 @@ use tauri::Manager;
 use super::super::types::*;
 use crate::settings::{DisplayUnitStore, PreferenceError};
 
+/// The failure a local device-store fault reports (Q42).
+///
+/// This is the pair's one mapping from "this device could not answer" to the failure surface, and
+/// both commands reach it: [`data_dir`] when the app's data directory cannot be resolved, and
+/// [`off_thread`] when the store itself failed or the blocking task that ran it could not run. It
+/// names the cause through the constructor rather than building a [`CommandError`] field by field,
+/// so the key and the retry flag stay the constructor's — the reason `unknown` is the honest cause
+/// here is the module documentation's. `request_id` is the operation's identity as the command
+/// received it, so a failure of the setter carries the id a retry re-issues (D0.14).
+fn local_fault_error(request_id: Option<RequestId>) -> CommandError {
+    CommandError::unknown(request_id)
+}
+
 /// The app's own data directory, or the local-storage failure the command reports.
 ///
 /// `request_id` is the operation's identity when the command has one — the setter — so a failure to
@@ -54,7 +67,7 @@ fn data_dir(
 ) -> Result<PathBuf, CommandError> {
     let resolved = app.path().app_data_dir();
 
-    resolved.map_err(|_| CommandError::unknown(request_id))
+    resolved.map_err(|_| local_fault_error(request_id))
 }
 
 /// Run one device-store operation on the blocking pool, and report its outcome through the one
@@ -63,7 +76,8 @@ fn data_dir(
 /// The store touches a file, so the work belongs off the async thread that serves the command. A
 /// join failure (the task could not run at all) and the store's own two classifications are all
 /// `unknown`: see the module documentation for why that cause, and not the placeholder key, is what
-/// a local-storage fault reports.
+/// a local-storage fault reports. The mapping itself is [`local_fault_error`]'s, so both this path
+/// and an unresolvable data directory report the same failure.
 async fn off_thread<T, F>(request_id: Option<RequestId>, operation: F) -> Result<T, CommandError>
 where
     T: Send + 'static,
@@ -73,7 +87,7 @@ where
 
     match outcome {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(_)) | Err(_) => Err(CommandError::unknown(request_id)),
+        Ok(Err(_)) | Err(_) => Err(local_fault_error(request_id)),
     }
 }
 
@@ -132,4 +146,38 @@ pub async fn set_display_weight_unit(
     };
 
     off_thread(Some(request_id), operation).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pair's mapping has to land on the classified `unknown` failure (Q42): the cause the
+    /// frozen list has for a local file that cannot answer, its own `error.unknown` key rather than
+    /// the placeholder key of an unimplemented body, and no retry — nothing about a failed local
+    /// store is known well enough to promise that a second attempt succeeds.
+    #[test]
+    fn a_local_fault_reports_the_unknown_cause_under_its_own_key_without_a_retry() {
+        let fault = local_fault_error(None);
+        let classified_unknown = CommandError::unknown(None);
+
+        assert_eq!(fault.cause, SaveCause::Unknown);
+        assert_eq!(fault.cause, classified_unknown.cause);
+        assert_eq!(fault.message_key, classified_unknown.message_key);
+        assert_eq!(fault.message_key, "error.unknown");
+        assert!(!fault.retryable);
+        assert_eq!(fault.retryable, classified_unknown.retryable);
+    }
+
+    /// The read takes no operation identity and the setter has one (D0.14); the mapping passes
+    /// whichever it was given straight through to the constructor.
+    #[test]
+    fn a_local_fault_carries_the_operation_identity_it_was_given() {
+        let request_id = RequestId("request-7.2".to_owned());
+
+        let fault = local_fault_error(Some(request_id.clone()));
+
+        assert_eq!(fault, CommandError::unknown(Some(request_id)));
+        assert_eq!(local_fault_error(None), CommandError::unknown(None));
+    }
 }

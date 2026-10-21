@@ -989,7 +989,7 @@ names the scenario or the `questions.md` entry it closes.
   behaviour change, no new recorder, no call site wired — the three production recorders stay deferred
   to the change that first needs diagnostics (P3). Closes Q37; NFR-3's "Diagnostics carry no content"
   keeps its current test-composed evidence.
-- [ ] 7.2 [rust-backend] Extract the settings pair's `PreferenceError → CommandError` mapping in
+- [x] 7.2 [rust-backend] Extract the settings pair's `PreferenceError → CommandError` mapping in
   `src-tauri/src/ipc/commands/settings.rs` as a pure helper (Q42's suggested
   `local_fault_cause(request_id) -> CommandError`) and assert it in a unit test: cause `unknown`, the
   message key, and `retryable: false`. This is the one cause path asserted nowhere today — 5.10
