@@ -947,7 +947,7 @@ file's header).
   offline scenarios.
 - [x] 5.16 [test-engineer] E2E: save failure for each cause with a visible cause-specific message and
   a working retry, asserting the entry is never shown as saved; covers SYNC-2 and NFR-8.
-- [ ] 5.17 [test-engineer] E2E at 1280×800: gear → Settings as its own screen with the dashboard still
+- [x] 5.17 [test-engineer] E2E at 1280×800: gear → Settings as its own screen with the dashboard still
   reachable, and household switching; covers the `[desktop]` scenario of SET-1 and HS-3.
 - [ ] 5.18 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
   `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` with no diff, `git diff
@@ -1014,7 +1014,9 @@ names the scenario or the `questions.md` entry it closes.
   `label`, or a `messageKey` resolved through `t()` — update every call site including the pending
   entry surface that passes none, and **remove the hard-coded English "Loading" fallback**, so no P0
   string is announced outside the catalog. Confirm the visual result is unchanged at both baselines
-  and capture screenshots. Closes Q48; 3.7's no-hard-coded-copy rule.
+  and capture screenshots. Closes Q48; 3.7's no-hard-coded-copy rule. **Depends on 7.8**: the four
+  loading-state strings this needs do not exist in the catalog yet, and `src/features/i18n/**` is
+  `frontend-logic`'s.
 - [ ] 7.7 [frontend-logic] Wire the first real `recordFailedSave` caller — the household creation flow
   — and mount `SaveFailureSurface` at the route shell, so `src/features/sync/save-retry.ts` is no
   longer dead code. Keep `SaveFailureNotice` as the **single** failure presentation rather than showing
