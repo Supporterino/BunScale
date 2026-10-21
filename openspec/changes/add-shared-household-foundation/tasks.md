@@ -1022,3 +1022,8 @@ names the scenario or the `questions.md` entry it closes.
   longer dead code. Keep `SaveFailureNotice` as the **single** failure presentation rather than showing
   two surfaces for one failed save, and update `questions.md` Q49 when done. Closes Q49; SYNC-2's "Save
   failure names its cause and offers a retry".
+- [x] 7.8 [frontend-logic] Add the loading-state strings task 7.6 needs to the i18n catalog: one key for
+  the pending entry surface, one for the Settings household read, one for the switch in flight, and one
+  for the generic inline read (the preview keeps a literal because it is not product copy). Keys are
+  added to `src/features/i18n/messages.ts` only, with the catalog's typographic conventions; no call
+  site changes and no consumer yet. Lands before 7.6, which owns the component contract.

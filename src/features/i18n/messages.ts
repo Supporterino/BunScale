@@ -97,6 +97,11 @@ export const P0_MESSAGES = {
   'household.creating': 'Creating…',
   'household.blankName': 'Enter a name for your household.',
 
+  // The entry route's pending surface: the household book/status is being read
+  // at launch (`beforeLoad` may probe for up to 5 s). It names the wait instead
+  // of a bare "Loading", so VoiceOver says what is pending (Q48, task 7.6).
+  'entry.loading': 'Loading your household…',
+
   // The entry guard's load-failure heading; the cause copy is the body (SYNC-3).
   'entry.loadFailed.title': 'Your household could not be loaded.',
 
@@ -112,6 +117,9 @@ export const P0_MESSAGES = {
   'settings.identity.heading': 'Profile',
   'settings.identity.label': 'Name',
   'settings.households.heading': 'Households',
+  // The list read: the first thing the section shows while the households are
+  // being loaded, so it names the list rather than the generic "Loading".
+  'settings.households.loading': 'Loading households…',
   'settings.households.active': 'Active',
   'settings.households.makeActive': 'Make active',
   'settings.households.owner': 'Owner',
@@ -121,7 +129,13 @@ export const P0_MESSAGES = {
     'Create one here to start sharing with the people you live with.',
   'settings.households.switchFailed':
     'That household is no longer available. Refresh and try again.',
+  // A switch in flight, beside the failure copy above: the same action, before
+  // the shared service confirms it (`D1` — no optimistic apply).
+  'settings.households.switching': 'Switching household…',
   'settings.displayUnit.heading': 'Weight unit',
+  // The section's initial read (before the control exists), distinct from the
+  // save in flight below: `Saving…` must not stand in for "not loaded yet".
+  'settings.displayUnit.loading': 'Loading your weight unit…',
   'settings.displayUnit.description':
     'Used only when a weight is entered or shown. Saved values do not change.',
   'settings.displayUnit.grams': 'Grams',
