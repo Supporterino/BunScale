@@ -45,6 +45,7 @@ import {
   GlyphSettings,
 } from '../../design-preview/components/glyphs';
 import { t } from '../../i18n';
+import { LocalCopyNotice } from '../../sync/components/LocalCopyNotice';
 import { useActiveHousehold } from '../queries';
 
 export type HouseholdDashboardScreenProps = {
@@ -88,6 +89,10 @@ export function HouseholdDashboardScreen({
         }
       />
       <Screen className="bs-dashboard">
+        {activeHousehold.data === undefined ||
+        activeHousehold.data === null ? null : (
+          <LocalCopyNotice householdId={activeHousehold.data.id} />
+        )}
         <div className="bs-dashboard__intro">
           <span aria-hidden="true" className="bs-dashboard__mark">
             <GlyphHousehold />

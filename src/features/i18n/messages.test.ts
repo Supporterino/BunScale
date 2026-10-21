@@ -76,6 +76,25 @@ describe('the P0 message catalog', () => {
     }
   });
 
+  it('resolves the account-connectivity and entry-failure headings', () => {
+    const expected = [
+      [
+        'connectivity.account.title',
+        'This device cannot use the shared service right now.',
+      ],
+      ['entry.loadFailed.title', 'Your household could not be loaded.'],
+    ] as const satisfies ReadonlyArray<readonly [MessageKey, string]>;
+
+    for (const [key, copy] of expected) {
+      expect(t(key)).toBe(copy);
+      expect(t(key).trim().length).toBeGreaterThan(0);
+      expect(t(key)).not.toBe(key);
+    }
+
+    // The account heading must not tell an online person to connect.
+    expect(t('connectivity.account.title')).not.toMatch(/internet|connect/i);
+  });
+
   it('never uses a key itself as copy', () => {
     for (const [key, message] of Object.entries(P0_MESSAGES)) {
       expect(message.trim().length).toBeGreaterThan(0);

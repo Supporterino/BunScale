@@ -20,7 +20,7 @@
  * prompt appears underneath it in the error row, which is a live region
  * (`role="alert"`) — a screen-reader user hears it without focus moving. The
  * backend's `validation` refusal gets the same field treatment. Every other
- * cause keeps its own copy in a persistent `Notice` and offers a retry only when
+ * cause is rendered by the shared `SaveFailureNotice`, with a retry only when
  * the failure says it is retryable. There is no optimistic state: the button
  * stays in its loading state until the command answers, and a failure never
  * looks like a created household.
@@ -34,11 +34,11 @@ import { useNavigate } from '@tanstack/react-router';
 import { useRef, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { Heading } from '../../../components/ui/Heading';
-import { Notice } from '../../../components/ui/Notice';
 import { Screen } from '../../../components/ui/Screen';
 import { Text } from '../../../components/ui/Text';
 import { TextField } from '../../../components/ui/TextField';
 import { t } from '../../i18n';
+import { SaveFailureNotice } from '../../sync/components/SaveFailureNotice';
 import { describeSaveFailure } from '../../sync/failure';
 import { createHousehold } from '../api';
 import { useCreateHousehold } from '../queries';
@@ -174,19 +174,10 @@ export function HouseholdOnboardingScreen() {
         />
 
         {otherFailure === null ? null : (
-          <Notice
-            action={
-              otherFailure.retryable ? (
-                <Button onClick={submit} size="compact" variant="secondary">
-                  {t('error.retry')}
-                </Button>
-              ) : undefined
-            }
-            title={t('error.notSaved')}
-            tone="danger"
-          >
-            {t(otherFailure.messageKey)}
-          </Notice>
+          <SaveFailureNotice
+            error={creation.error}
+            onRetry={otherFailure.retryable ? submit : undefined}
+          />
         )}
 
         <Button fullWidth loading={pending} type="submit">

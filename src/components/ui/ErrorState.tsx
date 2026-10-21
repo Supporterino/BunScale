@@ -28,6 +28,12 @@ export type ErrorStateProps = {
   retryLabel?: string;
   /** Diagnostic reference for support; shown small, under the action. */
   requestId?: string;
+  /**
+   * Heading level for the title. `h2` is the default inside a screen whose
+   * navigation bar carries the `h1`; a standalone surface (the entry route's
+   * error component) passes `h1` so the outline does not start at `h2`.
+   */
+  headingLevel?: 'h1' | 'h2';
   className?: string;
 };
 
@@ -37,6 +43,7 @@ export function ErrorState({
   onRetry,
   retryLabel = 'Try again',
   requestId,
+  headingLevel = 'h2',
   className,
 }: ErrorStateProps) {
   return (
@@ -58,7 +65,11 @@ export function ErrorState({
           <line x1="24" x2="24" y1="35" y2="35" />
         </svg>
       </span>
-      <Heading className="bs-error-state__title" variant="title-2">
+      <Heading
+        as={headingLevel}
+        className="bs-error-state__title"
+        variant="title-2"
+      >
         {title}
       </Heading>
       <p className="bs-error-state__body">{children}</p>

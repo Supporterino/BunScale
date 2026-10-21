@@ -97,6 +97,9 @@ export const P0_MESSAGES = {
   'household.creating': 'Creating…',
   'household.blankName': 'Enter a name for your household.',
 
+  // The entry guard's load-failure heading; the cause copy is the body (SYNC-3).
+  'entry.loadFailed.title': 'Your household could not be loaded.',
+
   // The dashboard's Settings & Profile entry point (SET-1, task 4.2).
   'dashboard.title': 'Your household',
   'dashboard.body':
@@ -129,6 +132,8 @@ export const P0_MESSAGES = {
   'connectivity.required.title': 'Connect to continue',
   'connectivity.required.body':
     'Your household data has not been loaded on this device yet. Connect to the internet and try again.',
+  'connectivity.account.title':
+    'This device cannot use the shared service right now.',
   'connectivity.localCopy':
     'Showing saved data. Recent changes from other members may not be here yet.',
   'connectivity.offline': 'Offline',

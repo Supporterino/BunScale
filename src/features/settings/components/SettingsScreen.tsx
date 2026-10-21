@@ -88,6 +88,7 @@ import {
   useSwitchActiveHousehold,
 } from '../../households/queries';
 import { t } from '../../i18n';
+import { SaveFailureNotice } from '../../sync/components/SaveFailureNotice';
 import { describeSaveFailure } from '../../sync/failure';
 import { useServiceStatusView } from '../../sync/status';
 import { setDisplayWeightUnit } from '../api';
@@ -467,19 +468,10 @@ function CreateHouseholdForm({ onClose }: { onClose: () => void }) {
       />
 
       {otherFailure === null ? null : (
-        <Notice
-          action={
-            otherFailure.retryable ? (
-              <Button onClick={submit} size="compact" variant="secondary">
-                {t('error.retry')}
-              </Button>
-            ) : undefined
-          }
-          title={t('error.notSaved')}
-          tone="danger"
-        >
-          {t(otherFailure.messageKey)}
-        </Notice>
+        <SaveFailureNotice
+          error={creation.error}
+          onRetry={otherFailure.retryable ? submit : undefined}
+        />
       )}
 
       <div className="bs-settings__actions">
@@ -586,25 +578,16 @@ function DisplayUnitSection() {
         ) : null}
 
         {failure === null ? null : (
-          <Notice
-            action={
-              failure.retryable && lastChange !== undefined ? (
-                <Button
-                  onClick={() => {
+          <SaveFailureNotice
+            error={setUnit.error}
+            onRetry={
+              failure.retryable && lastChange !== undefined
+                ? () => {
                     setUnit.mutate(lastChange);
-                  }}
-                  size="compact"
-                  variant="secondary"
-                >
-                  {t('error.retry')}
-                </Button>
-              ) : undefined
+                  }
+                : undefined
             }
-            title={t('error.notSaved')}
-            tone="danger"
-          >
-            {t(failure.messageKey)}
-          </Notice>
+          />
         )}
       </div>
     </ListSection>

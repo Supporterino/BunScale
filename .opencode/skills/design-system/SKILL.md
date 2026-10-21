@@ -1647,6 +1647,90 @@ All run **after** the artwork moved to its final path:
 - **E2E for SET-1's mobile/desktop scenarios.** Planned in 5.16/5.17; the scratch
   harness above is evidence, not a committed spec.
 
+---
+
+## Tasks 4.4 and 4.5 record — the connectivity and save-failure surfaces
+
+> **Provenance.** Appended by `frontend-ui` in tasks 4.4 and 4.5 of
+> `add-shared-household-foundation` (P0). It records the explicit
+> connectivity-required state, the local-copy indication and the one reusable
+> save-failure component, plus where each is mounted. **No token and no inventory
+> row changed**; `ErrorState` gained one additive `headingLevel` prop so a
+> standalone error surface can start at `h1`. The status line stays `frozen`. No
+> route was edited: 4.4 replaces the existing `service-required` slot, and
+> everything else mounts inside the dashboard/settings shells this agent already
+> owns.
+
+### What exists now
+
+| Path | What it is |
+|---|---|
+| `src/features/sync/components/ConnectivityRequiredScreen.tsx` | The explicit connectivity-required state (SYNC-3). A standalone `Screen as="main"` whose copy branches on the live status: `offline` → `connectivity.required.title`/`body` plus the `Offline` badge; `account-unusable` → the neutral `connectivity.account.title` heading with `error.no_account` as the body (the person is online; never told to connect); `account-undetermined` → the same heading with the cause's message key (`rate_limited`, `timeout`, or `error.unknown`) as the body; `available` (the transient window before the guard re-decides) → the checking state only, never the connectivity copy; anything else → the required-connectivity copy. A probe failure is a cause-specific `Notice`; one 44 pt `Check again` runs the real probe. **One press is one check:** `router.invalidate()` runs only when the probe recorded an observation (`observed_at` non-null); below the backend threshold nothing is invalidated, so the guard cannot probe a second time. The outcome is written to a polite `role="status"` region (`VisuallyHidden` inside it), and left empty when the probe failed so the `role="alert"` Notice is the single announcement. Keeps `data-household-entry="service-required"`, `data-service-state`, `data-service-cause`. |
+| `src/features/sync/components/LocalCopyNotice.tsx` | The non-blocking local-copy indication: a polite info `Notice` (`connectivity.localCopy`) shown only when `collectionPresence` is `loaded` **and** `source: local`; a `loaded_at: null` local read renders nothing. |
+| `src/features/sync/components/SaveFailureNotice.tsx` | The one save-failure surface, driven by `describeSaveFailure(error)`: danger `Notice`, `error.notSaved` header, cause copy, `error.retry` when retryable and a handler exists, `error.dismiss` otherwise. **No store-wired wrapper:** see the 4.5 decision below. |
+| `src/features/households/components/HouseholdEntryScreens.tsx` | `service-required` renders `ConnectivityRequiredScreen`. Pending is a standalone `Screen` + `LoadingIndicator` (no literal copy); the error surface is a cause-specific `ErrorState` (`h1`) with a retry that calls `router.invalidate()` (re-runs the failed `beforeLoad`; `reset()` alone does not). |
+| `src/features/households/components/HouseholdDashboardScreen.tsx` | Mounts `LocalCopyNotice` above the P0 content when an active household exists (the hook is never called without an id). No save-failure mount. |
+| `src/components/ui/ErrorState.tsx` | Additive `headingLevel?: 'h1' \| 'h2'` (default `h2`), so the entry route's standalone error surface has an `h1` instead of starting its outline at `h2`. No new inventory row. |
+| `src/styles/screens.css` | `.bs-connectivity` safe areas/centred intro; `.bs-entry-status` centres the pending/error content. |
+
+### Where each surface is mounted (hand-off)
+
+- **Connectivity-required:** `HouseholdEntryScreen`'s `service-required` case, on `/`; no route edit.
+- **Local-copy:** the dashboard shell for the active household; in P1 it moves directly above the rabbit data (`LocalCopyNotice` takes only a `householdId`).
+- **Save failure:** **inline** in 4.1's create form and 4.3's create form and display-unit change, via `SaveFailureNotice`. 4.3's switch keeps its own `Notice` because its validation refusal has screen-specific copy and a re-read action, not the cause map. There is no app-level store surface until a recorder exists.
+
+### Decisions
+
+1. **Copy is a fact of the live status, not a fixed sentence.** "Connect to the internet" is only true for `offline`; an account refusal and an undetermined account share the neutral `connectivity.account.title` heading and name their own cause in the body (`error.no_account`, or the classified `error.rate_limited`/`error.timeout`). `available` is not a failure at all — the successful-probe window shows the checking state, never the connectivity copy.
+2. **One tap is one network check.** The probe's `observed_at` decides whether the guard may re-decide. Null means the tracker rejected the attempt as below threshold; invalidating then would make the guard probe again and increment the failure counter twice for one press. The screen stays put and announces the outcome.
+3. **The probe outcome is announced once.** A `role="status"` region containing `VisuallyHidden` receives the cause copy after a press (or the body), so a result that leaves the screen unchanged is not silent. A rejected probe is announced by the danger `Notice` (`role="alert"`), so the polite region is left empty rather than repeating it. Reusing `VisuallyHidden` keeps the clipping in the primitive instead of the screen.
+4. **The entry read failure is a real failure surface.** It is `ErrorState` with `entry.loadFailed.title` as the `h1` and the cause map's copy as the body, never "no household"; the retry re-runs `beforeLoad` through `router.invalidate()`, so it is a real re-read.
+5. **4.5 decision: adopt the shared component; defer the store surface.** `SaveFailureNotice` is now used by 4.1 and 4.3, and the duplicated inline `Notice` blocks are gone (the switch's block excepted, as above). `SaveFailureSurface` and its dashboard/Settings mounts were **removed**, because nothing calls `recordFailedSave` in production: a mounted surface would be a second, invisible mechanism. `save-retry.ts` and its handle discipline stay as tested; the task that introduces a recorder owns adding the wrapper and mounting it once. The flows that worked before still work through the same DOM (`Not saved`, cause copy, retry when retryable, dismiss otherwise).
+6. **The save-failure copy is never optimistic.** The component always renders `error.notSaved` and danger tone; no success branch, no auto-dismiss; `Notice`'s `role="alert"` carries the announcement.
+7. **Nothing-loaded and local-copy stay separate.** The local notice requires `loaded_at`; `source: local` with `loaded_at: null` is the connectivity-required case (SYNC-3), enforced by `collectionPresence`.
+
+### Verification record
+
+- `bun run typecheck` — exit 0.
+- `bun run lint` — exit 0, "Checked 122 files … No diagnostics" (the earlier failures were in `src/test/**`, out of this agent's grant, and the test task has since fixed them).
+- `bun run test` — 28 files, **190 passed** (the parallel component specs,
+  including the create-failure `Not saved`/retry assertions, still pass through
+  the shared component).
+- `bun run test:e2e` — **20/20 passed** at both baselines.
+- Scratch WebKit harness (removed), both baselines:
+  - `offline` → "Connect to continue" + required body + `Offline` badge;
+  - `account-unusable` → the `connectivity.account.title` heading with
+    `error.no_account` as the body, **no** `Offline` badge and no "connect"
+    instruction;
+  - `account-undetermined` (`rate_limited`) → the same neutral heading with the
+    rate-limit body;
+  - one press with a below-threshold probe result makes **exactly one**
+    `check_service_reachability` call, does not re-probe through the guard, and
+    writes the outcome into the `role="status"` region;
+  - the entry read failure renders `entry.loadFailed.title` as its `h1` with the
+    `timeout` cause beneath it and "Try again"; the retry re-runs
+    `list_households` (call count increases);
+  - local copy: shown for `source: local` + `loaded_at`, absent for
+    `loaded_at: null`;
+  - save failure: the 4.1 create form shows the shared "Not saved" + cause +
+    retry; the non-retryable path shows Dismiss (component specs cover the
+    settings paths);
+  - the adopted copy keys were read in the browser: the account-unusable state
+    renders `connectivity.account.title` with the `error.no_account` body, and
+    the entry read failure renders `entry.loadFailed.title` with the cause.
+- Screenshots: `.artifacts/screens/4.4-compact.png` / `4.4-expanded.png` (offline
+  connectivity-required — its copy did not change when the account keys landed,
+  so the pair was not re-taken), `4.4-local-*` (local-copy notice),
+  `4.5-compact.png` / `4.5-expanded.png` (the shared save-failure surface inside
+  the 4.1 create form).
+
+### Not verified
+
+- **A device or Simulator.** Desktop WebKit, no safe-area insets; the connectivity screen's `env()` paddings are declared but not visually exercised.
+- **A real offline transition.** The mock supplies the status and the collection source; no network was actually dropped, and iOS's own viewport/status bar behaviour was not observed.
+- **VoiceOver announcement of the save failure.** The `role="alert"` comes from `Notice`'s danger tone; no screen reader was run.
+
+
 
 
 
