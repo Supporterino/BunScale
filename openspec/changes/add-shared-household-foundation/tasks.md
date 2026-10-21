@@ -882,11 +882,11 @@ file's header).
   household indicated, switching, creating an additional household without onboarding, the
   read-only name with its fallbacks, and the display weight-unit selector (HS-4, SET-2, SET-4).
   Screenshots at 390×844 and 1280×800 in `.artifacts/screens/`.
-- [ ] 4.4 [frontend-ui] Build the connectivity surfaces: the explicit connectivity-required state
+- [x] 4.4 [frontend-ui] Build the connectivity surfaces: the explicit connectivity-required state
   when nothing was ever loaded, and a visible indication when loadable data is being served from the
   local copy because the service is unreachable (SYNC-3). Screenshots at 390×844 and 1280×800 in
   `.artifacts/screens/`.
-- [ ] 4.5 [frontend-ui] Build the save-failure surface: cause-specific copy per `SaveCause`, a retry
+- [x] 4.5 [frontend-ui] Build the save-failure surface: cause-specific copy per `SaveCause`, a retry
   action, and no optimistic or success-looking state for a save that did not complete
   (SYNC-2, NFR-8). Screenshots at 390×844 and 1280×800 in `.artifacts/screens/`.
 
@@ -930,7 +930,7 @@ file's header).
   name is shown read-only" and "Unresolved identity falls back without breaking the screen" (SET-2),
   plus "Unit choice is stored on the device", "Changing the unit leaves stored values unchanged" and
   "Default unit follows the device region" (SET-4).
-- [ ] 5.12 [test-engineer] Component tests for onboarding and Settings — covers "Create the first
+- [x] 5.12 [test-engineer] Component tests for onboarding and Settings — covers "Create the first
   household", "Blank name is rejected" (HS-1), "Create an additional household without onboarding",
   "All households are listed with the active one indicated" (HS-4) and "Gear control opens Settings
   as its own screen" (SET-1).

@@ -795,4 +795,42 @@ correct once the event lands and the state is currently unreachable.
 The retry button on a failed household read stays enabled while the refetch runs. Minor: the button is
 idempotent and the refetch is the same query, so no wrong state is shown — but a disabled state or the
 inline indicator is what the conventions ask for. **Owner:** task 4.4/4.5 (which own the remaining
-connectivity/failure surfaces) or a small polish follow-up.
+connectivity/failure surfaces) or a small polish follow-up. Status: **still open** — 4.4/4.5 landed
+without touching Settings' retry button.
+
+### Q47 — A gate run failed on a stale dev server, and the retry is the documented handling
+
+`bun run test:e2e` failed once during the 4.4/4.5 gate with
+`Navigation to ".../#/design-preview" is interrupted by another navigation`, plus Vite logging
+`Importing a module script failed` for every module it tried to hot-reload. Nineteen of twenty tests
+passed; the same command immediately afterwards was 20/20 with a freshly spawned `$ vite`. This is
+Q23's mechanism (a server holding 1420 that was started without `VITE_E2E_MOCK`, or with a stale module
+graph, is reused) rather than a product failure — the fixture's mock assertion passed in both runs, so
+the failing run was navigated, not unmocked. **Recording rather than fixing**, because the fix Q23
+already names (the shared fixture) exists and the config choice was deliberate; the operational rule
+stands: do not leave a dev server on 1420, and treat a first-run failure with those two log lines as a
+stale-server flake and re-run once before investigating.
+
+### Q48 — The pending entry surface's only announced text is the primitive's fallback
+
+`LoadingIndicator` without a `label` announces its default "Loading", which is English copy outside the
+catalog. The pending entry surface passes no label, so this is inherited from the primitive rather than
+introduced by 4.4 — but it is the one P0 string that does not go through `t()`. **Owner:** the
+`LoadingIndicator` primitive (design-system inventory) — either accept a required label or a
+`messageKey`, and update every call site. No requirement's outcome changes.
+
+### Q49 — The save-retry store is built and tested but intentionally unmounted
+
+4.5's surface (`SaveFailureNotice`) is adopted by 4.1/4.3 for the flows that exist, and the
+store-backed `SaveFailureSurface` mount was removed because nothing in P0 calls `recordFailedSave`.
+`src/features/sync/save-retry.ts` and its interleaving specs stay. **Owner:** the task that introduces
+the first recorder (P3's shared-service writes, or a P0 follow-up), which mounts the surface and wires
+the recorder together; Q37 owns the same gap on the Rust side.
+
+### Q50 — The request-id retry invariant now has a component-level spec
+
+Q29 is closed: `src/test/household-onboarding.component.test.tsx` and
+`src/test/settings-households.component.test.tsx` assert that two attempts of one intent carry one
+`request_id`, at the screen layer. The remaining half Q29 asked for — two *different* intents mints two
+different ids — is asserted at the hook level in `src/features/households/create.test.ts`; the
+component specs cover the reuse half.
