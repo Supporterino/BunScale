@@ -23,10 +23,10 @@
  * component:
  *   - safe-area insets (`env(safe-area-inset-*)`) for fixed bars;
  *   - the keyboard inset (`--keyboard-inset`), defined here and reserved by the
- *     layout primitives; **nothing assigns it yet** — no `visualViewport`
- *     measurement exists in `src/` — and the app-shell code that will set it is
- *     deferred to the first real form screen, task 4.1 (first-run household
- *     creation). No UI component ever measures the keyboard itself;
+ *     layout primitives, and assigned by the first-run household screen's
+ *     `use-keyboard-inset` hook (task 4.1) — the only `visualViewport`
+ *     measurement in `src/`. On every other surface the token keeps its `0px`;
+ *     no UI component measures the keyboard itself;
  *   - the preferred-text-size multiplier (`--text-scale`), applied to every
  *     type token so Dynamic Type / a preferred reading size scales text;
  *   - AA contrast pairs (verified in the project record in the design-system
@@ -246,11 +246,13 @@
 
   /*
    * The software keyboard's overlap with the visual viewport. The token is
-   * defined and consumed here and in `ui.css` — `Screen` pads its bottom and its
-   * scroll padding by it — but **nothing assigns it today**: its value is `0px`
-   * and the app shell's `visualViewport` measurement is deferred to the first
-   * real form screen (task 4.1, first-run household creation). Until then this
-   * reserves nothing; UI consumes it and never measures the keyboard itself.
+   * defined here and consumed by `ui.css` — `Screen` pads its bottom and its
+   * scroll padding by it — while the assignment lives with the first real form
+   * screen (task 4.1, first-run household creation), whose
+   * `use-keyboard-inset` hook measures `visualViewport` and writes this property
+   * on the root element. No primitive measures the keyboard, and on every
+   * surface without that screen mounted the token keeps its defined `0px`, so
+   * the reservation costs nothing until a keyboard is reported.
    */
   --keyboard-inset: 0px;
 

@@ -416,7 +416,7 @@ new values.
 | iOS safe areas | `--safe-area-inset-top/right/bottom/left` = `env(safe-area-inset-*, 0px)` | Every fixed bar adds the matching inset; every scroll region reserves it. Each inset is added **exactly once, by the box flush to that viewport edge**: in the compact arrangement that is the nav bar, `Screen` and the tab-bar list (all four insets), and in the expanded arrangement the sidebar owns the leading edge, so the nav bar and `Screen` drop the leading half (they are inside the content column, which the sidebar has already inset). Every use is `env(…, 0px)`, so nothing moves on a device without insets. `index.html` already declares `viewport-fit=cover`. **Desktop WebKit reports no insets, so the four screenshot/E2E baselines cannot exercise any of this** — the values are confirmed by reading the declarations and the computed `padding-inline-*`, not by a pixel; the landscape case (844×390, which crosses the 768 px band into the sidebar arrangement) is why the horizontal pair is reachable at all. |
 | Touch target | `--size-touch-target: 44px`, `--size-touch-spacing: 8px` | 44 CSS px = 44 pt on iOS. A 20 px glyph still gets a 44×44 hit area. Adjacent targets keep ≥8 px — the nav bar's action slots read `--size-touch-spacing` for exactly that. macOS keeps the same baseline; a fine pointer may get denser *visual* treatment but not a smaller hit area. |
 | Dynamic Type / preferred size | `--text-scale: 1`, applied in every `--text-*-size` via `calc(rem × scale)`; unitless line heights | Components never set a `px` font size. Set `--text-scale` once at the root from the preferred content-size category (or an in-app control). Test at 1.5× and 2.0×; allow wrapping, never fixed-height text boxes. |
-| Keyboard inset | `--keyboard-inset: 0px` | Defined here and **reserved** by the layout primitives: `Screen` adds it to `padding-block-end` and to `scroll-padding-block-end`, and no UI component measures the keyboard itself. **Nothing assigns it yet** — there is no `visualViewport` code in `src/`, so it resolves to `0px` — and the app-shell assignment is deferred to the first real form screen, task 4.1 (first-run household creation), which owns the measurement. No behaviour today claims otherwise. |
+| Keyboard inset | `--keyboard-inset: 0px` | Defined here and **reserved** by the layout primitives: `Screen` adds it to `padding-block-end` and to `scroll-padding-block-end`, and no UI component measures the keyboard itself. **Assigned by the first real form screen** (task 4.1, first-run household creation) through `useKeyboardInset` beside that screen: it measures `visualViewport` on `resize`/`scroll`, writes the token on the root element, treats a pinch-zoom as no keyboard and cleans up on unmount. On every other surface the token keeps its defined `0px`. No behaviour today claims otherwise. |
 | AA contrast | semantic text pairs | Normal text ≥4.5:1, large text ≥3:1, control boundaries and focus rings ≥3:1. Measured pairs below. Disabled text is exempt but must still expose its label. |
 | Hover / keyboard | — | No hover-only affordance. Hover styles only inside `@media (hover: hover) and (pointer: fine)`. Pressed feedback exists on touch. Focus rings use `--focus-ring` + `--focus-ring-offset` with `:focus-visible`; keyboard operation is not an enhancement-only path. |
 | Reduced motion | `--duration-*` → 0 ms, `--motion-press-scale` → 1 | Components must read the duration tokens; a literal duration would bypass the override. Loading indicators may loop but must still be legible when motion is reduced. |
@@ -520,8 +520,9 @@ A sheet or alert will also need a scrim and focus trap, which is why it is not a
    home indicator.
 4. **Keyboard.** `Screen` accounts for `--keyboard-inset`; inputs scroll into
    view on focus; no fixed action bar hidden behind the keyboard; use
-   `enterKeyHint` and `inputMode` for the data. The inset itself is not assigned
-   yet — see the platform-facts table above; the assignment is task 4.1's.
+   `enterKeyHint` and `inputMode` for the data. The inset is assigned by the
+   first form screen's own hook (task 4.1) and stays `0px` everywhere else — see
+   the platform-facts table above.
 5. **AA contrast.** Text ≥4.5:1, large text ≥3:1, non-text controls ≥3:1. Every
    state (pressed, selected, error, disabled) uses a defined pair; disabled is
    the only exempt state and must still be labelled.
@@ -1303,4 +1304,108 @@ All run **after** the artwork moved to its final path:
 - **The `--ios-color` / `--fit` options and a manifest-based invocation** were
   not used; the plain command the task specifies was, and its defaults are what
   the set reflects.
+
+---
+
+## Task 4.1 record — the first-run household creation screen
+
+> **Provenance.** Appended by `frontend-ui` in task 4.1 of
+> `add-shared-household-foundation` (P0). It records the first real screen built
+> from the frozen inventory, the `--keyboard-inset` assignment that resolves Q21,
+> and the one additive change to a primitive. **No token value, no component
+> type and no route changed.** The status line stays `frozen`; the inventory
+> table above is unchanged.
+
+### What exists now
+
+| Path | What it is |
+|---|---|
+| `src/features/households/components/HouseholdOnboardingScreen.tsx` | HS-1/HS-2's screen: `Screen as="main"` + `large-title` h1 + body + `TextField` + submit `Button`, with the inline blank prompt, the backend `validation` refusal on the field, and a cause-mapped `Notice` (retry only when the failure is retryable). All copy through `t()`. |
+| `src/features/households/components/use-keyboard-inset.ts` | The one `visualViewport` measurement in `src/`. Writes `--keyboard-inset` on the root from `innerHeight − viewport.height − viewport.offsetTop`, coalesced with `requestAnimationFrame`, listening to `resize`/`scroll`, cleaned up (listeners, frame and property) on unmount. `scale !== 1` is treated as no keyboard, and the value is clamped at zero. |
+| `src/styles/screens.css` | Screen composition, imported last from `index.css`. Its first entry is `.bs-onboarding`: the top/bottom safe areas of a standalone `Screen` (no nav bar, no tab bar), the bottom using `max(safe-area, keyboard)` so the home-indicator area is not counted twice while the keyboard is open, and `--layout-form-max` for the form from 0 px up. Not a token layer and not a primitive. |
+| `src/features/households/components/HouseholdEntryScreens.tsx` | Only the onboarding placeholder changed: it is now a re-export of `HouseholdOnboardingScreen` under the old name, so the route file (not this agent's) did not have to move in this task; the `data-household-entry="onboarding"` attribute stayed on the `main`, which is what the three specs assert. |
+
+### Decisions
+
+1. **The keyboard inset is screen-owned, not shell-owned.** Q21 left the choice
+   open. The record forbids a primitive measuring the keyboard, the route renders
+   this screen without `AppShell`, and the token is only needed while a form is
+   focused — so the measurement lives in a hook beside the screen, mounted by
+   that screen alone. On every other surface the token is the stylesheet's
+   `0px`, which the harness read back untouched after unmount. Moving it to the
+   shell later is a mechanical change and would not touch `Screen`.
+2. **`Screen` gained a `data-*` pass-through, nothing else.** The guard's three
+   specs require `data-household-entry` on the `main` itself
+   (`getByRole('main')` + attribute, and a Playwright locator). The primitive's
+   props had no way to carry it, and the alternatives were forking `Screen` or
+   wrapping a second `<main>`. The additive template-literal index signature
+   (`[key: \`data-${string}\`]`) keeps the hole narrow: aria/HTML props come from
+   `HTMLAttributes`, and only `data-*` is unlisted. No existing call site changed.
+3. **One operation per intent, through one path.** `createHousehold(name)` mints
+   the request id; the handle is kept beside the name it was created for. The
+   primary button and the retry action both call `submit`, which re-runs that
+   handle while the trimmed name is unchanged and mints a new one for a corrected
+   name. There is deliberately no second "retry" path: two entry points that each
+   decide identity is how a retryable failure would be re-sent under a fresh id
+   (D0.14). A successful create navigates to `/`, whose `beforeLoad` re-reads the
+   book with `staleTime: 0`; the screen itself never renders a "created" state.
+4. **Validation is the field's, other failures are a `Notice`.** A blank or
+   whitespace-only name is refused before the command; the backend's
+   `validation` cause is also drawn on the field (`aria-invalid` via
+   `TextField error`). HS-1's only create refusal is a blank name, so the field
+   uses `household.blankName` for both — one condition, one wording — while the
+   `error.*` copy is reserved for the notice. Every other cause uses its
+   `failure.ts` key in a persistent danger notice, with `error.retry` only when
+   the backend called it retryable. No toast, no optimistic success.
+5. **`FieldError` is a live region (`role="alert"`).** The inline prompt has to
+   reach a screen reader; on a blank submit focus stays on the button and the
+   error row is inserted, and before this it was a plain `<p>` — silent to
+   VoiceOver. The primitive change makes any field error announced when it
+   appears, on this screen and every later form, and keeps
+   `aria-invalid`/`aria-describedby` for a reader who reaches the field later. The
+   row exists only while there is an error, so nothing is announced on load. The
+   other option — focusing the input on a refused submit — was declined because
+   it would also move focus for a server-side refusal and would need a new ref
+   path on `TextField`; the live row is the smaller, general fix.
+6. **`noValidate` on the form.** The field is genuinely `required` (announced),
+   but the browser's own validation bubble would replace the inline prompt the
+   task specifies, so the form opts out of native validation and runs the one
+   rule itself.
+
+### Verification record
+
+- `bun run typecheck` — exit 0.
+- `bun run lint` — exit 0, "Checked 111 files … No diagnostics".
+- `bun run test` — 24 files, **160 tests passed**.
+- WebKit, against `bun run dev` with `VITE_E2E_MOCK=1` (scratch config and spec
+  under this directory, removed afterwards): blank submit shows
+  "Enter a name for your household." in the `role="alert"` error row, marks the
+  field `aria-invalid="true"` and never invokes `create_household`;
+  whitespace-only behaves the same; typing clears the row; a thrown
+  `{ cause: 'validation' }` produces the same one wording under the field (one
+  alert, no `error.validation`); a retryable `connectivity` failure shows the
+  cause copy, and pressing the **primary button** twice and then "Try again"
+  makes three calls that all carry the **same** request id, after which the app
+  lands on the dashboard (`#/`).
+- Keyboard token read in the page: `0px` with the real visual viewport, `344px`
+  with a fake `visualViewport` (`height 500`, `offsetTop 0`, `scale 1`,
+  `innerHeight 844`), and back to `0px` when `scale` became `2` — the
+  pinch-zoom guard.
+- Screenshots: `.artifacts/screens/4.1-compact.png` (390×844) and
+  `.artifacts/screens/4.1-expanded.png` (1280×800), WebKit. What they show, as
+  observed: the large title, the two-line body, the labelled 44 pt field with its
+  placeholder, and the full-width primary button, all inside the safe areas;
+  the expanded shot is the same single-column screen with the form capped at
+  `--layout-form-max` in the centred content column.
+
+### Not verified
+
+- **A real software keyboard on iOS.** No device or Simulator exists here; the
+  measurement was exercised with a synthetic `visualViewport`, which proves the
+  arithmetic, listener wiring and cleanup — not iOS's own viewport behaviour
+  (panning, animation, accessory bar). The `max(safe-area, keyboard)` choice and
+  the `offsetTop` subtraction are reasoned, not device-tested.
+- **VoiceOver reading order and the native keyboard's return key.** Not
+  observed.
+
 

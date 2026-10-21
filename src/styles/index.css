@@ -5,20 +5,24 @@
  * assign purpose, component tokens name the decisions a primitive reads. The
  * element layer comes after all three, because it is the only one that may
  * restyle an element, and it may do so only with the tokens above it; the
- * primitives' own classes come last, so a component decision outranks the
- * type role it is built on.
+ * primitives' own classes come after that, so a component decision outranks the
+ * type role it is built on. Screen composition comes last: `screens.css` is
+ * neither a token layer nor a primitive, and it may override a primitive's own
+ * spacing where a screen owns the decision (the standalone onboarding screen's
+ * safe areas, for one).
  *
  * Consuming this file:
  *   import './styles/index.css';
  *
  * That import lives in `src/main.tsx` and nowhere else, so the whole chain goes
  * through the bundler with the rest of the app instead of shipping unvalidated.
- * It is still the single style entry point: `ui.css` is imported here rather
- * than from the components, so nothing in `src/components/` has a second graph
- * edge to the stylesheet.
+ * It is still the single style entry point: `ui.css` and `screens.css` are
+ * imported here rather than from the components, so nothing in `src/components/`
+ * has a second graph edge to the stylesheet.
  */
 @import "./primitives.css";
 @import "./semantic.css";
 @import "./components.css";
 @import "./base.css";
 @import "./ui.css";
+@import "./screens.css";

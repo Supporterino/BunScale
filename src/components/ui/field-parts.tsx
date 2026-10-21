@@ -13,7 +13,12 @@ import { VisuallyHidden } from './VisuallyHidden';
  *   - `required` is announced, not only painted: the asterisk is `aria-hidden`
  *     and a screen-reader-only " (required)" follows it;
  *   - an error is announced as an error, not only coloured: the message keeps
- *     its cause-specific text and gains a screen-reader-only "Error: " prefix.
+ *     its cause-specific text and gains a screen-reader-only "Error: " prefix,
+ *     and the row is a `role="alert"` live region, so an error that appears
+ *     after a refused submit is spoken even though focus did not move. The
+ *     alert appears only when there is an error, so a screen never announces one
+ *     on load; `aria-invalid`/`aria-describedby` on the control still carry the
+ *     state for a reader who arrives at the field afterwards.
  *
  * `FieldLabel` always renders a real `<label>` with `htmlFor`, which is what the
  * inventory requires. A control that cannot be labelled by `for` — a
@@ -65,7 +70,7 @@ export function FieldHint({ children, id }: FieldTextProps) {
 
 export function FieldError({ children, id }: FieldTextProps) {
   return (
-    <p className="bs-field__error" id={id}>
+    <p className="bs-field__error" id={id} role="alert">
       <VisuallyHidden>Error: </VisuallyHidden>
       {children}
     </p>

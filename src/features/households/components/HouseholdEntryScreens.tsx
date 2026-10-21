@@ -11,7 +11,10 @@
  *
  * Which surface is which:
  *
- * - `OnboardingPlaceholder` — HS-2's first-run household creation (task 4.1).
+ * - `HouseholdOnboardingScreen` — HS-2's first-run household creation (task
+ *   4.1). It lives in its own module and is re-exported below as
+ *   `OnboardingPlaceholder`, the name the route imports today, so this task did
+ *   not have to change a route file it does not own.
  * - `DashboardPlaceholder` — the active household's dashboard (task 4.2). It
  *   reads the active-household query, which is what proves the entry context and
  *   the cache agree.
@@ -29,6 +32,7 @@
 import type { ServiceStatus } from '../../sync/entry-status';
 import type { HouseholdEntry } from '../entry';
 import { useActiveHousehold } from '../queries';
+import { HouseholdOnboardingScreen } from './HouseholdOnboardingScreen';
 
 /** The entry route's screen: the dashboard, or the connectivity slot. */
 export function HouseholdEntryScreen({ entry }: { entry: HouseholdEntry }) {
@@ -40,19 +44,21 @@ export function HouseholdEntryScreen({ entry }: { entry: HouseholdEntry }) {
     case 'onboarding':
       // The route redirects on this entry; rendering it is a defensive
       // fallback rather than a state this screen is designed for.
-      return <OnboardingPlaceholder />;
+      return <HouseholdOnboardingScreen />;
   }
 }
 
-/** HS-2's first-run surface, until task 4.1 builds it. */
-export function OnboardingPlaceholder() {
-  return (
-    <main data-household-entry="onboarding">
-      <h1>Create a household</h1>
-      <p>The first-run household-creation flow lands here (task 4.1).</p>
-    </main>
-  );
-}
+/*
+ * HS-2's first-run surface (task 4.1). Built in its own module so the screen's
+ * form, keyboard measurement and copy stay together; re-exported under the name
+ * the route already imports, which keeps this task out of a route file
+ * `frontend-ui` does not own. The route should import
+ * `HouseholdOnboardingScreen` directly the next time its owner touches it.
+ */
+export {
+  HouseholdOnboardingScreen,
+  HouseholdOnboardingScreen as OnboardingPlaceholder,
+} from './HouseholdOnboardingScreen';
 
 /** The active household's dashboard, until task 4.2 builds the shell. */
 function DashboardPlaceholder() {

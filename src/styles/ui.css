@@ -216,9 +216,10 @@
   min-height: 0;
   min-width: 0;
   padding-block-start: var(--space-4);
-  /* The keyboard inset is the app shell's single measurement of the software
-     keyboard — reserved here, assigned by the first real form screen (task
-     4.1), `0px` until then (`semantic.css` says the same at the token). */
+  /* The keyboard inset is measured by the first-run household screen's
+     `use-keyboard-inset` hook (task 4.1) and written on the root element;
+     `Screen` only reserves it, and it is `0px` wherever that screen is not
+     mounted (`semantic.css` says the same at the token). */
   padding-block-end: calc(var(--space-8) + var(--keyboard-inset));
   /*
    * The screen is flush to the viewport on both inline edges in the compact

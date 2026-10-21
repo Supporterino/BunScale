@@ -15,9 +15,9 @@ import { FieldError, FieldHint, FieldLabel } from './field-parts';
  *
  * Keyboard: focusing the field scrolls it into view, and `Screen` reserves
  * `--keyboard-inset` at the bottom of the scroll region so the content the
- * keyboard would cover stays reachable. Nothing assigns that inset yet — it is
- * `0px` until the app shell measures `visualViewport`, which the first real form
- * screen (task 4.1) owns, and `semantic.css` says so at the token. Nothing here
+ * keyboard would cover stays reachable. This primitive does not assign that
+ * inset: the first real form screen (task 4.1) owns the one `visualViewport`
+ * measurement, and `semantic.css` states the same at the token. Nothing here
  * measures the keyboard either.
  *
  * `label`, `hint`, `error` and `required` are the primitive's own, drawn by the

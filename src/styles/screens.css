@@ -1,0 +1,64 @@
+/*
+ * Screen composition (task 4.1 onward).
+ *
+ * Not a token layer and not a primitive: these classes lay out one feature's
+ * screen out of the frozen primitives. Imported after `ui.css` so a screen rule
+ * can override a primitive's own spacing where the screen owns the decision —
+ * here, the safe areas of a surface that renders without `AppShell`.
+ *
+ * The first entry is the first-run household creation screen.
+ */
+
+/*
+ * A standalone `Screen` — the onboarding route renders it directly, with no
+ * navigation bar and no tab bar — is the box flush to all four viewport edges,
+ * so it is the one that adds the top and bottom safe-area insets. Each edge is
+ * added exactly once, and the bottom uses `max()` rather than a sum: with the
+ * keyboard open, iOS already includes the home-indicator area in the keyboard
+ * overlap, so adding both would reserve it twice. In the expanded arrangement
+ * the larger top spacing comes from the semantic section token.
+ */
+.bs-onboarding {
+  padding-block-start: calc(
+    var(--spacing-stack-lg) +
+    var(--safe-area-inset-top)
+  );
+  padding-block-end: calc(
+    var(--space-8) +
+    max(var(--safe-area-inset-bottom), var(--keyboard-inset))
+  );
+  scroll-padding-block-end: calc(
+    var(--space-4) +
+    max(var(--safe-area-inset-bottom), var(--keyboard-inset))
+  );
+}
+
+.bs-onboarding__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-sm);
+  margin-block-end: var(--spacing-section);
+}
+
+/*
+ * The form keeps the comfortable reading measure on a wide window instead of
+ * stretching a single field across the whole content column. Compact is the
+ * base, so the cap applies from 0 px up; `--layout-form-max` is already the
+ * system's form decision.
+ */
+.bs-onboarding__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-lg);
+  width: 100%;
+  max-width: var(--layout-form-max);
+}
+
+@media (min-width: 768px) {
+  .bs-onboarding {
+    padding-block-start: calc(
+      var(--spacing-section) +
+      var(--safe-area-inset-top)
+    );
+  }
+}

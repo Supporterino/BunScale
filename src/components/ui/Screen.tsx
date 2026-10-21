@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { HTMLAttributes, ReactNode } from 'react';
 import { classNames } from './class-names';
 
 /*
@@ -8,12 +8,12 @@ import { classNames } from './class-names';
  * content or control ends up under the tab bar, the home indicator or the
  * keyboard (`semantic.css` states the same contract at token level):
  *
- *   - `padding-block-end` adds `--keyboard-inset`, which the app shell will set
- *     once from `visualViewport`. No `visualViewport` measurement exists in
- *     `src/` yet, so the token resolves to `0px` today and assigning it is
- *     deferred to the first real form screen (task 4.1) — see `semantic.css`.
- *     The reservation is here so that task only has to assign; no component
- *     measures the keyboard itself, so nothing else has to change.
+ *   - `padding-block-end` adds `--keyboard-inset`. The first real form screen
+ *     (task 4.1, first-run household creation) assigns it from
+ *     `visualViewport` through its own hook; `Screen` itself still measures
+ *     nothing. On every other surface the token keeps its defined `0px`, so the
+ *     reservation costs nothing until a keyboard is reported — see
+ *     `semantic.css`.
  *   - `scroll-padding-block-end` reserves the tab bar, so a focused control
  *     scrolled into view is not scrolled *under* the bar.
  *   - `overscroll-behavior: contain` stops the scroll chaining that would
@@ -48,7 +48,17 @@ export type ScreenProps = {
   as?: 'div' | 'main';
   className?: string;
   id?: string;
-};
+} & Omit<HTMLAttributes<HTMLElement>, 'children' | 'className' | 'id'> & {
+    /*
+     * `data-*` markers reach the element as well. A screen needs one occasionally
+     * — the household entry guard publishes `data-household-entry` on its
+     * `main`, which is the stable name of the decision its specs assert — and
+     * without this index signature a feature would either fork `Screen` or wrap
+     * a second landmark around it. Only `data-*` passes through; the rest of the
+     * element's props are the declared ones above.
+     */
+    [key: `data-${string}`]: string | undefined;
+  };
 
 export function Screen({
   children,
@@ -57,9 +67,11 @@ export function Screen({
   as: Element = 'div',
   className,
   id,
+  ...elementProps
 }: ScreenProps) {
   return (
     <Element
+      {...elementProps}
       className={classNames('bs-screen', `bs-screen--${variant}`, className)}
       id={id}
     >
