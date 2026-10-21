@@ -834,13 +834,14 @@ file's header).
   (NFR-8, D0.14).
 - [x] 2.12 [rust-backend] Implement the redacted diagnostics sink: identifiers, counts and outcomes
   only; no rabbit names, note text, photo content or weight values; assert no third-party analytics
-  transport exists (NFR-3).
+  transport exists (NFR-3). (deferred: no production recorder until P3 — see Q37 and task 7.1)
 - [x] 2.13 [rust-backend] Implement reachability re-evaluation hooks for both platform lifecycles:
   foreground return on iOS and continuation-while-running on macOS, both `cfg`-clean (NFR-1). Apply
   the fixed bounds of D0.13: a probe that receives no answer within the **5-second
   `REACHABILITY_PROBE_TIMEOUT`** counts as a failed probe, and the status is reported as offline only
   after **3 consecutive failures without an intervening success** (`OFFLINE_FAILURE_THRESHOLD`, NFR-6's
-  rule adopted in P0 so P3 inherits it).
+  rule adopted in P0 so P3 inherits it). (deferred: no production recorder until P3 — see Q37 and
+  task 7.1)
 
 ## 3. Frontend logic
 
@@ -971,3 +972,51 @@ file's header).
   floor task 0.7 measured rather than a chosen number (D0.16), that the icon set is the one task 0.22
   generated (D0.19, no Tauri default icon remains), and verify every UI task's `.artifacts/screens/`
   screenshots are present at 390×844 and 1280×800.
+
+## 7. Follow-up fixes (owner-approved 2026-10-21)
+
+These close the recorded minors Q37, Q42, Q44, Q45, Q46, Q48 and Q49. The product owner approved them
+on 2026-10-21 **before this change is archived**, so none of them arrives after the fact as a review
+finding, and all seven land inside the same P0 delta. Q37 is closed by a documentation correction plus
+an explicit deferral of the production recorder (`questions.md` → Q37); the other six are small fixes
+in code each already has an owner for. Every task below is one owner, one commit and under an hour, and
+names the scenario or the `questions.md` entry it closes.
+
+- [ ] 7.1 [rust-backend] Correct the module docs in `src-tauri/src/diagnostics/mod.rs` and
+  `src-tauri/src/sync/mod.rs` so they state that `diagnostics::record` has **no production call site
+  yet** and that the sink is exercised only by tests, instead of naming the save path (2.4), a load
+  (2.5) and the probe (2.13) as its recorders or each other as its owner. Documentation only: no
+  behaviour change, no new recorder, no call site wired — the three production recorders stay deferred
+  to the change that first needs diagnostics (P3). Closes Q37; NFR-3's "Diagnostics carry no content"
+  keeps its current test-composed evidence.
+- [ ] 7.2 [rust-backend] Extract the settings pair's `PreferenceError → CommandError` mapping in
+  `src-tauri/src/ipc/commands/settings.rs` as a pure helper (Q42's suggested
+  `local_fault_cause(request_id) -> CommandError`) and assert it in a unit test: cause `unknown`, the
+  message key, and `retryable: false`. This is the one cause path asserted nowhere today — 5.10
+  records it as a named gap — and the test reads the real mapping rather than a re-implementation.
+  Closes Q42; NFR-8's "No bare failure messages".
+- [ ] 7.3 [test-engineer] Assert at the component layer that a display-unit failure (cause `unknown`,
+  non-retryable) shows the re-select guidance and offers **no retry control**, so "the recovery is not
+  a retry button" is proved by a spec instead of recorded in a design note. Extend the existing
+  Settings component specs; no product code changes unless the assertion fails. Closes Q44; SET-4's
+  "Display weight unit is per-device and applied at the boundary".
+- [ ] 7.4 [frontend-logic] Make the Settings read-failure retry refetch the active household together
+  with the household list — the held-set pair — so the Active marker cannot be lost after a refresh
+  when the active id is no longer in the list. Unreachable in P0 today and made reachable by P3's
+  deletion, which is why it lands now rather than being inherited. Closes Q45; HS-4's "All households
+  are listed with the active one indicated".
+- [ ] 7.5 [frontend-ui] Give the Settings read retry a busy state while the refetch is in flight —
+  the disabled control or the inline indicator, whichever the conventions already use for a pending
+  read — so a second tap cannot land and the screen says it is working. Screenshots at 390×844 and
+  1280×800 in `.artifacts/screens/` if the rendered result changes. Closes Q46; HS-4's Settings read
+  path.
+- [ ] 7.6 [frontend-ui] Make `LoadingIndicator` announce copy from the i18n catalog — a required
+  `label`, or a `messageKey` resolved through `t()` — update every call site including the pending
+  entry surface that passes none, and **remove the hard-coded English "Loading" fallback**, so no P0
+  string is announced outside the catalog. Confirm the visual result is unchanged at both baselines
+  and capture screenshots. Closes Q48; 3.7's no-hard-coded-copy rule.
+- [ ] 7.7 [frontend-logic] Wire the first real `recordFailedSave` caller — the household creation flow
+  — and mount `SaveFailureSurface` at the route shell, so `src/features/sync/save-retry.ts` is no
+  longer dead code. Keep `SaveFailureNotice` as the **single** failure presentation rather than showing
+  two surfaces for one failed save, and update `questions.md` Q49 when done. Closes Q49; SYNC-2's "Save
+  failure names its cause and offers a retry".

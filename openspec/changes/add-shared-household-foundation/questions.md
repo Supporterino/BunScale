@@ -716,6 +716,18 @@ and `sync/mod.rs` must stop disagreeing, and 2.12's claim must either gain its c
 corrected. No requirement's outcome changes today — nothing reads the sink except the summary — which
 is why this is recorded rather than treated as a broken build.
 
+**Resolved (2026-10-21, product owner):** the sink stays unit-tested scaffolding for P0. No recorder
+is wired in this change: the three production recorders (2.4/2.5/2.13) are deferred to the change that
+first needs diagnostics (P3), which is also the change that consumes `get_diagnostics_summary`. The
+contradictory module docs are corrected by task 7.1, which states the no-production-call-site position
+in both files, and 2.12's and 2.13's claims are **annotated** in this change's task list rather than
+silently left standing. NFR-3's outcome is unchanged: the record's shape and the absence of any
+transport stay asserted by 5.9, and nothing reads the sink except the summary.
+
+Tasks 2.12 and 2.13 are annotated as deferred in this change's task list
+(`(deferred: no production recorder until P3 — see Q37 and task 7.1)`), so a ticked 2.12 no longer
+reads as a sink with a production writer.
+
 ### Q38 — P0 copy is still hard-coded in the 3.3 placeholders
 
 The i18n scaffold (3.7) is complete and typed, but no module imports it yet:
