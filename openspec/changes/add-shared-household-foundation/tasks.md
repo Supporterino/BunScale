@@ -945,7 +945,7 @@ file's header).
 - [x] 5.15 [test-engineer] E2E: offline launch with previously loaded data, and offline launch with
   nothing ever loaded, asserting the explicit connectivity-required state; covers the two SYNC-3
   offline scenarios.
-- [ ] 5.16 [test-engineer] E2E: save failure for each cause with a visible cause-specific message and
+- [x] 5.16 [test-engineer] E2E: save failure for each cause with a visible cause-specific message and
   a working retry, asserting the entry is never shown as saved; covers SYNC-2 and NFR-8.
 - [ ] 5.17 [test-engineer] E2E at 1280×800: gear → Settings as its own screen with the dashboard still
   reachable, and household switching; covers the `[desktop]` scenario of SET-1 and HS-3.
