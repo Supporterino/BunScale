@@ -30,7 +30,6 @@
  * (the route renders it without `AppShell`), so it owns the top and bottom safe
  * areas as well as the keyboard reservation `Screen` already carries.
  */
-import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useRef, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
@@ -42,7 +41,7 @@ import { TextField } from '../../../components/ui/TextField';
 import { t } from '../../i18n';
 import { describeSaveFailure } from '../../sync/failure';
 import { createHousehold } from '../api';
-import type { Household } from '../queries';
+import { useCreateHousehold } from '../queries';
 import { useKeyboardInset } from './use-keyboard-inset';
 
 /** One create intent: the handle and the name it was created for. */
@@ -63,22 +62,7 @@ export function HouseholdOnboardingScreen() {
   const attempt = useRef<Attempt | null>(null);
   const navigate = useNavigate();
 
-  const creation = useMutation<Household, unknown, CreateOperation>({
-    mutationFn: async (operation) => {
-      const outcome = await operation.run();
-
-      if (outcome.status === 'error') {
-        throw outcome.error;
-      }
-
-      return outcome.data;
-    },
-    onSuccess: () => {
-      // The route re-runs the guard against a fresh read and lands on the
-      // dashboard; this screen never renders a "created" state of its own.
-      void navigate({ to: '/' });
-    },
-  });
+  const creation = useCreateHousehold();
 
   const failure =
     creation.error === null ? null : describeSaveFailure(creation.error);
@@ -106,7 +90,21 @@ export function HouseholdOnboardingScreen() {
    * mints a new operation. Without this, pressing the primary button after a
    * retryable failure would re-send an accepted-but-unanswered write under a new
    * id, which the service could deduplicate as nothing.
+   *
+   * `useCreateHousehold` owns what happens once the backend confirms: it writes
+   * the returned household into the active cache and the held set. Navigation is
+   * the screen's own follow-up, so it is passed per call — the route re-runs the
+   * guard against a fresh read and lands on the dashboard. This screen never
+   * renders a "created" state of its own.
    */
+  function run(operation: CreateOperation) {
+    creation.mutate(operation, {
+      onSuccess: () => {
+        void navigate({ to: '/' });
+      },
+    });
+  }
+
   function submit() {
     const trimmed = name.trim();
 
@@ -121,13 +119,13 @@ export function HouseholdOnboardingScreen() {
     const last = attempt.current;
 
     if (last !== null && last.name === trimmed) {
-      creation.mutate(last.operation);
+      run(last.operation);
       return;
     }
 
     const operation = createHousehold(trimmed);
     attempt.current = { operation, name: trimmed };
-    creation.mutate(operation);
+    run(operation);
   }
 
   function changeName(next: string) {

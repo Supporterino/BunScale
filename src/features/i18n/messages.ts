@@ -98,6 +98,9 @@ export const P0_MESSAGES = {
   'household.blankName': 'Enter a name for your household.',
 
   // The dashboard's Settings & Profile entry point (SET-1, task 4.2).
+  'dashboard.title': 'Your household',
+  'dashboard.body':
+    'This is your household’s shared space. Rabbit and care records will appear here.',
   'dashboard.settings': 'Open Settings & Profile',
 
   // Settings & Profile (SET-1, SET-2, SET-4, HS-4, task 4.3).
@@ -110,6 +113,9 @@ export const P0_MESSAGES = {
   'settings.households.makeActive': 'Make active',
   'settings.households.owner': 'Owner',
   'settings.households.createAnother': 'Create another household',
+  'settings.households.emptyTitle': 'No household on this device',
+  'settings.households.emptyBody':
+    'Create one here to start sharing with the people you live with.',
   'settings.households.switchFailed':
     'That household is no longer available. Refresh and try again.',
   'settings.displayUnit.heading': 'Weight unit',
@@ -129,8 +135,9 @@ export const P0_MESSAGES = {
   'connectivity.checkAgain': 'Check again',
   'connectivity.checking': 'Checking…',
 
-  // The last resort for a key that was cast around the type system.
+  // Shared actions, and the last resort for a key cast around the type system.
   'common.unexpectedError': 'Something went wrong.',
+  'common.cancel': 'Cancel',
 } as const;
 
 /** Every key the catalog can answer for. */

@@ -1,5 +1,5 @@
 /*
- * Decorative glyphs for the placeholder screen.
+ * Decorative glyphs.
  *
  * They live in the feature rather than in `src/components/ui/` on purpose: the
  * inventory is a closed list of 23 primitives and an icon set is not one of them
@@ -7,6 +7,10 @@
  * that decision). A glyph is not a component with a contract — it is 20 px of
  * `currentColor` — and each screen supplies its own until a real icon set earns
  * a place in the inventory.
+ *
+ * They are currently housed with the design-system preview, which is how task
+ * 4.2's dashboard shell imports them; when the preview is retired (Q34) the set
+ * needs a shared home, and the dashboard import moves with it.
  *
  * Every glyph is `aria-hidden="true"`: the accessible name of an icon action is
  * the `label` on its `IconButton`, and the name of a navigation destination is
@@ -47,11 +51,13 @@ export function GlyphSettings() {
       strokeLinecap="round"
       strokeLinejoin="round"
       strokeWidth="1.8"
-      viewBox="0 0 20 20"
+      viewBox="0 0 24 24"
       width={GLYPH_SIZE}
     >
-      <circle cx="10" cy="10" r="2.75" />
-      <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" />
+      {/* A cog with teeth, not a sunburst: SET-1 asks for a gear-shaped control,
+          and at 20 px the silhouette of an outline cog is still legible. */}
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   );
 }

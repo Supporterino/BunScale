@@ -1,23 +1,20 @@
 /*
- * Placeholder surfaces for the routes task 3.3 adds (HS-2, SYNC-3, DM-3).
+ * The entry route's screen compositions (HS-2, SYNC-3, DM-3).
  *
- * These exist so the entry guard has something real to render and so each P0
- * screen can replace one in place: `frontend-ui` owns their design, copy and
- * layout (tasks 4.1, 4.2 and 4.4), and this file deliberately carries none of
- * the three — bare semantic elements, no class names, no primitives. The one
- * thing it does carry beyond the decision is `data-household-entry`, a stable
- * attribute naming which state the guard reached, so a test can assert the
- * decision without depending on placeholder copy that will change.
+ * Tasks 3.3 placed the routes; tasks 4.1, 4.2 and 4.4 own the screens. The two
+ * real screens now live in their own modules and are composed here, because the
+ * route already imports this file; the remaining slots are still placeholders
+ * until 4.4/4.5. The one thing this file carries beyond the decision is
+ * `data-household-entry`, the stable name of the entry state the guard reached,
+ * which the specs assert instead of copy that will change. The dashboard's is on
+ * its `main`, through `AppShell`'s `mainData`.
  *
  * Which surface is which:
  *
  * - `HouseholdOnboardingScreen` — HS-2's first-run household creation (task
- *   4.1). It lives in its own module and is re-exported below as
- *   `OnboardingPlaceholder`, the name the route imports today, so this task did
- *   not have to change a route file it does not own.
- * - `DashboardPlaceholder` — the active household's dashboard (task 4.2). It
- *   reads the active-household query, which is what proves the entry context and
- *   the cache agree.
+ *   4.1), imported directly by the `/onboarding` route.
+ * - `HouseholdDashboardScreen` — the P0 dashboard shell (task 4.2): adaptive
+ *   navigation, the gear control's SET-1 seam, and the app-event subscription.
  * - `ServiceRequiredPlaceholder` — the explicit connectivity-required state
  *   (task 4.4). The guard reaches it whenever the service or the account cannot
  *   confirm "no household", and it carries the observed status so 4.4 can render
@@ -31,14 +28,26 @@
 
 import type { ServiceStatus } from '../../sync/entry-status';
 import type { HouseholdEntry } from '../entry';
-import { useActiveHousehold } from '../queries';
+import { HouseholdDashboardScreen } from './HouseholdDashboardScreen';
 import { HouseholdOnboardingScreen } from './HouseholdOnboardingScreen';
 
-/** The entry route's screen: the dashboard, or the connectivity slot. */
-export function HouseholdEntryScreen({ entry }: { entry: HouseholdEntry }) {
+/**
+ * The entry route's screen: the dashboard, or the connectivity slot.
+ *
+ * `onOpenSettings` is the dashboard shell's SET-1 destination, supplied by
+ * `src/routes/index.tsx` as `navigate({ to: '/settings' })`. It is required so
+ * the gear can never render as an enabled control with no destination.
+ */
+export function HouseholdEntryScreen({
+  entry,
+  onOpenSettings,
+}: {
+  entry: HouseholdEntry;
+  onOpenSettings: () => void;
+}) {
   switch (entry.kind) {
     case 'household':
-      return <DashboardPlaceholder />;
+      return <HouseholdDashboardScreen onOpenSettings={onOpenSettings} />;
     case 'service-required':
       return <ServiceRequiredPlaceholder status={entry.status} />;
     case 'onboarding':
@@ -50,29 +59,9 @@ export function HouseholdEntryScreen({ entry }: { entry: HouseholdEntry }) {
 
 /*
  * HS-2's first-run surface (task 4.1). Built in its own module so the screen's
- * form, keyboard measurement and copy stay together; re-exported under the name
- * the route already imports, which keeps this task out of a route file
- * `frontend-ui` does not own. The route should import
- * `HouseholdOnboardingScreen` directly the next time its owner touches it.
+ * form, keyboard measurement and copy stay together; the `/onboarding` route
+ * imports that module directly (Q43).
  */
-export {
-  HouseholdOnboardingScreen,
-  HouseholdOnboardingScreen as OnboardingPlaceholder,
-} from './HouseholdOnboardingScreen';
-
-/** The active household's dashboard, until task 4.2 builds the shell. */
-function DashboardPlaceholder() {
-  const active = useActiveHousehold();
-  const name = active.data?.name ?? 'no active household';
-
-  return (
-    <main data-household-entry="household">
-      <h1>Household dashboard</h1>
-      <p>Active household: {name}.</p>
-      <p>The dashboard shell lands here (task 4.2).</p>
-    </main>
-  );
-}
 
 /** SYNC-3's connectivity-required slot, until task 4.4 builds it. */
 function ServiceRequiredPlaceholder({

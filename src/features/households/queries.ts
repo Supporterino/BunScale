@@ -50,6 +50,7 @@ import {
 import type { CommandData, CommandFailure } from '../../lib/command-result';
 import { unwrapCommandResult } from '../../lib/command-result';
 import {
+  type createHousehold,
   getActiveHousehold,
   listHouseholds,
   loadHousehold,
@@ -78,6 +79,12 @@ type SwitchOperation = ReturnType<typeof setActiveHousehold>;
 
 /** `set_active_household`'s outcome, for the switch's error type below. */
 type SwitchOutcome = Awaited<ReturnType<SwitchOperation['run']>>;
+
+/** `create_household`'s handle, as `api.ts` returns it (D0.14). */
+type CreateOperation = ReturnType<typeof createHousehold>;
+
+/** `create_household`'s outcome, for the creation's error type below. */
+type CreateOutcome = Awaited<ReturnType<CreateOperation['run']>>;
 
 /** One row of the held-household list (HS-4). */
 export type HouseholdSummary = CommandData<HouseholdListOutcome>[number];
@@ -285,6 +292,69 @@ export function useSwitchActiveHousehold() {
           })),
       );
 
+      void queryClient.invalidateQueries({ queryKey: householdKeys.list() });
+    },
+  });
+}
+
+/**
+ * Create a household and make it active (HS-1, HS-2, HS-4).
+ *
+ * The mutation's variable is the **operation handle** `createHousehold`
+ * returns, not a bare name: `create_household` is idempotent on `request_id`
+ * (D0.14), so a retry must re-run the handle of the attempt that failed rather
+ * than mint a second create. Start a creation with
+ * `mutate(createHousehold(name))`, and re-submit the same handle to retry.
+ * A corrected name is a new intent and therefore a new handle; the component
+ * owns that distinction (task 4.1's `HouseholdOnboardingScreen`).
+ *
+ * On success the command's post-state is written to `householdKeys.active()`
+ * **and** to the held list when it is already cached, then the pair is
+ * invalidated — the same shape as `useSwitchActiveHousehold`, because both
+ * commands answer with the active household and both change which row is
+ * `is_active` (HS-4, DM-3).
+ *
+ * The list write rewrites the cached rows' flags; it does **not** append the
+ * new household, because the command does not return a `HouseholdSummary`
+ * (`member_count` is not part of it) and inventing one would be a summary the
+ * book never confirmed. Every cached row is marked inactive at that instant
+ * (the returned household is the active one, and it is not yet among them), so
+ * a surface marking rows from the stale list cannot keep the previous household
+ * active; the invalidation's read supplies the new row.
+ *
+ * No collection is touched. A new household has no loaded collection on this
+ * device, and no other household's collection changed (HS-3, NFR-10).
+ */
+export function useCreateHousehold() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    Household,
+    HouseholdFailure<CreateOutcome>,
+    CreateOperation
+  >({
+    mutationFn: (operation) => operation.run().then(unwrapCommandResult),
+    onSuccess: (household) => {
+      queryClient.setQueryData<Household | null>(
+        householdKeys.active(),
+        household,
+      );
+
+      /*
+       * Rewritten only when a held list is already cached: creation does not
+       * invent a held set, and the invalidation below makes the next read the
+       * authoritative one.
+       */
+      queryClient.setQueryData<HouseholdSummary[]>(
+        householdKeys.list(),
+        (current) =>
+          current?.map((row) => ({
+            ...row,
+            is_active: row.id === household.id,
+          })),
+      );
+
+      void queryClient.invalidateQueries({ queryKey: householdKeys.active() });
       void queryClient.invalidateQueries({ queryKey: householdKeys.list() });
     },
   });

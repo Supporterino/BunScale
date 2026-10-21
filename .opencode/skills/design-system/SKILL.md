@@ -1349,6 +1349,9 @@ All run **after** the artwork moved to its final path:
    decide identity is how a retryable failure would be re-sent under a fresh id
    (D0.14). A successful create navigates to `/`, whose `beforeLoad` re-reads the
    book with `staleTime: 0`; the screen itself never renders a "created" state.
+   The mutation is now the shared `useCreateHousehold` (added by
+   `frontend-logic` after this task); the screen passes navigation through the
+   per-call `onSuccess`, and the hook owns the cache post-state.
 4. **Validation is the field's, other failures are a `Notice`.** A blank or
    whitespace-only name is refused before the command; the backend's
    `validation` cause is also drawn on the field (`aria-invalid` via
@@ -1407,5 +1410,243 @@ All run **after** the artwork moved to its final path:
   the `offsetTop` subtraction are reasoned, not device-tested.
 - **VoiceOver reading order and the native keyboard's return key.** Not
   observed.
+
+---
+
+## Task 4.2 record — the dashboard shell and the gear control
+
+> **Provenance.** Appended by `frontend-ui` in task 4.2 of
+> `add-shared-household-foundation` (P0). It records the first screen that
+> composes the adaptive frame for a product route, SET-1's gear control, and the
+> two primitive-level additions the screen needed. **No token value changed and
+> no inventory row was added**; the status line stays `frozen`. The gear's
+> destination is a route this task does not own, so the wiring is stated as a
+> hand-off rather than claimed.
+
+### What exists now
+
+| Path | What it is |
+|---|---|
+| `src/features/households/components/HouseholdDashboardScreen.tsx` | The P0 dashboard shell: `AppShell` (tab bar → sidebar), `NavigationBar` titled with the active household's name, the gear in the trailing slot, and a `Screen` whose content is the household mark plus one sentence. `useAppEvents()` is mounted once here, above the content. |
+| `src/components/ui/data-attributes.ts` | Internal module (not an inventory primitive): the `DataAttributes` template-literal type now shared by `Screen` and `AppShell`, so the two cannot drift. |
+| `src/components/ui/AppShell.tsx` | New `mainData?: DataAttributes` prop, spread on the shell's `<main>`. The entry guard's `data-household-entry` belongs on the `main` landmark (its specs read `getByRole('main')` + attribute), and without this the feature would have had to fork the shell or nest a second `<main>`. |
+| `src/components/ui/Screen.tsx` | The same `DataAttributes` type in place of the inline signature added in 4.1 — no behaviour change. |
+| `src/features/design-preview/components/glyphs.tsx` | `GlyphSettings` redrawn as a cog (24-unit viewBox, 20 px rendered). The previous mark was a centre circle with radial ticks and read as a sunburst; SET-1 asks for a *gear-shaped* control, so the silhouette now has teeth. It is still decorative (`aria-hidden`), and the accessible name is the `IconButton`'s label. |
+| `src/styles/screens.css` | `.bs-dashboard__intro` / `.bs-dashboard__mark`: the P0 content block centred in the free space at both baselines, capped at `--layout-form-max`. |
+
+### Decisions
+
+1. **The gear is a required callback, not a local screen.**
+   `HouseholdDashboardScreen` takes `onOpenSettings: () => void`; SET-1's
+   destination is `/settings`. A local state swap was rejected because SET-1's
+   `[desktop]` scenario requires the dashboard to stay reachable from the shell —
+   a route change (and the sidebar's own link) provides that, a state swap inside
+   one route does not. The route landed after this task: `src/routes/index.tsx`
+   passes `onOpenSettings={() => navigate({ to: '/settings' })}` to
+   `HouseholdEntryScreen`, which forwards it, and `src/routes/settings.tsx`
+   renders `SettingsScreen` (4.3). The prop is required, so an enabled control can
+   never render without a destination.
+2. **The screen's title is the active household's name**, read through
+   `useActiveHousehold` (already resolved by the entry guard, so it paints without
+   a spinner). The person's name is SET-2's and belongs to Settings & Profile
+   (4.3); it is not duplicated here. A book with no active household falls back to
+   `dashboard.title` rather than an empty `h1`.
+3. **The content is deliberately minimal.** P0 has no rabbit data (design.md R8:
+   rabbit list, empty state and quick-weigh are P1), so the area holds the
+   household mark and one sentence, `dashboard.body`.
+4. **One destination, labelled `dashboard.title`.** A destination's `to` is the
+   router's typed path union, and the shell has exactly one product route (`/`).
+   Its label is "Your household", not the household's own name: a navigation item
+   names a place, so it must not change when the household is renamed or when no
+   active household exists. Settings labels the same destination the same way. The
+   array grows with the route tree (the primitive already takes 3–5).
+5. **`useAppEvents` is mounted by the dashboard shell**, as task 3.6 named it.
+   The ideal place is a root `_app` layout above the `Outlet`; that is a route
+   file, which this task does not own, so the widest shell that exists is used
+   and the limit is stated.
+6. **Glyphs stay feature-local.** The dashboard imports the gear, dashboard and
+   household glyphs from `src/features/design-preview/components/glyphs.tsx`
+   (the task pointed there). The Q34 hand-off — the preview's fate belongs to 4.2
+   — cannot be completed here because removing `/design-preview` would edit a
+   route and the E2E fixture that boots it; the glyph set therefore needs a
+   shared home before that deletion, which is recorded rather than done.
+
+### Verification record
+
+- `bun run typecheck` — exit 0.
+- `bun run lint` — exit 0, "Checked 113 files … No diagnostics" (111 before this
+  task: the two new files in `src/components/ui/`; `data-attributes.ts` is an
+  internal module, not an inventory primitive).
+- `bun run test` — 24 files, **160 tests passed** (the entry-route specs now
+  render the real shell through `AppShell`; `getByRole('main')` still finds one
+  `main`, and the attribute is on it).
+- `bun run test:e2e` — **20/20 passed** at both baselines.
+- Rendered checks (scratch WebKit harness, removed): the gear's box is ≥44×44 at
+  both baselines, its accessible name is "Open Settings & Profile"; exactly one
+  navigation arrangement is laid out per band (`tabs` at 390, `sidebar` at 1280,
+  the other `display: none`); the mocked event bridge holds live callbacks after
+  the shell mounts, which is `useAppEvents`'s observable.
+- Screenshots: `.artifacts/screens/4.2-compact.png` (390×844) and
+  `.artifacts/screens/4.2-expanded.png` (1280×800), WebKit, taken from the final
+  tree. Observed: compact shows the centred nav title, the cog at the trailing
+  edge, the centred household mark and sentence, and the one-destination tab bar
+  with `aria-current`; expanded shows the 260 pt sidebar with the same
+  destination current, the nav bar and cog in the content column, and the same
+  centred block — one route, two arrangements.
+
+### Not verified
+
+- **The gear actually opening Settings — verified in 4.3, after the route
+  landed.** `frontend-logic` added `src/routes/settings.tsx` and the
+  `onOpenSettings` pass-through while task 4.3 ran; the 4.3 scratch harness then
+  pressed the gear and reached `/settings`, and Back returned to the dashboard.
+  E2E coverage is still the planned 5.16/5.17 work.
+- **A real macOS window and iOS safe areas.** Both baselines ran in desktop
+  WebKit, which reports no insets (the same limitation as 0.21); the shell uses
+  the tokens, but no device was observed.
+
+---
+
+## Task 4.3 record — Settings & Profile
+
+> **Provenance.** Appended by `frontend-ui` in task 4.3 of
+> `add-shared-household-foundation` (P0). It records the screen the gear opens,
+> the sections that carry HS-4, SET-2 and SET-4, and the two data hooks it
+> consumes. **No token, no primitive and no inventory row changed**; the status
+> line stays `frozen`. The route (`src/routes/settings.tsx`) and the
+> `onOpenSettings` wiring were written in parallel by `frontend-logic`, and this
+> task consumes them.
+
+### What exists now
+
+| Path | What it is |
+|---|---|
+| `src/features/settings/components/SettingsScreen.tsx` | The screen: `AppShell` (tab bar → sidebar), `NavigationBar` with Back and `settings.title`, then an offline notice, the read-only Profile section, the Households section (active marker, owner marker, switching, inline create form) and the Weight unit section (segmented control, saving state, cause copy). Mounts `useAppEvents()` once. |
+| `src/styles/screens.css` | `.bs-settings` section rhythm and the screen's small helpers: the read-only value, the badge row, the create form's surface, the action row, the unit stack. No new tokens. |
+
+### Decisions
+
+1. **The identity is a static row.** `useIdentityName()` already applies SET-2's
+   chain. The value sits in a `ListRow`'s `control` slot (trailing, Apple's
+   settings shape) with no control, no chevron and no edit affordance; `failed`
+   and the placeholder tier both show `settings.identity.you`, and a pending read
+   shows a decorative spinner in the same slot. The rest of the screen is usable
+   in all three states.
+2. **The active household is the only source of the marker.** The row is not
+   only green — it carries an "Active" `Badge`, `aria-current` (through
+   `ListRow`'s `selected`) and the owner badge when `is_owner`. `isActive` comes
+   from `useSettingsHouseholdList()`, whose own rule prefers the active read, so
+   the marker moves only after the backend answers. Inactive rows are buttons
+   with `makeActive` as their detail and a chevron; the active row is static.
+3. **Switching re-uses its handle.** `useSwitchActiveHousehold`'s variable is the
+   `setActiveHousehold(id)` handle. A retryable failure's "Try again" re-runs that
+   handle, so the `request_id` is the same (D0.14). A `validation` refusal is not
+   retryable and shows the screen's own `settings.households.switchFailed`
+   ("Refresh and try again"); because the screen must offer what the copy names,
+   its action re-reads the held set and clears the stale failure, so the person
+   can pick a row that exists. Every other cause uses the shared map. The screen
+   never writes the marker itself.
+4. **Create in place, through the new shared hook.** The "Create another
+   household" button discloses an inline form in the same section; submitting
+   calls `useCreateHousehold` (added by `frontend-logic` alongside this screen)
+   with a fresh handle per name, re-using the stored one on retry while the name
+   is unchanged. Success closes the form and the hook updates the active read and
+   the list; no navigation and no onboarding. Blank and backend `validation` both
+   show `household.blankName` under the field (`FieldError` is the `role="alert"`
+   row added in 4.1), other causes get their `failure.ts` copy and a retry. An
+   empty held set renders an explicit `EmptyState` with the create action instead
+   of an empty list, and the create action stays present while the list read is
+   failed — a failed read must not remove the only way forward.
+5. **Read failures carry a cause and, when retryable, a re-read.** A failed
+   household or unit read goes through `describeSaveFailure` like a write; the
+   `Notice` shows `failure.messageKey` and its action refetches the same key
+   (`useHouseholdList`'s `refetch` for the set, the unit query's own `refetch`).
+   A cause the backend marked non-retryable gets no action. **One branch has no
+   cause to name:** an IPC-level `Error` (a broken bridge, not a command
+   failure) is described as `unknown`, so the notice shows `error.unknown` and
+   offers no retry; that is stated here rather than dressed up as a product
+   cause, and no generic literal is used.
+6. **The unit control is never optimistic.** `useSetDisplayWeightUnit` writes the
+   backend's read-back value; the control is disabled and `settings.displayUnit.saving`
+   is shown while the write runs, and a failure leaves the confirmed unit
+   selected with the cause below. A retry re-runs the stored handle. Options are
+   built at render time, not module scope, so a later locale switch re-resolves
+   the copy. The group is now a `ListSection` with a real `h2`, so heading
+   navigation reaches it like Profile and Households; its `FormField` label is
+   clipped (not removed) inside this section because the heading already says the
+   same words, and the control keeps the label as its accessible name.
+7. **Arriving on the screen moves focus.** The gear is a route change; without an
+   effect focus falls to `<body>`. On mount `SettingsScreen` focuses its `main`
+   (`AppShell mainId`, already `tabIndex={-1}`), so the new region is announced
+   and its `h1` follows in reading order. The effect lives in the screen, not in
+   `AppShell` — the shell does not own a screen's arrival.
+8. **One label for one destination.** Both shells label `/` with
+   `dashboard.title` ("Your household"). A navigation item names a place, so it
+   must not be the household's own name and must not change when the person moves
+   between the dashboard and Settings.
+9. **`useAppEvents()` is mounted here too.** One route is mounted at a time, so
+   this keeps household changes live on Settings without two listeners. The root
+   `_app` layout remains the right home (task 4.2's record states the limit).
+10. **Copy follows the catalog.** The create form's cancel uses
+    `common.cancel`, and the empty held set uses
+    `settings.households.emptyTitle`/`emptyBody` — both keys were added by the
+    catalog owner after the review, so no literal and no cross-screen reuse is
+    left. The only `onboarding.*` copy in the app is the onboarding screen's own
+    title and body.
+11. **A small offline notice.** `useServiceStatusView()` contributes one thing
+    here: a warning `Notice` when the last observation is offline, so a refused
+    write has context. The connectivity-required and local-copy surfaces remain
+    task 4.4's and are not duplicated.
+
+### Verification record
+
+- `bun run typecheck` — exit 0.
+- `bun run lint` — exit 0, "Checked 116 files … No diagnostics".
+- `bun run test` — 25 files, **164 tests passed** (the parallel `frontend-logic`
+  change added four).
+- `bun run test:e2e` — **20/20 passed** at both baselines (the existing suite;
+  the Settings-specific E2E is 5.16/5.17's).
+- `bun run build` — exit 0; this is also what regenerated `src/routeTree.gen.ts`
+  after `/settings` landed (generated, not hand-edited).
+- Scratch WebKit harness (removed), both baselines: the dashboard gear opens
+  `/settings` and Back returns to `#/`; **focus lands on `main#bs-settings-main`
+  after the gear**; the identity shows "Ada" from the mock's resolved account;
+  exactly one "Active" and one "Owner" badge; clicking the inactive household
+  calls `set_active_household`, a first `timeout` failure shows "The service took
+  too long to answer." and its retry sends the **same** request id, after which
+  the Active badge moves; a `validation` switch refusal shows
+  `settings.households.switchFailed` with a "Try again" that re-reads the set;
+  "Create another household" creates in place, the new row appears and the URL
+  stays `#/settings`; choosing Kilograms with a failing write shows the cause,
+  keeps Grams selected, and the control is enabled again.
+- Review-fix checks (same harness, both baselines): a failing `list_households`
+  renders "The service took too long to answer. Try again." (not
+  `common.unexpectedError`), keeps "Create another household" available, and its
+  retry refetches into the explicit empty state; a failing
+  `get_display_weight_unit` shows its cause and retries into the control; an
+  empty held set renders the `EmptyState` with the create action and no
+  "Create another" button.
+- Screenshots: `.artifacts/screens/4.3-compact.png` (390×844) and
+  `.artifacts/screens/4.3-expanded.png` (1280×800), WebKit, final tree. Observed:
+  compact shows the back chevron, the centred title, Profile (Name → Ada),
+  Households with one Active/Owner row and the switchable row, the create button,
+  and the **Weight unit section heading** with the segmented control and hint —
+  all above the tab bar labelled "Your household"; expanded shows the same column
+  beside the sidebar with the destination "Your household", the three section
+  headings, and the whole screen within one window. (`4.2-*` was re-taken with
+  the same destination label and `dashboard.body`.)
+
+### Not verified
+
+- **A device or Simulator.** Both baselines are desktop WebKit with no safe-area
+  insets; the bars consume the tokens, but no notch or home indicator was
+  observed.
+- **VoiceOver order in the real app.** The semantics are in the DOM (labelled
+  radiogroup, `aria-current`, alert rows, button rows), but no screen reader was
+  run.
+- **E2E for SET-1's mobile/desktop scenarios.** Planned in 5.16/5.17; the scratch
+  harness above is evidence, not a committed spec.
+
+
 
 

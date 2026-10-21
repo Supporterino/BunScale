@@ -18,8 +18,8 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
 import {
   EntryErrorPlaceholder,
   EntryPendingPlaceholder,
-  OnboardingPlaceholder,
 } from '../features/households/components/HouseholdEntryScreens';
+import { HouseholdOnboardingScreen } from '../features/households/components/HouseholdOnboardingScreen';
 import { resolveHouseholdEntry } from '../features/households/entry';
 
 export const Route = createFileRoute('/onboarding')({
@@ -30,7 +30,7 @@ export const Route = createFileRoute('/onboarding')({
       throw redirect({ to: '/' });
     }
   },
-  component: OnboardingPlaceholder,
+  component: HouseholdOnboardingScreen,
   pendingComponent: EntryPendingPlaceholder,
   errorComponent: EntryErrorPlaceholder,
 });

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { classNames } from './class-names';
+import type { DataAttributes } from './data-attributes';
 import type { NavigationDestination } from './navigation';
 import { Sidebar } from './Sidebar';
 import { TabBar } from './TabBar';
@@ -61,6 +62,16 @@ export type AppShellProps = {
   navigationLabel?: string;
   /** `id` of the `main` region, and the skip link's target. */
   mainId?: string;
+  /**
+   * `data-*` markers on the `main` element.
+   *
+   * The household entry guard publishes `data-household-entry` there, and its
+   * specs assert the attribute on the `main` landmark rather than on the shell's
+   * wrapper — a marker naming which entry state is rendered belongs to the
+   * region that renders it. Kept to `data-*`: the shell's structure is its own,
+   * and a general prop spread would let a caller replace it.
+   */
+  mainData?: DataAttributes;
   className?: string;
 };
 
@@ -69,6 +80,7 @@ export function AppShell({
   destinations,
   navigationLabel = 'Primary',
   mainId = 'bs-main',
+  mainData,
   className,
 }: AppShellProps) {
   return (
@@ -81,7 +93,12 @@ export function AppShell({
         destinations={destinations}
         label={navigationLabel}
       />
-      <main className="bs-app-shell__main" id={mainId} tabIndex={-1}>
+      <main
+        {...mainData}
+        className="bs-app-shell__main"
+        id={mainId}
+        tabIndex={-1}
+      >
         {children}
       </main>
       <TabBar

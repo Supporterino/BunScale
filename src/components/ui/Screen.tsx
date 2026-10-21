@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import { classNames } from './class-names';
+import type { DataAttributes } from './data-attributes';
 
 /*
  * `Screen` — the scroll container of every screen.
@@ -48,17 +49,11 @@ export type ScreenProps = {
   as?: 'div' | 'main';
   className?: string;
   id?: string;
-} & Omit<HTMLAttributes<HTMLElement>, 'children' | 'className' | 'id'> & {
-    /*
-     * `data-*` markers reach the element as well. A screen needs one occasionally
-     * — the household entry guard publishes `data-household-entry` on its
-     * `main`, which is the stable name of the decision its specs assert — and
-     * without this index signature a feature would either fork `Screen` or wrap
-     * a second landmark around it. Only `data-*` passes through; the rest of the
-     * element's props are the declared ones above.
-     */
-    [key: `data-${string}`]: string | undefined;
-  };
+} & Omit<HTMLAttributes<HTMLElement>, 'children' | 'className' | 'id'> &
+  // Beyond the declared props, HTML attributes and `data-*` markers reach the
+  // element; the latter is what lets the entry guard's `data-household-entry`
+  // sit on a standalone `main` (`./data-attributes.ts`).
+  DataAttributes;
 
 export function Screen({
   children,

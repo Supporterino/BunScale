@@ -21,7 +21,7 @@
  * placeholders owned by `frontend-ui`; this file only stays the thin glue
  * between the decision and them.
  */
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import {
   EntryErrorPlaceholder,
   EntryPendingPlaceholder,
@@ -46,6 +46,12 @@ export const Route = createFileRoute('/')({
 
 function HouseholdEntryRoute() {
   const { householdEntry } = Route.useRouteContext();
+  const navigate = useNavigate();
 
-  return <HouseholdEntryScreen entry={householdEntry} />;
+  return (
+    <HouseholdEntryScreen
+      entry={householdEntry}
+      onOpenSettings={() => navigate({ to: '/settings' })}
+    />
+  );
 }

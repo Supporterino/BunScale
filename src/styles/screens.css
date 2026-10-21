@@ -62,3 +62,89 @@
     );
   }
 }
+
+/*
+ * The dashboard shell's content (task 4.2). P0 has no rabbit data, so the area
+ * holds the household mark and one sentence explaining what the household is;
+ * it is centred in the free space rather than pinned under the bar, which is what
+ * keeps a deliberately sparse P0 screen looking composed at both baselines. The
+ * measure is the system's form width, not a new scale step.
+ */
+.bs-dashboard__intro {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: var(--layout-form-max);
+  margin-inline: auto;
+  padding-block: var(--spacing-section);
+  text-align: center;
+}
+
+.bs-dashboard__mark {
+  color: var(--color-text-tertiary);
+}
+
+/*
+ * Settings & Profile (task 4.3). The screen's direct children are grouped
+ * sections, so the content column's stack rhythm is widened to the section
+ * distance; everything inside a section keeps the shared component rhythm.
+ */
+.bs-settings .bs-screen__content {
+  gap: var(--spacing-section);
+}
+
+.bs-settings__value {
+  color: var(--color-text-secondary);
+  font-size: var(--list-row-detail-font-size);
+  line-height: var(--list-row-detail-line-height);
+}
+
+.bs-settings__markers {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.bs-settings__create,
+.bs-settings__unit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+}
+
+.bs-settings__create {
+  padding: var(--card-padding);
+  border: var(--card-border-width) solid var(--card-border-color);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.bs-settings__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/*
+ * The Weight unit group's `FormField` label is the radiogroup's accessible name;
+ * the section's `h2` above already shows the same words. It is clipped rather
+ * than removed — the same technique as `.bs-visually-hidden` — so the control
+ * keeps its name and the visible heading is the only copy on screen.
+ */
+.bs-settings__unit-form .bs-field__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

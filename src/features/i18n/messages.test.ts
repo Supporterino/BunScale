@@ -54,6 +54,28 @@ describe('the P0 message catalog', () => {
     expect(t(IDENTITY_PLACEHOLDER_MESSAGE_KEY)).toBe('You');
   });
 
+  it('gives the dashboard its own title and body, not onboarding copy', () => {
+    expect(t('dashboard.title')).toBe('Your household');
+    expect(t('dashboard.body')).not.toBe(t('onboarding.body'));
+  });
+
+  it('resolves the shared cancel action and the household empty state', () => {
+    const expected = [
+      ['common.cancel', 'Cancel'],
+      ['settings.households.emptyTitle', 'No household on this device'],
+      [
+        'settings.households.emptyBody',
+        'Create one here to start sharing with the people you live with.',
+      ],
+    ] as const satisfies ReadonlyArray<readonly [MessageKey, string]>;
+
+    for (const [key, copy] of expected) {
+      expect(t(key)).toBe(copy);
+      expect(t(key).trim().length).toBeGreaterThan(0);
+      expect(t(key)).not.toBe(key);
+    }
+  });
+
   it('never uses a key itself as copy', () => {
     for (const [key, message] of Object.entries(P0_MESSAGES)) {
       expect(message.trim().length).toBeGreaterThan(0);
