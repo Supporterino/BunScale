@@ -728,7 +728,71 @@ than writing a literal.
 ### Q39 — The `frontend-ui` sessions for tasks 4.1/4.2 timed out twice
 
 Two delegations of 4.1 (and one combined 4.1+4.2) returned "subagent timed out" before writing any
-file; the working tree shows no UI output. This is a harness/provider failure, not a task finding —
-nothing was half-written and no claim was made. The tasks remain open; the next attempt narrows the
-scope to a single screen per session and leaves the screenshots to the same session only if it
-completes the screen first.
+file; the working tree showed no UI output. This is a harness/provider failure, not a task finding —
+nothing was half-written and no claim was made. The tasks remained open; the retry that landed
+narrowed the scope to one screen per session.
+
+### Q40 — The iOS keyboard check for task 4.1 is not done, and it needs a device
+
+Task 4.1 and Q21 both require confirming on a simulator that a focused field is not left behind the
+keyboard after `--keyboard-inset` is assigned. That was **not** performed: the session had no
+Simulator boot, and the token cannot be exercised by a desktop WebKit window (where `env()` and the
+keyboard inset both resolve to zero). What was substituted, and is honest evidence for the mechanism
+but not for the platform: the hook writes `0px` with no keyboard, a synthetic `visualViewport` inset,
+and `0px` on pinch-zoom, all in a scratch WebKit harness (since removed).
+
+**Needed:** the same simulator run task 0.27 owes, extended to type into the name field and confirm
+the submit stays reachable. It is not blocked by CoreSimulator any more (Q15 resolved that), only by
+the session not having done it — so 4.1 is ticked on the code, the screenshots and the gate, with this
+entry as the outstanding evidence rather than an unrecorded gap.
+
+### Q41 — `useCreateHousehold` has no owner; the creation screen carries the mutation
+
+4.1's create mutation lives in `HouseholdOnboardingScreen.tsx`, because no hook existed and hooks are
+`frontend-logic`'s. Two consequences: the success path relies on `/`'s `beforeLoad` re-read
+(`staleTime: 0`) rather than invalidating `householdKeys.list()`/`active()` the way
+`useSwitchActiveHousehold` does, and **4.3's "create an additional household without onboarding"**
+will need the same mutation a second time. **Owner:** `frontend-logic`, in 4.3 or as a small
+follow-up — extract `useCreateHousehold` into `src/features/households/queries.ts`, invalidate the
+held-set pair on success, and have the screen consume it. The D0.14 retry rule (one operation handle
+per intent) must move with it.
+
+### Q42 — The settings commands' `unknown` cause is asserted nowhere
+
+Found by 5.10's review: `AppState`'s settings pair (`get_display_weight_unit`/`set_display_weight_unit`)
+maps `PreferenceError` to `CommandError::unknown`, and `src-tauri/src/ipc/commands/settings.rs` has no
+test block, so that mapping is tested in neither layer. 5.10 records it as a named gap rather than
+claiming coverage; the rest of the cause surface is asserted from real command bodies.
+**Owner:** whoever next touches `commands/settings.rs` — extract the mapping as a pure
+`local_fault_cause(request_id) -> CommandError` and assert its cause and key there. No requirement's
+outcome is in doubt; this is the one cause path on inspection only.
+
+### Q43 — `src/routes/onboarding.tsx` still imports the placeholder alias
+
+Resolved while 4.2/4.3 landed: the route imports `HouseholdOnboardingScreen` directly and the
+`OnboardingPlaceholder` alias is gone.
+
+### Q44 — The display-unit pair is non-retryable, and one record said otherwise
+
+`get_display_weight_unit`/`set_display_weight_unit` report only `cause: unknown`
+(`src-tauri/src/ipc/commands/settings.rs`), which `ipc::failure` marks `retryable: false`, so the unit
+section's retry affordance is unreachable in production. The code is right (the policy is the
+backend's); two lines of the 4.3 design-system record claimed a retry was offered. **Corrected in the
+record:** the recovery for a unit failure is re-selecting the segment or remounting, not a retry
+button. Q42 already owns the missing test for that mapping.
+
+### Q45 — The Settings refresh re-reads the list but not the active household
+
+`SettingsScreen`'s read-failure retry refetches `householdKeys.list()` only. The Active marker comes
+from the active read (`useActiveHousehold`), so if the active id is no longer in the list after the
+refresh, no row is marked active until the next `household:changed` event. Not reachable today (P0 has
+no way to remove a household; P3's deletion will make it reachable). **Owner:** P3's deletion flow, or
+a small follow-up that refetches the pair together. Recorded, not fixed, because the marker is
+correct once the event lands and the state is currently unreachable.
+
+### Q46 — The Settings read retry has no busy state
+
+The retry button on a failed household read stays enabled while the refetch runs. Minor: the button is
+idempotent and the refetch is the same query, so no wrong state is shown — but a disabled state or the
+inline indicator is what the conventions ask for. **Owner:** task 4.4/4.5 (which own the remaining
+connectivity/failure surfaces) or a small polish follow-up.

@@ -867,7 +867,7 @@ file's header).
 
 ## 4. Frontend UI
 
-- [ ] 4.1 [frontend-ui] Build the first-run household creation screen: name field, blank and
+- [x] 4.1 [frontend-ui] Build the first-run household creation screen: name field, blank and
   whitespace-only rejection with an inline prompt, submit creating and activating the household
   (HS-1, HS-2). Screenshots at 390×844 and 1280×800 in `.artifacts/screens/`. This is also the task that
   **first assigns `--keyboard-inset`**, which task 0.21 defined and `Screen` already consumes but nothing
@@ -875,10 +875,10 @@ file's header).
   measurement that writes the token, and it must confirm on a simulator that a focused field is not left
   behind the keyboard — the token cannot be exercised by a desktop WebKit window, where `env()` and the
   keyboard inset both resolve to zero.
-- [ ] 4.2 [frontend-ui] Build the dashboard shell with the gear-shaped control opening Settings &
+- [x] 4.2 [frontend-ui] Build the dashboard shell with the gear-shaped control opening Settings &
   Profile as its own screen, laid out for 390×844 first and 1280×800 second (SET-1). Screenshots at
   390×844 and 1280×800 in `.artifacts/screens/`.
-- [ ] 4.3 [frontend-ui] Build the Settings & Profile screen: the household list with the active
+- [x] 4.3 [frontend-ui] Build the Settings & Profile screen: the household list with the active
   household indicated, switching, creating an additional household without onboarding, the
   read-only name with its fallbacks, and the display weight-unit selector (HS-4, SET-2, SET-4).
   Screenshots at 390×844 and 1280×800 in `.artifacts/screens/`.
@@ -923,10 +923,10 @@ file's header).
 - [x] 5.9 [test-engineer] Rust tests for diagnostics — covers "Diagnostics carry no content" and
   asserts no third-party analytics transport is configured (NFR-3), including a case where a save
   fails with a health-payload-like input.
-- [ ] 5.10 [test-engineer] Rust tests for the failure surface — covers "A failed save is visible and
+- [x] 5.10 [test-engineer] Rust tests for the failure surface — covers "A failed save is visible and
   specific" and "No bare failure messages", asserting every `SaveCause` maps to a distinct message
   key and every P0 command has a cause-specific error path (NFR-8).
-- [ ] 5.11 [test-engineer] Rust tests for identity and the display unit — covers "Resolved account
+- [x] 5.11 [test-engineer] Rust tests for identity and the display unit — covers "Resolved account
   name is shown read-only" and "Unresolved identity falls back without breaking the screen" (SET-2),
   plus "Unit choice is stored on the device", "Changing the unit leaves stored values unchanged" and
   "Default unit follows the device region" (SET-4).
