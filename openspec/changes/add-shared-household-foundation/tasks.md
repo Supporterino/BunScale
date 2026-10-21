@@ -995,7 +995,7 @@ names the scenario or the `questions.md` entry it closes.
   message key, and `retryable: false`. This is the one cause path asserted nowhere today — 5.10
   records it as a named gap — and the test reads the real mapping rather than a re-implementation.
   Closes Q42; NFR-8's "No bare failure messages".
-- [ ] 7.3 [test-engineer] Assert at the component layer that a display-unit failure (cause `unknown`,
+- [x] 7.3 [test-engineer] Assert at the component layer that a display-unit failure (cause `unknown`,
   non-retryable) shows the re-select guidance and offers **no retry control**, so "the recovery is not
   a retry button" is proved by a spec instead of recorded in a design note. Extend the existing
   Settings component specs; no product code changes unless the assertion fails. Closes Q44; SET-4's

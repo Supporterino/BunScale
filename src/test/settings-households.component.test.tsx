@@ -1,6 +1,6 @@
 /*
- * Settings & Profile's household section at the component layer (task 5.12;
- * HS-4, D0.14).
+ * Settings & Profile's household and display-unit sections at the component
+ * layer (tasks 5.12 and 7.3; HS-4, SET-4, D0.14, Q44).
  *
  * Two acceptance scenarios are asserted here:
  *
@@ -17,6 +17,15 @@
  * its own handle discipline ("one operation per intent, reused on retry while
  * the name is unchanged"), so the retry is worth its own test here and not only
  * on onboarding.
+ *
+ * The display-unit section's failure is asserted here too (task 7.3; SET-4,
+ * Q44). The unit pair reports only `cause: unknown`, which the backend marks
+ * `retryable: false`, so the section offers **no retry control at all** — and
+ * that absence is the requirement's outcome rather than an omission. The
+ * recovery Q44 names is re-selecting the segment (or remounting the screen), so
+ * these specs assert the `unknown` copy, the absence of any control named the
+ * retry label, and the segments still operable afterwards. Both platforms share
+ * this component layer: nothing in this file is per-OS.
  *
  * What is NOT assertable at this layer, and who owns it:
  *   - switching the active household is HS-3 and already covered at the
@@ -39,14 +48,16 @@
 import { RouterProvider } from '@tanstack/react-router';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { cleanup, screen, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   Household,
   HouseholdSummary,
 } from '../features/households/queries';
+import { t } from '../features/i18n';
 import type { ServiceStatus } from '../features/sync/entry-status';
+import { SAVE_CAUSE_MESSAGE_KEYS } from '../features/sync/failure';
 import {
   createTestQueryClient,
   createTestRouter,
@@ -97,6 +108,22 @@ const REACHABLE: ServiceStatus = {
 
 /** The create control's label (`t('household.create')`). */
 const CREATE = 'Create household';
+
+/** The display unit's heading; it is also the radiogroup's accessible name. */
+const UNIT = t('settings.displayUnit.heading');
+
+/** The catalog's retry label — the name a control that re-sends would carry. */
+const RETRY = t('error.retry');
+
+/** The in-flight label; a refused change must not leave it behind. */
+const SAVING = t('settings.displayUnit.saving');
+
+/**
+ * The copy the unit pair's only cause produces, read from the map that defines
+ * the taxonomy rather than restated here, so a renamed key fails this spec
+ * instead of leaving a stale string that happens to match the screen.
+ */
+const UNIT_FAILURE_COPY = t(SAVE_CAUSE_MESSAGE_KEYS.unknown);
 
 /** One `invoke` call the app made, as the backend would have received it. */
 type MockCall = {
@@ -185,6 +212,54 @@ function answerOtherReads(): void {
   }));
   handlers.set('get_display_weight_unit', () => 'grams');
   handlers.set('get_service_status', () => REACHABLE);
+}
+
+/**
+ * A unit command's only failure, as the backend sends it (Q44): cause
+ * `unknown`, which `ipc::failure` marks non-retryable. The backend's own
+ * `message_key` is carried for shape completeness; the surface is expected to
+ * derive its copy from `cause` (task 3.4's rule).
+ */
+function unitFailure(requestId: unknown) {
+  return {
+    cause: 'unknown',
+    message_key: 'error.unknown',
+    request_id: typeof requestId === 'string' ? requestId : null,
+    retryable: false,
+  };
+}
+
+/** Every `set_display_weight_unit` call, in order. */
+function setUnitWrites(): MockCall[] {
+  return calls.filter((call) => call.command === 'set_display_weight_unit');
+}
+
+/** Open Settings over one held household, with the ordinary reads answered. */
+function seedSettings(): void {
+  handlers.set('list_households', () => [HOME]);
+  handlers.set('get_active_household', () => HOME_ACTIVE);
+  answerOtherReads();
+}
+
+/** The segments' `radiogroup`, named by the field's label. */
+function unitGroup(): HTMLElement {
+  return screen.getByRole('radiogroup', { name: UNIT });
+}
+
+/**
+ * The display-unit section, located from the heading that names it rather than
+ * from a class name: `ListSection` labels its `<section>` with that heading, so
+ * the absence assertions below are scoped to a real named group.
+ */
+function unitSection(): HTMLElement {
+  const heading = screen.getByRole('heading', { name: UNIT });
+  const section = heading.closest('section');
+
+  if (section === null) {
+    throw new Error('the Weight unit heading is not inside a section');
+  }
+
+  return section;
 }
 
 /** Open Settings as its own route, on the app's committed route tree. */
@@ -358,6 +433,225 @@ describeAtBothBaselines('Settings: held households (HS-4)', () => {
       expect(creates[0].args.name).toBe('Beach house');
       expect(creates[1].args.name).toBe('Beach house');
       expect(creates[1].args.requestId).toBe(creates[0].args.requestId);
+    });
+  });
+});
+
+/*
+ * Task 7.3 (SET-4, Q44). The unit pair's failure has no retry to offer, so the
+ * recovery is the segment itself. These tests assert the outcome as a person
+ * meets it: the cause's copy, no control named the retry label, and the
+ * segments still there to be chosen again — the last one being what "the
+ * recovery is not a retry button" means in the UI.
+ */
+describeAtBothBaselines('Settings: display unit (SET-4, Q44)', () => {
+  // SET-4: "Display weight unit is per-device and applied at the boundary".
+  describe('Display unit is per-device (SET-4)', () => {
+    it('shows the unknown copy and never looks saved', async () => {
+      seedSettings();
+      handlers.set('set_display_weight_unit', (args) => {
+        throw unitFailure(args.requestId);
+      });
+
+      await openSettings();
+
+      // The unit read settles after the screen: await its control.
+      await screen.findByRole('radio', { name: 'Grams' });
+
+      const user = userEvent.setup();
+
+      // The backend's effective unit before the change.
+      expect(
+        within(unitGroup()).getByRole('radio', { name: 'Grams' }),
+      ).toBeChecked();
+
+      await user.click(
+        within(unitGroup()).getByRole('radio', { name: 'Kilograms' }),
+      );
+
+      const notice = await screen.findByRole('alert');
+
+      // The cause's own copy under the "not saved" header: the backend's raw
+      // key is not what the surface renders (task 3.4's rule).
+      expect(
+        within(notice).getByRole('heading', { name: t('error.notSaved') }),
+      ).toBeVisible();
+      expect(notice).toHaveTextContent(UNIT_FAILURE_COPY);
+
+      // A refused write writes nothing: the unit the backend confirmed is still
+      // the checked segment, and the requested one is not shown as stored.
+      expect(
+        within(unitGroup()).getByRole('radio', { name: 'Grams' }),
+      ).toBeChecked();
+      expect(
+        within(unitGroup()).getByRole('radio', { name: 'Kilograms' }),
+      ).not.toBeChecked();
+
+      // Nor does the section still claim the change is in flight.
+      expect(screen.queryByText(SAVING)).toBeNull();
+
+      const writes = setUnitWrites();
+
+      expect(writes).toHaveLength(1);
+      expect(writes[0].args.unit).toBe('kilograms');
+    });
+
+    it('offers no retry control for the refused change', async () => {
+      seedSettings();
+      handlers.set('set_display_weight_unit', (args) => {
+        throw unitFailure(args.requestId);
+      });
+
+      await openSettings();
+
+      // The unit read settles after the screen: await its control.
+      await screen.findByRole('radio', { name: 'Grams' });
+
+      const user = userEvent.setup();
+
+      await user.click(
+        within(unitGroup()).getByRole('radio', { name: 'Kilograms' }),
+      );
+
+      const notice = await screen.findByRole('alert');
+      const section = unitSection();
+      const inNotice = within(notice);
+      const inSection = within(section);
+
+      /*
+       * The failure surface carries no action at all: `unknown` is not
+       * retryable, and the unit section passes no dismissal either. A control
+       * that re-sent the same request would have to be here.
+       */
+      expect(inNotice.queryByRole('button', { name: RETRY })).toBeNull();
+      expect(inNotice.queryAllByRole('button')).toHaveLength(0);
+      expect(inNotice.queryAllByRole('link')).toHaveLength(0);
+
+      /*
+       * The section's only controls are the two segments. Nothing is named the
+       * retry label, and there is no button or link at all — no second path
+       * that could re-send the refused attempt.
+       */
+      expect(inSection.queryByRole('button', { name: RETRY })).toBeNull();
+      expect(inSection.queryByRole('link', { name: RETRY })).toBeNull();
+      expect(inSection.queryAllByRole('button')).toHaveLength(0);
+      expect(inSection.queryAllByRole('link')).toHaveLength(0);
+      expect(inSection.getAllByRole('radio')).toHaveLength(2);
+
+      /*
+       * And the screen as a whole offers none: the unit failure is the only
+       * failure on it, so a "Try again" anywhere would be a retry for it.
+       */
+      expect(screen.queryAllByRole('button', { name: RETRY })).toHaveLength(0);
+      expect(screen.queryAllByRole('link', { name: RETRY })).toHaveLength(0);
+
+      // Nothing re-sent the request on its own, either.
+      expect(setUnitWrites()).toHaveLength(1);
+    });
+
+    it('keeps the segments operable for re-selecting', async () => {
+      let attempts = 0;
+
+      seedSettings();
+      handlers.set('set_display_weight_unit', (args) => {
+        attempts += 1;
+
+        if (attempts === 1) {
+          throw unitFailure(args.requestId);
+        }
+
+        // The backend stored the choice and read the effective unit back.
+        return 'kilograms';
+      });
+
+      await openSettings();
+
+      // The unit read settles after the screen: await its control.
+      await screen.findByRole('radio', { name: 'Grams' });
+
+      const user = userEvent.setup();
+
+      await user.click(
+        within(unitGroup()).getByRole('radio', { name: 'Kilograms' }),
+      );
+
+      await screen.findByRole('alert');
+
+      /*
+       * The copy says "try again"; the control that does it is the segment
+       * itself. A disabled group would leave the person with no recovery at
+       * all, which is the failure mode the absence of a retry must not create.
+       */
+      for (const radio of within(unitGroup()).getAllByRole('radio')) {
+        expect(radio).toBeEnabled();
+      }
+
+      await user.click(
+        within(unitGroup()).getByRole('radio', { name: 'Kilograms' }),
+      );
+
+      // One wait on the outcome itself: the mutation clears `error` on the next
+      // render, before `onSuccess` resolves, so "the alert is gone" is not
+      // evidence the write landed.
+      await waitFor(() => {
+        expect(
+          within(unitGroup()).getByRole('radio', { name: 'Kilograms' }),
+        ).toBeChecked();
+      });
+
+      // The refusal notice is gone with the confirmed write.
+      expect(screen.queryByRole('alert')).toBeNull();
+
+      const writes = setUnitWrites();
+
+      expect(writes).toHaveLength(2);
+      expect(writes.map((call) => call.args.unit)).toEqual([
+        'kilograms',
+        'kilograms',
+      ]);
+
+      /*
+       * A re-selection is a new choice, so it mints its own operation identity
+       * (D0.14). Nothing on this section replays the refused attempt under its
+       * `request_id` — that would be the retry Q44 says is not offered.
+       */
+      expect(writes[1].args.requestId).not.toBe(writes[0].args.requestId);
+    });
+
+    it('shows the unknown copy and no retry on a failed read', async () => {
+      seedSettings();
+      handlers.set('get_display_weight_unit', () => {
+        throw unitFailure(null);
+      });
+
+      await openSettings();
+
+      // This arrangement fails the read, so the settled element is the notice:
+      // await it before scoping the absence assertions to its section.
+      const notice = await screen.findByRole('alert');
+      const section = unitSection();
+      const inNotice = within(notice);
+
+      expect(section).toContainElement(notice);
+
+      /*
+       * No "Not saved" header here: nothing was written. The read-failure
+       * branch renders `Notice` without a title and names the read's cause in
+       * its body. A read that never wrote must not claim a save outcome, so
+       * the header is asserted absent rather than merely unmentioned.
+       */
+      expect(notice).toHaveTextContent(UNIT_FAILURE_COPY);
+      expect(within(notice).queryByRole('heading')).toBeNull();
+
+      /*
+       * A read whose cause the backend marked non-retryable gets no action: no
+       * re-read is promised to fix it, and the recovery is the next mount.
+       */
+      expect(inNotice.queryByRole('button', { name: RETRY })).toBeNull();
+      expect(inNotice.queryAllByRole('button')).toHaveLength(0);
+      expect(within(section).queryAllByRole('button')).toHaveLength(0);
+      expect(within(section).queryAllByRole('link')).toHaveLength(0);
+      expect(screen.queryAllByRole('button', { name: RETRY })).toHaveLength(0);
     });
   });
 });
