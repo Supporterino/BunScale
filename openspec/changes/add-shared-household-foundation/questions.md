@@ -1250,6 +1250,38 @@ inspected `.artifacts/screens/` directly at both baselines (touch targets, inset
 None changes a requirement's outcome; each is a comment or a copy string. They are carried here so the
 next change inherits a named list rather than rediscovering them.
 
+## 6.2 review — APPROVE (2026-10-22)
+
+Task 6.2 checked the delta itself: **26 requirements, 69 scenarios, every requirement with scenarios,
+and the ID sets are exactly HS-1…HS-4, DM-3, SYNC-1/2/3/5, SET-1/2/4, NFR-1/2/3/8/10 and DM-6 plus
+TOOL-1…TOOL-8** — no requirement outside the six owned capabilities, no listed requirement missing.
+Identity (`BunScale` / `com.bunscale.app`), the shipped floors (iOS 16.4 / macOS 13.3 in
+`tauri.conf.json`, `project.yml` and both `project.pbxproj` configurations), the app-mark icon set (no
+Tauri default) and every UI task's screenshots at 390×844 and 1280×800 were verified, including the
+native captures. Verdict: **APPROVE**.
+
+### Q62 — the iOS-resume assertion is compiled by no gate command (minor, recorded)
+
+`sync/lifecycle.rs`'s `a_foreground_return_is_the_ios_trigger` is behind `#[cfg(target_os = "ios")]`.
+`cargo test` runs on the host, and `cargo check --target aarch64-apple-ios` compiles the library but not
+`#[cfg(test)]`, so no gate command executes that assertion. What is evidenced: the production
+`WindowEvent::Resumed` predicate compiles for the simulator target (the iOS check), and the test asserts
+one predicate over that event. The `[ios]` scenario of NFR-1 is therefore **compile + review**, not an
+executed assertion. **Owner:** the change that first runs an iOS test target (or the simulator-driven
+test work P3/CI picks up); until then the limit belongs beside the scenario, as 0.24 recorded
+TOOL-4's limit. Not blocking: Q28 already fixes the accepted trigger semantics.
+
+Also recorded, not acted on:
+
+- `specs/project-toolchain/spec.md`'s "this delta adds no requirement to …" is true of that file but
+  reads as a change-wide claim; five sibling deltas add to those capabilities. Clarity only.
+- NFR-3's "no third party" is configuration evidence (both manifests, `tauri.conf.json`, the CSP
+  `connect-src`), not an observed egress — the strongest available evidence while no service client
+  exists. TOOL-7's "CI runs the gate" is workflow configuration, not a run record in the tree. TOOL-1's
+  clean-clone half is the waived half of 0.26 (Q54).
+- `common.unexpectedError` ("Something went wrong.") is the last bare string; it is reachable only
+  through a miscast key, not through the typed failure map.
+
 Not a finding: hand-written command-name literals in `src/test/mock-ipc.ts` are test-only and fail
 loudly on a rename; recorded as residual risk, not an action. The reviewer also confirmed the positive
 halves of 6.1: no product `invoke(` or core-API import outside `src/bindings.ts`/`api.ts`, no optimistic

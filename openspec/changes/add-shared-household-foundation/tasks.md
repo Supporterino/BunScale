@@ -965,7 +965,7 @@ file's header).
   introduced (D1). Every state-changing command carries a client-generated `request_id` and a retry
   reuses it (D0.14). Confirm for every UI task the touch targets, the safe areas and the adaptive
   layout on both baselines.
-- [ ] 6.2 [reviewer] Verify the delta contains exactly HS-1…HS-4, SYNC-1/2/3/5, SET-1/2/4,
+- [x] 6.2 [reviewer] Verify the delta contains exactly HS-1…HS-4, SYNC-1/2/3/5, SET-1/2/4,
   NFR-1/2/3/8/10 and DM-3/DM-6 in the five product capabilities, **plus exactly TOOL-1…TOOL-8 in
   `project-toolchain`** — the `TOOL-` set is the section-0 workspace-scaffold enabler and is in
   scope by decision of the product owner (it has no source-document ID; see the delta header and
