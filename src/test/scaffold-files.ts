@@ -37,9 +37,12 @@ export const REPOSITORY_ROOT = resolve(
   '..',
 );
 
-/** The change record whose D0.8 tables are the manifests' source of truth. */
+/**
+ * The change record whose D0.8 tables are the manifests' source of truth.
+ * Archived with P0: `openspec archive` moves the record, not its tables.
+ */
 export const DESIGN_RECORD_PATH =
-  'openspec/changes/add-shared-household-foundation/design.md';
+  'openspec/changes/archive/2026-10-22-add-shared-household-foundation/design.md';
 
 export type CommandResult = {
   /** `null` when the process was killed by a signal (for example a timeout). */
