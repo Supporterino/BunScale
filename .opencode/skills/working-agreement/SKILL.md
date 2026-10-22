@@ -16,7 +16,18 @@ Every specialist agent loads this first. The orchestrator enforces it.
    unrelated bugs.
 3. **Never read** `src/bindings.ts`, `src/routeTree.gen.ts`, `graphify-out/`,
    lockfiles, `node_modules/`, build output. Generated, large, not yours.
-4. **Never edit** generated files or `AGENTS.md`. Regenerate; do not hand-write.
+4. **Never edit** generated files or `AGENTS.md` — the orchestrator owns the rules file.
+   Regenerate; do not hand-write.
+5. **Shell is default-deny.** `opencode.jsonc` allows read-only inspection for every agent:
+   `ls`, `grep`, `rg`, `wc`, `head`, `tail`, `cat`, `stat`, `diff`, `uniq`, `cut`, `basename`,
+   `dirname`, `realpath`. `find`, `sort`, `tree` and `file` are out — they execute or write
+   through flags. Redirection (`>`, `>>`) and `rg --pre` are denied, except `2>&1`. Secret
+   paths (`*.env`, `*.pem`, `*.p12`, credentials) are denied as friction, not as a boundary:
+   the match is a suffix, so it bites only on the last token. Anything else needs a rule in
+   your own frontmatter.
+6. **One command per call.** A chain (`&&`, `;`, `|`) is checked command by command and
+   refused if any part lacks a rule. A refusal costs a round trip — don't spend it on `echo`
+   separators.
 
 ## The smallest complete change
 

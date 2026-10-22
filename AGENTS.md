@@ -60,6 +60,8 @@ docs/adr/                 architecture decisions
 > Assumed package manager: bun. Change here and in `definition-of-done` if different.
 > Vite must set `server.host = process.env.TAURI_DEV_HOST` for iOS dev.
 
+Shell access is default-deny in `opencode.jsonc`. Read-only inspection (`ls`, `grep`, `rg`, `wc`, `head`, `tail`, `cat`, `stat`, `diff`, `uniq`, `cut`, `basename`, `dirname`, `realpath`) is allowed for every agent. `find`, `sort`, `tree` and `file` are deliberately absent: they execute or write through flags (`-exec`, `-o`, `-C`). Redirection is denied on the character (`>` and `>>`), with `2>&1` re-allowed because the gate needs it; `rg --pre` is denied, as are `*.env`, `*.pem`, `*.p12` and the usual credential paths — `cat` and `grep` are shell actions the `read` rules do not cover. The secret rules are friction, not a boundary: they match a suffix, so they bite only when the secret path is the last token. Agent frontmatter re-opens exactly the commands it needs: agent rules are appended after the global ones and the last matching rule wins. Chains are checked per command, and `$(…)` / `<(…)` are refused outright.
+
 ## Hard rules
 
 1. **Gate:** a task is done only when every stage of `definition-of-done` whose condition holds passes. The orchestrator runs it and never trusts a specialist's claim.

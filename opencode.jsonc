@@ -3,10 +3,70 @@
   "default_agent": "orchestrator",
   // Global guardrails. Agent rules are appended after these (last match wins).
   "permissions": [
+    // Default for every agent: nothing runs unless a rule allows it. Agent rules are
+    // appended after these and the last matching rule wins, so each agent's own allow
+    // list re-opens exactly the commands it needs. Verified by probe 2026-10-22: a
+    // global deny placed before an agent's allow does not block that agent.
+    { "action": "shell", "resource": "*", "effect": "deny" },
+    // Destructive forms, kept as documented intent. The catch-all above is the
+    // enforcement; an agent rule appended later wins over anything here.
     { "action": "shell", "resource": "git push *", "effect": "deny" },
     { "action": "shell", "resource": "git reset --hard *", "effect": "deny" },
     { "action": "shell", "resource": "rm -rf *", "effect": "deny" },
-    { "action": "shell", "resource": "sudo *", "effect": "deny" }
+    { "action": "shell", "resource": "sudo *", "effect": "deny" },
+    // Read-only inspection, for every agent. None of these can write a file or
+    // execute anything, and none takes a flag that does: `find` (-exec, -fprint,
+    // -delete), `sort` and `tree` (-o) are deliberately absent. Verified by probe
+    // 2026-10-22: `find . -exec …` ran, `sort -o FILE` wrote.
+    { "action": "shell", "resource": "ls *", "effect": "allow" },
+    { "action": "shell", "resource": "grep *", "effect": "allow" },
+    { "action": "shell", "resource": "rg *", "effect": "allow" },
+    { "action": "shell", "resource": "wc *", "effect": "allow" },
+    { "action": "shell", "resource": "head *", "effect": "allow" },
+    { "action": "shell", "resource": "tail *", "effect": "allow" },
+    { "action": "shell", "resource": "cat *", "effect": "allow" },
+    { "action": "shell", "resource": "stat *", "effect": "allow" },
+    { "action": "shell", "resource": "diff *", "effect": "allow" },
+    { "action": "shell", "resource": "uniq *", "effect": "allow" },
+    { "action": "shell", "resource": "cut *", "effect": "allow" },
+    { "action": "shell", "resource": "basename *", "effect": "allow" },
+    { "action": "shell", "resource": "dirname *", "effect": "allow" },
+    { "action": "shell", "resource": "realpath *", "effect": "allow" },
+    // Writes smuggled inside an allowed command. Chains are split on `&&`, `;` and
+    // `|`, and the matcher already refuses `$(…)` and `<(…)` (probed), but a
+    // redirect is not a separator: without these, `cat x > y` writes as `cat`.
+    // Deny the character, not a spaced substring — `cat x >file` must match too.
+    { "action": "shell", "resource": "*>*", "effect": "deny" },
+    { "action": "shell", "resource": "*>>*", "effect": "deny" },
+    // `2>&1` is the one redirect form kept: the gate needs it to read a failing
+    // stage's stderr. Last match wins, so this re-opens that form only.
+    { "action": "shell", "resource": "*2>&1*", "effect": "allow" },
+    // `rg --pre CMD` runs CMD on every file (probed: it executed `whoami`). `file`
+    // is not allowed at all, since `-C` writes a magic file.
+    { "action": "shell", "resource": "*--pre*", "effect": "deny" },
+    // Secrets, by path. `cat` and `grep` are shell actions, so the agents' `read`
+    // denies do not cover them. This is friction against the accidental read, not a
+    // boundary: the match is a suffix on the raw command, so it bites only when the
+    // secret path is the final token, and any path is as exposed as the repo —
+    // `grep -r TOKEN .` and `grep -r TOKEN ~` both pass. Any new broad allow must be
+    // checked against this list. Quoted forms need their own rule for the same reason.
+    { "action": "shell", "resource": "*.env", "effect": "deny" },
+    { "action": "shell", "resource": "*.env.*", "effect": "deny" },
+    { "action": "shell", "resource": "*.env'", "effect": "deny" },
+    { "action": "shell", "resource": "*.env\"", "effect": "deny" },
+    { "action": "shell", "resource": "*.pem", "effect": "deny" },
+    { "action": "shell", "resource": "*.key", "effect": "deny" },
+    { "action": "shell", "resource": "*.p8", "effect": "deny" },
+    { "action": "shell", "resource": "*.p12", "effect": "deny" },
+    { "action": "shell", "resource": "*.pfx", "effect": "deny" },
+    { "action": "shell", "resource": "*id_rsa*", "effect": "deny" },
+    { "action": "shell", "resource": "*id_ed25519*", "effect": "deny" },
+    { "action": "shell", "resource": "*/.ssh/*", "effect": "deny" },
+    { "action": "shell", "resource": "*/.aws/*", "effect": "deny" },
+    { "action": "shell", "resource": "*.netrc", "effect": "deny" },
+    { "action": "shell", "resource": "*.npmrc", "effect": "deny" },
+    { "action": "shell", "resource": "*/.git-credentials", "effect": "deny" },
+    { "action": "shell", "resource": "*.env.example", "effect": "allow" }
   ]
   // `graphify opencode install` registers its plugin here (.opencode/plugins/graphify.js).
 }
