@@ -30,9 +30,11 @@
 //! [`rabbit`] starts P1's domain: one rabbit's RAB-1 field set, the three rules creation fixes — an
 //! unsupplied field stays absent, `dob_unknown: true` excludes a date of birth (I8), and the name
 //! must not be blank, since empty and whitespace-only are the same refusal (RAB-2) — and the one
-//! write path a rabbit is created through, P0's reachability-gated save (D1.1). It holds no storage
-//! write: the created rabbit reaches the frontend from the command that created it, and this device's
-//! **copy** of the household's collection is the read path's (SYNC-3).
+//! write path a rabbit is created through, P0's reachability-gated save (D1.1). A household holds
+//! any number of rabbits, each its own item with its own identity and each belonging to exactly one
+//! household (RAB-3). The module holds no storage write: the created rabbit reaches the frontend
+//! from the command that created it, and this device's **copy** of the household's collection is
+//! the read path's (SYNC-3).
 //!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.

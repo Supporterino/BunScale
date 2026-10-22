@@ -411,6 +411,23 @@ impl AppState {
         lock(&self.copies).household_of(item_id).cloned()
     }
 
+    /// The row this device holds for one item, reached through its household (NFR-10).
+    ///
+    /// The single-item counterpart of [`AppState::read_collection`]. It is `cfg(test)` for the same
+    /// reason [`AppState::item_owner`] is: P1's read commands are later tasks, and a create must not
+    /// read its own write back. It exists so a test can prove two rabbits of one household are two
+    /// items, each resolvable on its own, rather than reading the list task 2.14 owns.
+    #[cfg(test)]
+    pub(crate) fn item(
+        &self,
+        household_id: &HouseholdId,
+        item_id: &crate::ipc::types::ItemId,
+    ) -> Result<Option<crate::storage::StoredItem>, BoundaryRefusal> {
+        lock(&self.copies)
+            .item(household_id, item_id)
+            .map(|row| row.cloned())
+    }
+
     /// The last fresh service/account status.
     pub fn status(&self) -> MutexGuard<'_, StatusTracker> {
         lock(&self.status)
@@ -793,6 +810,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1051,6 +1069,128 @@ mod tests {
             2,
             "the household create and the rabbit create"
         );
+    }
+
+    /// RAB-3's "Additional rabbits are created without restriction": a household that already holds
+    /// rabbits accepts another one, and nothing counts or caps them.
+    #[test]
+    fn additional_rabbits_are_created_without_restriction() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+
+        // Every create is its own operation identity and submits the *same* profile: distinct
+        // rabbits are separated by their identity, never by their content, and no count stops the
+        // eleventh rabbit of a household that already holds ten (RAB-3).
+        let rabbits: Vec<_> = (2..=11)
+            .map(|sequence| {
+                block_on_ready(state.create_rabbit(
+                    one.clone(),
+                    profile(),
+                    request_id(&format!("operation-{sequence}")),
+                ))
+                .expect("a household accepts a rabbit however many it already holds")
+            })
+            .collect();
+
+        assert_eq!(rabbits.len(), 10);
+        assert_eq!(
+            rabbits
+                .iter()
+                .map(|rabbit| rabbit.id.clone())
+                .collect::<HashSet<_>>()
+                .len(),
+            rabbits.len(),
+            "each create is its own rabbit, even with an identical payload"
+        );
+        assert!(rabbits.iter().all(|rabbit| rabbit.household_id == one));
+        assert!(rabbits.iter().all(|rabbit| !rabbit.is_archived));
+        assert_eq!(
+            service.write_count(),
+            11,
+            "the household and each of the ten rabbits was written"
+        );
+    }
+
+    /// RAB-3's household invariant: two rabbits of one household are two items, each resolvable on
+    /// its own, and neither is reachable through another household.
+    #[test]
+    fn two_rabbits_of_one_household_stay_distinct_and_each_reads_as_its_own_item() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+
+        let first =
+            block_on_ready(state.create_rabbit(one.clone(), profile(), request_id("operation-2")))
+                .expect("the first rabbit is created");
+        let second = block_on_ready(state.create_rabbit(
+            one.clone(),
+            RabbitProfile {
+                name: "Clover".to_owned(),
+                ..profile()
+            },
+            request_id("operation-3"),
+        ))
+        .expect("the second rabbit is created");
+
+        assert_ne!(first.id, second.id, "two creates are two rabbits");
+
+        // The service's copy of the household's collection, as a load delivers it (SYNC-3): one row
+        // per rabbit, each at the version its own write named. Reading that list is task 2.14's;
+        // here each item is resolved by its own identity through P0's guard.
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![
+                        wire(&first.id.0, "2026-10-22T09:30:00Z"),
+                        wire(&second.id.0, "2026-10-22T09:31:00Z"),
+                    ],
+                ),
+                at("2026-10-22T09:32:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        for (rabbit, updated_at) in [
+            (&first, "2026-10-22T09:30:00Z"),
+            (&second, "2026-10-22T09:31:00Z"),
+        ] {
+            let item_id = ItemId(rabbit.id.0.clone());
+            let row = state
+                .item(&one, &item_id)
+                .expect("the item is this household's")
+                .expect("the row is stored");
+
+            assert_eq!(row.item_id, item_id, "each rabbit is its own item");
+            assert_eq!(row.updated_at, at(updated_at), "at its own version");
+            assert_eq!(
+                state.item_owner(&item_id),
+                Some(one.clone()),
+                "the item belongs to exactly one household"
+            );
+        }
+
+        // Reached through another household the same two identities are a foreign attempt, never an
+        // absence: one item cannot be presented as a rabbit of the other household (RAB-3).
+        let two = household("household-2");
+
+        for rabbit in [&first, &second] {
+            assert_eq!(
+                state.item(&two, &ItemId(rabbit.id.0.clone())),
+                Err(BoundaryRefusal::ForeignHousehold {
+                    requested: two.clone(),
+                    owner: one.clone(),
+                }),
+                "the guard refuses a cross-household read"
+            );
+        }
     }
 
     #[test]

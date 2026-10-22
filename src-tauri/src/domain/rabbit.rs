@@ -26,6 +26,11 @@
 //!   operation's identity (D0.14): the frontend mints one opaque value per state-changing call and
 //!   re-uses that same value on a retry, so a retried create re-saves the same item instead of
 //!   creating a second rabbit (RAB-3, ADR 0002 criterion 3).
+//! * **A household holds any number of rabbits.** Nothing here counts them, caps them or treats one
+//!   as *the* rabbit: each create is an independent item write into the household's collection, so a
+//!   household that already holds rabbits accepts another one (RAB-3). Two creates are two rabbits
+//!   even when their profiles are byte-identical, because their operation identities differ; and a
+//!   re-issued create is the same rabbit for the same reason.
 //! * **The write names its writer and its version marker.** `save_item` takes both, because the
 //!   service's last-write-wins tuple is `(updated_at, writer_id, request_id)` (ADR 0002 criteria 3
 //!   and 6). The writer is the member the person is in that household, resolved by the caller from
@@ -219,6 +224,13 @@ impl RabbitRecord {
 /// identifier generator on this side, which is what keeps the dependency list at P0's (project
 /// rule 6). Nothing may be parsed out of the value: it is opaque, and its only property is that it
 /// is unique per operation.
+///
+/// That property is also why two rabbits cannot share an id: a second create is a second operation
+/// with its own id, **even when the profile is identical piece for piece** — content never names an
+/// item — while only a genuine retry repeats an id, and that repeat is the item whose write the
+/// service's ledger already holds. A collision would therefore need two distinct operations to mint
+/// the same value, which is a violation of the caller's uniqueness rule rather than something this
+/// mint can produce; there is no counter, clock or device-local state for it to collide on.
 fn rabbit_id(request_id: &RequestId) -> RabbitId {
     RabbitId(request_id.0.clone())
 }
