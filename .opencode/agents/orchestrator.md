@@ -147,12 +147,16 @@ Report: files · tests (scenario covered) · commands run · skipped and why
 
 ## Model routing
 
-Cost lives in model choice, not in prompt length. Fixed in the agent frontmatter, one place per agent. Do not override `model` per call; if a tier is wrong, fix the frontmatter.
+One model, fixed in the agent frontmatter (one place per agent): `opencode-go/deepseek-v4.1-flash` for all ten specialists. Do not override `model` per call.
 
-| Tier | Model | Agents |
-|---|---|---|
-| strong | `opencode-go/glm-5.3` | `architect`, `reviewer`, `apple-native`, `tauri-security` |
-| standard | `opencode-go/deepseek-v4-pro` | `rust-backend`, `frontend-logic`, `frontend-ui`, `test-engineer`, `spec-writer` |
-| cheap | `opencode-go/deepseek-v4.1-flash` | `release-ci` |
+`orchestrator` inherits the session model on purpose: it holds the whole change in context.
 
-`orchestrator` inherits the session model on purpose: it holds the whole change in context and is the one place a weak model is expensive. Escalate a specialist a tier when a task is subtle (native concurrency, migration, security-sensitive diff); drop to `cheap` for mechanical work (i18n keys, bindings regeneration, screenshots, renames).
+### When to escalate
+
+Every agent shares one model, so the reviewer no longer brings a different model's blind spots. If reviews start missing things the gate or a user catches, escalate in this order — fix the frontmatter, not the call:
+
+1. `reviewer` + `architect` → `opencode-go/glm-5.3`. Smallest volume, highest leverage.
+2. `apple-native` + `tauri-security` → the same, for native concurrency or permission-string work.
+3. Nothing else. The rest is volume.
+
+Demote back once the class of miss stops recurring. Cost lives in model choice, not in prompt length — but only where the model is the actual constraint.

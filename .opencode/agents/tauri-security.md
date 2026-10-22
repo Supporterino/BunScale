@@ -1,7 +1,7 @@
 ---
 description: Owns Tauri capabilities, permissions, CSP, FS/shell scopes and updater configuration. Least privilege.
 mode: subagent
-model: opencode-go/glm-5.3   # strong tier — see "Model routing" in orchestrator.md
+model: opencode-go/deepseek-v4.1-flash   # see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"

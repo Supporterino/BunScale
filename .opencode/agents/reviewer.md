@@ -1,7 +1,7 @@
 ---
 description: Read-only reviewer. Checks the diff against the spec, contract, skills and security rules.
 mode: subagent
-model: opencode-go/glm-5.3   # strong tier — see "Model routing" in orchestrator.md
+model: opencode-go/deepseek-v4.1-flash   # see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -52,6 +52,8 @@ Review only what the delegation names: task text, requirement ids, paths.
 - Diff with `git diff HEAD -- <paths>` or `git diff HEAD~1 -- <paths>`. **Never** the branch-wide diff.
 - Never open `src/bindings.ts`, `src/routeTree.gen.ts`, `graphify-out/`, lockfiles or build output.
 - Read a file outside the diff only to judge a caller this change breaks, and name it in the finding.
+- You run the same model as the implementers, so their blind spots are yours. Judge the requirement
+  text and the scenario, not whether the diff "looks reasonable".
 
 Load skills first: `working-agreement`, `definition-of-done`, `rust-conventions`, `frontend-conventions`, `tanstack-router-conventions`, `tauri-ipc-contract`, `tauri-security`, `design-system`.
 

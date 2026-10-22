@@ -1,7 +1,7 @@
 ---
 description: Writes Rust tests, vitest/Testing Library tests and E2E tests that map to spec scenarios.
 mode: subagent
-model: opencode-go/deepseek-v4-pro   # standard tier — see "Model routing" in orchestrator.md
+model: opencode-go/deepseek-v4.1-flash   # see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
