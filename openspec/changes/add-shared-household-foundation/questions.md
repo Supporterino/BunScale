@@ -1082,3 +1082,25 @@ the fallback for the next manual run: keep a `tauri ios dev` process alive for i
 generated project with `xcodebuild`, then install/launch with `simctl`. **Owner:** `release-ci`
 (toolchain/CI docs) — align the Xcode SDK and the installed runtime, or record the direct `xcodebuild`
 path as the supported manual-evidence recipe. Not a product defect.
+
+## Verification record — task 5.18 (2026-10-22, orchestrator)
+
+The full gate was run again, fresh, on the tree as it stands after the 0.26/0.27 records were committed
+(`c2a532a`), in the order below:
+
+| Command | Result |
+|---|---|
+| `cargo fmt --check` | pass, no output |
+| `cargo clippy --all-targets -- -D warnings` | pass |
+| `cargo test` | **235** lib + **47** integration tests, 0 failed |
+| `cargo check --target aarch64-apple-ios` | pass |
+| `bun run gen:bindings` | ran; `git diff --exit-code src/bindings.ts` → no diff |
+| `bun run build` | 226 modules; `git diff --exit-code src/routeTree.gen.ts` → no diff |
+| `bun run typecheck` | pass |
+| `bun run lint` | pass, 129 files |
+| `bun run test` | **256** passed in 30 files, 0 failed |
+| `bun run test:e2e` | **45 passed**, 11 viewport-gated skips, 0 failed |
+
+No source changed between this run and the 0.26 run; the only intervening commits were the two
+verification records. This is the tree the review tasks 6.1/6.2 inspect, and the same 11 E2E skips
+(two projects' deliberate baseline gates) with no failures in either project.

@@ -953,7 +953,7 @@ file's header).
   a working retry, asserting the entry is never shown as saved; covers SYNC-2 and NFR-8.
 - [x] 5.17 [test-engineer] E2E at 1280×800: gear → Settings as its own screen with the dashboard still
   reachable, and household switching; covers the `[desktop]` scenario of SET-1 and HS-3.
-- [ ] 5.18 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
+- [x] 5.18 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
   `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` with no diff, `git diff
   --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
   `bun run test`, `bun run test:e2e`) and record the results in the change.
