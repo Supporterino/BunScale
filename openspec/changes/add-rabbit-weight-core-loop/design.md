@@ -206,65 +206,217 @@ Rules held here:
   the only one.
 - Timestamps are P0's absolute instants (DM-6); P1 supplies them and never re-interprets them.
 
-## IPC contract — to be defined by architect
+## IPC contract (frozen by task 1.1)
 
-**Status: proposal only. `architect` owns this section and the typed stubs in `src-tauri/src/ipc/`
-(tasks 1.1–1.3). Nothing may be implemented against these names until 1.1 is done and
-`bun run gen:bindings` regenerates `src/bindings.ts`.**
+**Status: frozen, and shipped with its generated bindings.** `architect` owns this section and the
+typed stubs in `src-tauri/src/ipc/` (tasks 1.1–1.3). The thirteen commands, the two events and the
+shared types below are the P1 surface; section 2 implements the bodies behind the stubs, section 3
+wraps them in `api.ts`. **Task 1.1 regenerated `src/bindings.ts` from this builder** (the gate's
+stage 5), so the generated file the frontend compiles against already exports all thirteen commands,
+both events and every P1 type. Task 3.1 therefore **consumes** those names rather than creating them:
+re-running the generator there is a drift check that must leave no diff, and no frontend work waits on
+it. `src/bindings.ts` is never hand-edited — the names in this section are what it contains, and
+renaming one afterwards is a deliberate bindings diff, not a tidy-up.
 
 Naming style extends P0's contract: snake_case commands, `noun:changed` events, shared types in
-PascalCase, and P0's `CommandError` / `SaveCause` / `Instant` / `WeightUnit` reused unchanged rather
-than redeclared. `SaveCause.validation` (P0) carries RAB-2's blank-name and WT-4's non-positive-value
-refusals; no new cause codes are introduced unless 1.1 justifies one.
+PascalCase, and P0's `CommandError`, `SaveCause`, `Instant`, `WeightUnit`, `HouseholdId` reused
+unchanged rather than redeclared. **Case is fixed in two places at once, and they differ:** command
+**arguments** are exported camelCased (`householdId`, `includeArchived`) while **struct fields and
+enum variants** stay `snake_case` (`household_id`, `days_7`), exactly as P0's do (`created_at`). No
+struct carries `rename_all`, and "tidying" either half to match the other is a wire-shape change.
 
-### Commands the frontend needs in this phase
+P1 introduces **no new cause code**: `SaveCause` is a frozen,
+exhaustive list (D0.6), so every refusal in this phase — RAB-2's blank name, WT-4's non-positive value
+and unconfirmed outlier, a write to an archived rabbit, an unknown or blank id — is `validation`, and
+`validation`'s "the input was refused" is exactly what each of those is. No new cause is justified:
+the archived case is a defence-in-depth path the UI already withholds (D1.5), not a normal flow that
+needs cause-specific copy of its own.
 
-| Command (proposed) | Purpose | Requirements |
-|---|---|---|
-| `create_rabbit(household_id, profile)` | Create a rabbit profile; blank names refused | RAB-1, RAB-2 |
-| `list_rabbits(household_id, include_archived)` | Active rabbits for the dashboard, or the archived list | DASH-1, RAB-6 |
-| `get_rabbit(rabbit_id)` | One rabbit's profile and archived state | DASH-6, RAB-5 |
-| `update_rabbit(rabbit_id, patch)` | Edit any field of an active rabbit, including `weight_drop_threshold_percent` | RAB-5, WT-7 |
-| `archive_rabbit(rabbit_id)` | Soft delete; reversible | RAB-6 |
-| `restore_rabbit(rabbit_id)` | Return to the active list, history intact | RAB-7 |
-| `delete_rabbit(rabbit_id)` | Permanent deletion of an **archived** rabbit with cascade, shared with members; refused for an active rabbit | RAB-10 |
-| `get_dashboard(household_id)` | Rows: name, thumbnail ref, last-weighed date or never-weighed, drop flag | DASH-1, DASH-2, DASH-3, DASH-4 |
-| `create_weight_entry(rabbit_id, entry)` | Save an entry; grams canonical, timestamp defaults to now | WT-1, DM-1 |
-| `get_weight_entries(rabbit_id, range)` | Trend series and the ranged weight history listing, with the alert state | WT-6, WT-7 |
-| `get_weight_entry(entry_id)` | Detail: value, timestamp, full note, alert flag, photo references | WT-8 |
-| `update_weight_entry(entry_id, patch)` | Edit a past entry, shared with members | WT-5, WT-8 |
-| `delete_weight_entry(entry_id)` | Delete a past entry, shared with members | WT-5, WT-8 |
+Notation below: **write-path set** = `connectivity`, `no_account`, `allowance_exceeded`,
+`rate_limited`, `timeout`, `unknown`, the causes P0's reachability-gated write path reports (D1.1);
+every P1 write is such a write, so all six are reachable behind it. **local set** = `unknown`, a local
+collection or device store that cannot answer. Reads never report a service cause: unreachability is a
+status fact, not a read failure (SYNC-3).
 
-`architect` decides, and records in 1.1, whether the entry-side display conversion is performed in
-`api.ts` or inside `create_weight_entry` / `update_weight_entry`. Either is at the boundary; neither
-may give an entry a unit or store a non-gram value (DM-1), and every weight command's payload stays
-grams-only on the wire except for the value the person is typing.
+### Commands
 
-### Events the frontend needs in this phase
+| Command | Arguments | Returns | Errors | Requirements |
+|---|---|---|---|---|
+| `create_rabbit` | `household_id: HouseholdId`, `profile: RabbitProfile`, `request_id: RequestId` | `Rabbit` | `validation`; write-path set | RAB-1, RAB-2, RAB-3 |
+| `list_rabbits` | `household_id: HouseholdId`, `include_archived: bool` — `false` → the **active list only**, `true` → the **archived list only** (never a union of the two) | `RabbitSummary[]` | local set | DASH-1, RAB-6 |
+| `get_rabbit` | `rabbit_id: RabbitId` | `Rabbit` | `validation` (unknown or blank id); local set | DASH-6, RAB-5 |
+| `update_rabbit` | `rabbit_id: RabbitId`, `profile: RabbitProfile`, `request_id: RequestId` | `Rabbit` | `validation` (blank name, archived rabbit); write-path set | RAB-5, WT-7 |
+| `archive_rabbit` | `rabbit_id: RabbitId`, `request_id: RequestId` | `Rabbit` | `validation` (unknown or already archived); write-path set | RAB-6, RAB-9 |
+| `restore_rabbit` | `rabbit_id: RabbitId`, `request_id: RequestId` | `Rabbit` | `validation` (unknown or not archived); write-path set | RAB-7 |
+| `delete_rabbit` | `rabbit_id: RabbitId`, `request_id: RequestId` | `()` | `validation` (**active** rabbit, unknown rabbit); write-path set | RAB-10 |
+| `get_dashboard` | `household_id: HouseholdId` | `DashboardRow[]` | local set | DASH-1, DASH-2, DASH-3, DASH-4 |
+| `create_weight_entry` | `rabbit_id: RabbitId`, `entry: WeightEntryDraft`, `request_id: RequestId` | `WeightEntry` | `validation` (≤ 0 g, unconfirmed outlier, archived rabbit); write-path set | WT-1, WT-3, WT-4, DM-1 |
+| `get_weight_entries` | `rabbit_id: RabbitId`, `range: WeightRange` | `WeightTrend` | `validation` (unknown or blank id); local set | WT-6, WT-7 |
+| `get_weight_entry` | `entry_id: WeightEntryId` | `WeightEntry` | `validation` (unknown or blank id); local set | WT-8 |
+| `update_weight_entry` | `entry_id: WeightEntryId`, `entry: WeightEntryDraft`, `request_id: RequestId` | `WeightEntry` | `validation` (≤ 0 g, unconfirmed outlier, archived rabbit); write-path set | WT-5, WT-7, WT-8 |
+| `delete_weight_entry` | `entry_id: WeightEntryId`, `request_id: RequestId` | `()` | `validation` (archived rabbit, unknown entry); write-path set | WT-5, WT-8 |
 
-| Event (proposed) | Payload | Purpose |
-|---|---|---|
-| `rabbit:changed` | `{ household_id, rabbit_id, kind: created \| updated \| archived \| restored \| deleted }` | Invalidate only the affected rabbit, dashboard and trend queries |
-| `weight:changed` | `{ household_id, rabbit_id, entry_id, kind: created \| updated \| deleted }` | Invalidate only the affected trend, history and detail queries |
+Every command is `async` and returns `Result<_, CommandError>`, P0's single failure surface. Writes
+take a `RequestId` and carry it on a failure; reads take none and report `request_id: None`, because
+they are idempotent and a retry is a fresh call rather than a re-issued one (D0.14). `delete_*`
+returns `()` — the removal is the answer, and a deleted entity has no value to return.
 
-Both are household-scoped like P0's `household:changed`, so a member's weight entry reaches the other
-members without a full cold reload (HS-8's equal write access made observable, and the boundary P6
-later optimises).
+Two command-level shapes are worth calling out because section 2 must not renegotiate them:
+
+- **`update_rabbit` / `update_weight_entry` replace the whole editable set** through `RabbitProfile` /
+  `WeightEntryDraft`, not a partial patch. A patch would need a double-optional per field to tell
+  "unchanged" from "cleared", which the frozen wire style does not carry; both forms are pre-filled
+  with the current values anyway, so they submit the full set. What the earlier draft of this table
+  called `patch` is therefore `profile` / `entry`.
+- **`get_weight_entries` serves both ranged views.** The trend chart and the weight-only history call
+  it with their own `WeightRange`, each held in the route's typed search parameters (D1.4). The backend
+  stores no selected range, so one view cannot influence the other (WT-6).
+
+**The empty state is keyed on the active list, not on the household's rabbit count** (DASH-8, RAB-6): a
+household whose rabbits are all archived has zero active rows from `list_rabbits(household_id, false)`
+and `get_dashboard`, so it presents DASH-8's empty state, while the archived list stays reachable as its
+own screen from that dashboard rather than as a row in the active list.
+
+### Events
+
+| Event | Payload type | Payload | Emitted by |
+|---|---|---|---|
+| `rabbit:changed` | `RabbitChanged` — `kind: RabbitChangeKind` = `created \| updated \| archived \| restored \| deleted` | `{ household_id: HouseholdId, rabbit_id: RabbitId, kind }` | every successful rabbit write |
+| `weight:changed` | `WeightChanged` — `kind: WeightChangeKind` = `created \| updated \| deleted` | `{ household_id: HouseholdId, rabbit_id: RabbitId, entry_id: WeightEntryId, kind }` | every successful weight write |
+
+The four names `RabbitChanged`, `RabbitChangeKind`, `WeightChanged` and `WeightChangeKind` are frozen
+here too: they are the frontend's types, exported because `collect_events!` registers the two payloads,
+and the subscriber's `switch` is over the two `kind` unions. They are reached as
+`events.rabbitChanged` and `events.weightChanged`, never by a hand-built string.
+
+Both mirror `household:changed` — a household-scoped payload naming the affected entity and the kind
+of change — so P0's one subscription pattern and one invalidation policy serve them too, and the only
+new shapes are the two `kind` enums and the extra ids. `weight:changed` names `rabbit_id` beside
+`entry_id` because a weight change invalidates that rabbit's trend, history, detail and **dashboard
+row** (the alert is derived, D1.13), and the household id is there because the frontend's cache is
+keyed by household. Neither event carries data to apply: the listener invalidates and refetches through
+the read commands, so an event can never become a second, stale copy of the truth (HS-8, P6 optimises
+later).
 
 ### Shared types
 
-| Type (proposed) | Shape | Notes |
+| Type | Shape | Notes |
 |---|---|---|
-| `RabbitId`, `WeightEntryId` | opaque, stable strings | same style as P0's `HouseholdId` |
-| `Rabbit` | `{ id, household_id, name, photo_ref?, breed?, dob?: Instant \| null, dob_unknown: bool, sex, neuter_status, adoption_date?: Instant, is_archived: bool, weight_drop_threshold_percent }` | no baseline/healthy-range field (D5) |
-| `RabbitSummary` | `{ id, name, thumbnail_ref?, is_archived }` | used by rows and pickers |
-| `DashboardRow` | `{ rabbit: RabbitSummary, last_weighed_at?: Instant, never_weighed: bool, has_weight_drop_alert: bool }` | `never_weighed` and the flag are derived, never stored |
-| `WeightEntry` | `{ id, rabbit_id, value_grams, timestamp, note?, photo_refs: [] }` | **no unit field** (DM-1) |
-| `WeightEntrySummary` | `{ id, value_grams, timestamp, has_weight_drop_alert }` | trend points and history rows |
-| `WeightRange` | `days_7 \| days_30 \| days_90 \| all` | WT-6; the same enum serves both independent ranges |
-| `WeightTrend` | `{ range, points: [WeightEntrySummary], drop_threshold_percent }` | the threshold travels with the series so the alert is derivable and consistent |
-| `Sex`, `NeuterStatus` | `Sex` = `male` \| `female` \| `unknown`; `NeuterStatus` = `intact` \| `neutered` \| `spayed` \| `unknown` | fixed value sets (D1.14); `unknown` is permitted in both, as an unknown date of birth is |
+| `RabbitId`, `WeightEntryId` | opaque, stable strings | transparent newtypes, same style as `HouseholdId` |
+| `Grams` | a number, integer and canonical | `i32` under a transparent newtype — see I7; the generated binding is `type Grams = number` |
+| `Sex` | `male \| female \| unknown` | fixed value set, D1.14 |
+| `NeuterStatus` | `intact \| neutered \| spayed \| unknown` | fixed value set, D1.14; `neutered` and `spayed` stay distinct |
+| `Rabbit` | `{ id, household_id, name, photo_ref?, breed?, dob?, dob_unknown: bool, sex, neuter_status, adoption_date?, is_archived: bool, weight_drop_threshold_percent }` | no baseline/healthy-range field (D5, R5); `dob`/`adoption_date` are calendar dates and `dob_unknown` excludes `dob` (I8) |
+| `RabbitProfile` | the editable field set of `Rabbit`: everything except `id`, `household_id`, `is_archived` | input to `create_rabbit` and `update_rabbit` |
+| `RabbitSummary` | `{ id, name, thumbnail_ref?, is_archived }` | dashboard rows and the quick-entry picker |
+| `DashboardRow` | `{ rabbit: RabbitSummary, last_weighed_at?, never_weighed: bool, has_weight_drop_alert: bool }` | both flags derived, never stored (D1.3) |
+| `WeightEntry` | `{ id, rabbit_id, value_grams: Grams, timestamp, note?, photo_refs, has_weight_drop_alert: bool }` | **no unit field** (DM-1); the flag is derived (see I2) |
+| `WeightEntryDraft` | `{ value_grams: Grams, timestamp?, note?, outlier_confirmed: bool }` | input to create and update; grams only (see I4). `timestamp: None` means "now" on create and **"keep the entry's existing timestamp" on update** — an edit never restamps a back-dated entry |
+| `WeightEntrySummary` | `{ id, value_grams: Grams, timestamp, has_weight_drop_alert }` | trend points and history rows |
+| `WeightRange` | `days_7 \| days_30 \| days_90 \| all` | WT-6; one enum serves both independent ranges; spelled per variant so serde cannot produce `days7` |
+| `WeightTrend` | `{ range: WeightRange, points: WeightEntrySummary[], drop_threshold_percent }` | oldest first; threshold travels with the series (D1.3, R2) |
+| `PLAUSIBILITY_BOUND_GRAMS` | `Grams(10_000)` (Rust const) | WT-4's bound, D1.9; a constant, so it is in no binding |
 | reuse | `CommandError`, `SaveCause`, `Instant`, `WeightUnit`, `HouseholdId` | from P0, unchanged |
+
+`Sex` and `neuter_status` are always present on `Rabbit` and `RabbitProfile` rather than optional:
+D1.14 permits `unknown` as a recorded value, so "not stated" has a representation that is not an
+absence, and RAB-1's "optional fields may be left unset" scenario is carried by the fields that are
+genuinely `Option<_>`. `dob_unknown` is the one flag, because a date cannot express "unknown" any
+other way and RAB-1 distinguishes it from "not supplied"; I8 fixes what it forbids.
+
+### Decisions recorded in this section
+
+**I1 — Display-unit conversion happens in `api.ts`, not in the commands** (D1.2, WT-3, DM-1). The
+weight commands accept and return grams only; `src/features/weight/api.ts` parses what the person typed
+into grams before the call and formats grams into the preferred unit after it, reading the unit from
+P0's `get_display_weight_unit`. This is what keeps DM-1 true by construction: nothing on the wire
+carries a unit, so no command can store a display-unit value and no change of preference can rewrite a
+stored one. It also puts the parse next to the form that has the typed text and the locale, and keeps
+the backend free of a per-device preference it would otherwise have to resolve for every write. The
+alternative — passing the typed value plus a unit to the command — was rejected because it would put a
+unit back on the wire and make the same command mean two different values depending on a preference
+read at a different moment.
+
+**I2 — `WeightEntry` carries the derived alert flag** (WT-8, D1.13). The table above already asked
+`get_weight_entry` for the alert flag, but the earlier `WeightEntry` shape had no field for it. Adding
+`has_weight_drop_alert` resolves that gap in the smallest way: the flag is derived on read like
+`WeightEntrySummary`'s and `DashboardRow`'s, and the three surfaces therefore share one derivation
+instead of the detail view re-deriving a rule the contract does not state.
+
+**I3 — Range limits the points, never the derivation** (WT-6, WT-7, D1.13). `get_weight_entries`
+returns the entries inside the window, but each flag is computed from the rabbit's full entry set, so
+the earliest point of a window may be flagged on the basis of an entry outside it. A derivation that
+re-based at the window edge would make one entry disagree with the dashboard flag as soon as a range
+was selected — exactly R2.
+
+**I4 — The plausibility bound is enforced by the command, from one constant** (WT-4, D1.9).
+`WeightEntryDraft.outlier_confirmed` is how the person's confirmation reaches the boundary: an
+unconfirmed value above `PLAUSIBILITY_BOUND_GRAMS` is refused with `validation`, and the same value is
+saved once confirmed, so the bound stays a confirmation threshold rather than a rejection. The bound is
+one `pub const` in `src-tauri/src/ipc/types.rs`; `api.ts` mirrors the number only to decide *when* to
+ask, never what is stored, so a drift could change when the prompt appears but never the saved value.
+
+**I5 — Stub state.** Every one of the thirteen bodies returns `CommandError::not_implemented` — cause
+`unknown`, `retryable: false`, key `error.not_implemented` — with the command's `RequestId` on the
+writes and `None` on the reads. A stub is therefore unmistakable in the UI and in a test, and section 2
+replaces them without changing a signature or a generated name. `lib.rs` needs no edit for this: the
+commands are mounted through the one `ipc::builder()`, whose `collect_commands!` list task 1.1 extended.
+The split is asserted rather than documented only:
+`ipc::commands::tests::every_p1_write_stub_is_not_implemented_and_carries_the_operations_identity`
+covers all eight writes and
+`every_p1_read_stub_is_not_implemented_and_carries_no_operation_identity` covers all five reads, each
+checking the cause, the withheld retry, the placeholder key and the carried id — so a write that
+answered `None`, or a body that named `error.unknown`, fails a test instead of passing every stage.
+
+**I6 — No explicit type registration is needed.** P0 exports `Member` through `Builder::typ` because no
+command references it; every P1 **command-reachable** type is exported transitively from the signature
+that names it (the two input types from arguments, the rest from results). The four event types are not
+command-reachable — `RabbitChanged`, `RabbitChangeKind`, `WeightChanged` and `WeightChangeKind` are
+exported because `collect_events!` registers the two payloads — so none of the six needs a second
+`Builder::typ` registration, which for any of them would be a duplicate definition rather than a
+safeguard.
+
+**I7 — A weight is a `Grams` newtype over `i32`, and no 64-bit integer appears on an exported type**
+(DM-1). `bun run gen:bindings` fails at export time on `i64`, `u64`, `usize`, `i128` and `u128`:
+`specta-typescript` refuses to export a JavaScript-inaccurate integer rather than silently lose
+precision. `i32` is exact as a JavaScript `number`, and its range — over two million kilograms — is far
+beyond any weight the product records (the plausibility bound is 10 kg). The newtype is transparent, so
+the generated binding is `type Grams = number` with each `value_grams` field typed `Grams`: the unit
+stays visible in the contract and a weight cannot be passed where a percentage or a count is expected.
+`String` — `Instant`'s representation — was rejected because a weight is arithmetic at the boundary
+(the drop derivation divides one value by another) and a string would force a parse on every
+comparison. Nothing about DM-1 changes: a weight is still an integer count of grams, has no unit field,
+and the display unit still lives only in `api.ts` (I1).
+
+Two export facts follow from the same rule and are recorded so a later reader does not read them as the
+contract's intent:
+
+- **A threshold percentage is `f64`, so the generated binding types it `number | null`.** Specta maps
+  `f32`/`f64` to `number | null` because JSON can carry `NaN` and `±Infinity` as `null`. The backend
+  always sends a number for `weight_drop_threshold_percent` and `drop_threshold_percent`; the nullable
+  type is the exporter's honesty about JSON, not a state the domain produces. The frontend treats it as
+  a number once read, and the default is the documented 5 (WT-7).
+- **`WeightRange`'s variants carry explicit `#[serde(rename)]`s.** Serde's `snake_case` of `Days7` is
+  `days7`, while the frozen window set this change states is `days_7`, `days_30`, `days_90`, `all`; the
+  per-variant renames are what keep the generated union spelled as this section says it is. A
+  `rename_all` attribute cannot express that, because the digit has no boundary to split on.
+
+The contract's exportability is asserted by
+`ipc::tests::the_contract_exports_to_typescript`, which exports [`builder`] to a throwaway temp file —
+never to `src/bindings.ts`, so it cannot rewrite what the gate's bindings drift check inspects (D0.9).
+Without it the first symptom of a non-exportable type is a failing `bun run gen:bindings`, which
+`cargo check` cannot see.
+
+**I8 — A birth or adoption date is a calendar date, and "unknown" excludes a date** (RAB-1). Both are
+carried as `Instant` because that is P0's one absolute-time type, but they are **dates pinned to a fixed
+offset (UTC) and never timezone-shifted**: the day a person entered is the day every member and every
+device shows, so a rabbit born on 1 March is not presented as 28 February or 2 March depending on where
+the reader is. DM-6's instant rule governs timestamps, where a moment is the point; a date must not be
+re-derived from a moment at a different offset. Separate from that, `dob_unknown: true` **requires**
+`dob: None` and the pair `true` with a date is refused as `validation`: "unknown" and a date cannot both
+be true, and refusing the contradiction is the only answer that cannot disagree with what the form
+showed. The rule is stated on `Rabbit::dob` and `RabbitProfile::dob` so section 2 and section 4 read the
+same sentence.
 
 ## Traceability: user stories → scenarios
 

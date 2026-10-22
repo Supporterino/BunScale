@@ -261,12 +261,236 @@ export const commands = {
 	 *  no `RequestId`, so the failure carries `request_id: None`.
 	 */
 	getDiagnosticsSummary: () => typedError<DiagnosticsSummary, CommandError>(__TAURI_INVOKE("get_diagnostics_summary")),
+	/**
+	 *  Create a rabbit profile in a household (RAB-1, RAB-2, RAB-3).
+	 * 
+	 *  The profile is stored in the household's shared collection, so every member resolves it (HS-8).
+	 *  `household_id` is explicit even though the person has an active household: the write belongs to
+	 *  the collection it names, and the active household is a per-device selection rather than a scope
+	 *  the backend may infer.
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for a blank or whitespace-only name, which is treated as blank (RAB-2), and for a
+	 *  blank operation identity. The write path's service conditions — `connectivity`, `no_account`,
+	 *  `allowance_exceeded`, `rate_limited`, `timeout` — are reachable because the profile is a shared
+	 *  write (D1.1), and `unknown` is the honest remainder.
+	 */
+	createRabbit: (householdId: HouseholdId, profile: RabbitProfile, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("create_rabbit", { householdId, profile, requestId })),
+	/**
+	 *  The household's rabbits, as either the active list or the archived list (DASH-1, RAB-6).
+	 * 
+	 *  The two values select **one list each**, never a union: `include_archived: false` is DASH-1's
+	 *  active list — every non-archived rabbit of the household, in no required order because the
+	 *  dashboard sorts by most recent weigh-in (DASH-3) — and `include_archived: true` is the archived
+	 *  list, RAB-6's "retrievable from an archived list", and contains no active rabbit. The name reads
+	 *  like a union only because it began as the design's draft parameter; the contract's meaning is the
+	 *  one stated here and in the design, and section 2 must not implement "both lists".
+	 * 
+	 *  An empty result is **not** proof that the household holds no rabbit: as with
+	 *  [`list_households`](super::household::list_households), a device that never loaded the collection
+	 *  and cannot reach the service answers the same way (SYNC-3), so the empty state is a conclusion to
+	 *  draw only from a fresh reachable [`ServiceStatus`](crate::ipc::types::ServiceStatus).
+	 * 
+	 *  # Errors
+	 * 
+	 *  None is expected: the read resolves against the locally kept copy, so unreachability is a status
+	 *  fact rather than a read failure (SYNC-3). A local store that cannot answer is `unknown`.
+	 */
+	listRabbits: (householdId: HouseholdId, includeArchived: boolean) => typedError<RabbitSummary[], CommandError>(__TAURI_INVOKE("list_rabbits", { householdId, includeArchived })),
+	/**
+	 *  One rabbit's profile and archived state (DASH-6, RAB-5).
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for an id this household's collection does not hold, or for a blank id. A rabbit of
+	 *  another household is reported the same way and never resolved: RAB-3 forbids presenting a rabbit
+	 *  of one household as a rabbit of another.
+	 */
+	getRabbit: (rabbitId: RabbitId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("get_rabbit", { rabbitId })),
+	/**
+	 *  Replace the editable fields of an active rabbit's profile (RAB-5, WT-7).
+	 * 
+	 *  Every field is editable through this command, including `weight_drop_threshold_percent`: the
+	 *  threshold is a profile field (RAB-1/RAB-5) rather than a setting of its own, so editing it is an
+	 *  ordinary shared write and every member receives it. Because the alert is derived on read (D1.3), a
+	 *  threshold edit re-derives the entry flags and the dashboard flag without rewriting an entry.
+	 * 
+	 *  The change applies only to an **active** rabbit; an archived rabbit's profile is not editable
+	 *  (RAB-5, D1.5).
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for a blank name (RAB-2), for an archived or unknown rabbit — the request is refused
+	 *  rather than accepted and ignored — and for a blank operation identity. The write path's service
+	 *  conditions are reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
+	 */
+	updateRabbit: (rabbitId: RabbitId, profile: RabbitProfile, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("update_rabbit", { rabbitId, profile, requestId })),
+	/**
+	 *  Archive a rabbit: a reversible soft delete that discards nothing (RAB-6, RAB-9).
+	 * 
+	 *  The rabbit leaves the active list and appears in the archived one, and every weight entry it holds
+	 *  stays stored — nothing purges archived data, and this command deletes none of it (RAB-9). The
+	 *  operation is reversible through [`restore_rabbit`]. Archiving is **not** a destructive action under
+	 *  NFR-9, so it carries no consequence confirmation (D1.8); the confirmation belongs to
+	 *  [`delete_rabbit`].
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for an unknown rabbit, for one that is already archived, and for a blank operation
+	 *  identity. The write path's service conditions are reachable as for [`create_rabbit`].
+	 */
+	archiveRabbit: (rabbitId: RabbitId, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("archive_rabbit", { rabbitId, requestId })),
+	/**
+	 *  Return an archived rabbit to the active list with its history intact (RAB-7).
+	 * 
+	 *  Every weight entry recorded before archiving is still present and unchanged afterwards: restoring
+	 *  moves the rabbit's archived state and nothing else.
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for an unknown rabbit, for one that is not archived, and for a blank operation
+	 *  identity. The write path's service conditions are reachable as for [`create_rabbit`].
+	 */
+	restoreRabbit: (rabbitId: RabbitId, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("restore_rabbit", { rabbitId, requestId })),
+	/**
+	 *  Permanently delete an **archived** rabbit and every weight entry it holds (RAB-10).
+	 * 
+	 *  Irreversible, and shared with every member: once it completes, no member resolves the rabbit or its
+	 *  entries. Deletion is available only for an archived rabbit — an active one is refused, which is what
+	 *  keeps archiving the recoverable step before the point of no return (D1.8, R7). The confirmation
+	 *  that states the consequence is the frontend's (NFR-9); this command is called only after it.
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for an **active** rabbit — the deliberate narrowing of RAB-10 (D1.8) — for an unknown
+	 *  rabbit, and for a blank operation identity. The write path's service conditions are reachable as for
+	 *  [`create_rabbit`]; a deletion the service did not accept leaves the rabbit in place and is never
+	 *  reported as removed.
+	 */
+	deleteRabbit: (rabbitId: RabbitId, requestId: RequestId) => typedError<null, CommandError>(__TAURI_INVOKE("delete_rabbit", { rabbitId, requestId })),
+	/**
+	 *  Record a weight entry for a rabbit (WT-1, WT-3, WT-4, DM-1).
+	 * 
+	 *  The value arrives in canonical grams and is stored as such; the rabbit's display unit plays no part
+	 *  here. `entry.timestamp` is `None` to record the moment of creation, or a supplied absolute instant —
+	 *  including one in the past — stored unchanged (WT-1, DM-6). The note is optional.
+	 * 
+	 *  A value of zero or less is refused. A value above [`PLAUSIBILITY_BOUND_GRAMS`] is a *confirmation*
+	 *  threshold rather than a rejection (D1.9): it is refused until `entry.outlier_confirmed` says the
+	 *  person confirmed it, so a genuinely heavy rabbit is still recorded and an accidental extra digit is
+	 *  still stopped at the boundary rather than only in the form.
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for a value of zero or less (WT-4), for an unconfirmed value above the plausibility
+	 *  bound (WT-4), for an archived rabbit, unknown rabbit, blank id or blank operation identity. The
+	 *  write path's service conditions — `connectivity`, `no_account`, `allowance_exceeded`,
+	 *  `rate_limited`, `timeout` — are reachable because an entry is a shared write (D1.1), and `unknown`
+	 *  is the honest remainder. No failure is ever presented as a saved entry.
+	 */
+	createWeightEntry: (rabbitId: RabbitId, entry: WeightEntryDraft, requestId: RequestId) => typedError<WeightEntry, CommandError>(__TAURI_INVOKE("create_weight_entry", { rabbitId, entry, requestId })),
+	/**
+	 *  One rabbit's weight series for one window, with the threshold it is judged against (WT-6, WT-7).
+	 * 
+	 *  This one read serves **both** ranged surfaces: the rabbit dashboard's trend chart and the
+	 *  weight-only history listing. They hold their ranges independently in the route's typed search
+	 *  parameters and each calls this command with its own [`WeightRange`], so one cannot influence the
+	 *  other (D1.4, WT-6) — the backend holds no selected range.
+	 * 
+	 *  The window limits which points come back, **not** how the flags are derived: the alert is computed
+	 *  over the rabbit's full entry set, so the earliest point of a window may be flagged on the basis of
+	 *  an entry outside it (D1.13). Points are ordered oldest first, the order the previous-entry
+	 *  derivation uses (D1.12).
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for an unknown rabbit or a blank id. Unreachability is a status fact, not a read
+	 *  failure (SYNC-3); a local store that cannot answer is `unknown`.
+	 */
+	getWeightEntries: (rabbitId: RabbitId, range: WeightRange) => typedError<WeightTrend, CommandError>(__TAURI_INVOKE("get_weight_entries", { rabbitId, range })),
+	/**
+	 *  One entry's detail: value, timestamp, full note, derived alert and photo references (WT-8).
+	 * 
+	 *  The note is returned whole and never truncated by the contract; the alert flag is derived on read
+	 *  exactly as it is for the trend and the dashboard (D1.3), so the three surfaces cannot disagree. An
+	 *  entry of an archived rabbit is readable — RAB-8 makes the timeline viewable and read-only — and the
+	 *  frontend withholds Edit and Delete from what this command returns rather than the read refusing.
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for an unknown entry or a blank id. Unreachability is a status fact, not a read
+	 *  failure (SYNC-3).
+	 */
+	getWeightEntry: (entryId: WeightEntryId) => typedError<WeightEntry, CommandError>(__TAURI_INVOKE("get_weight_entry", { entryId })),
+	/**
+	 *  Correct a past entry, sharing the change with every member (WT-5, WT-7).
+	 * 
+	 *  The whole editable set is replaced through [`WeightEntryDraft`]: a patch would need a double-optional
+	 *  per field to distinguish "unchanged" from "cleared", and the edit form is pre-filled anyway. The
+	 *  same validation as [`create_weight_entry`] applies — grams only, zero and negative refused, an
+	 *  unconfirmed outlier refused — and the change is shared with every member (WT-5, HS-8).
+	 * 
+	 *  Editing a value is an **alert-affecting** operation, not a value correction only: the edited entry's
+	 *  flag and the flag of the entry that follows it are re-derived from the current entry set
+	 *  (D1.13, WT-7).
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for a value of zero or less, an unconfirmed outlier, an entry of an **archived** rabbit
+	 *  (WT-5, DM-4), an unknown entry, a blank id or a blank operation identity. The write path's service
+	 *  conditions are reachable as for [`create_weight_entry`].
+	 */
+	updateWeightEntry: (entryId: WeightEntryId, entry: WeightEntryDraft, requestId: RequestId) => typedError<WeightEntry, CommandError>(__TAURI_INVOKE("update_weight_entry", { entryId, entry, requestId })),
+	/**
+	 *  Delete a past entry, sharing the removal with every member (WT-5, WT-8).
+	 * 
+	 *  Deleting is also **alert-affecting**: the entry that followed the deleted one is afterwards compared
+	 *  against the entry that now precedes it, so its flag can change although it was never edited
+	 *  (D1.13, WT-7). The confirmation that precedes the call is the frontend's (NFR-9, WT-8); this
+	 *  command is called only after it.
+	 * 
+	 *  # Errors
+	 * 
+	 *  `validation` for an entry of an **archived** rabbit (WT-5, DM-4), an unknown entry, a blank id or a
+	 *  blank operation identity. The write path's service conditions are reachable as for
+	 *  [`create_weight_entry`]; a removal the service did not accept leaves the entry in place and is never
+	 *  reported as deleted.
+	 */
+	deleteWeightEntry: (entryId: WeightEntryId, requestId: RequestId) => typedError<null, CommandError>(__TAURI_INVOKE("delete_weight_entry", { entryId, requestId })),
+	/**
+	 *  One household's dashboard rows (DASH-1, DASH-2, DASH-3, DASH-4).
+	 * 
+	 *  The household comes from the argument, never from this device's active-household selection: which
+	 *  household is active is per-device local state the backend must not infer (see
+	 *  [`create_rabbit`](super::rabbit::create_rabbit)).
+	 * 
+	 *  Every non-archived rabbit of the household, each with its name, its thumbnail reference, its
+	 *  last-weighed instant or the never-weighed indication, and the derived weight-drop flag. Archived
+	 *  rabbits are absent (DASH-1). Rows are sorted by most recent weigh-in, newest first, with
+	 *  never-weighed rabbits last regardless of creation order (DASH-3) — sorted on the entry timestamp
+	 *  rather than on creation order, because WT-1 allows a past timestamp and WT-5 allows an edit (R6).
+	 * 
+	 *  An empty result is not proof that the household holds no rabbit: as with
+	 *  [`list_rabbits`](super::rabbit::list_rabbits), a device that never loaded the collection and cannot
+	 *  reach the service answers the same way (SYNC-3). DASH-8's empty state — the prompt to add the first
+	 *  rabbit — is reachable only from a fresh reachable
+	 *  [`ServiceStatus`](crate::ipc::types::ServiceStatus).
+	 * 
+	 *  # Errors
+	 * 
+	 *  None is expected: the rows resolve against the locally kept collection, so unreachability is a status
+	 *  fact rather than a read failure (SYNC-3). A local store that cannot answer is `unknown`.
+	 */
+	getDashboard: (householdId: HouseholdId) => typedError<DashboardRow[], CommandError>(__TAURI_INVOKE("get_dashboard", { householdId })),
 };
 
 /** Events */
 export const events = {
 	householdChanged: makeEvent<HouseholdChanged>("household:changed"),
+	rabbitChanged: makeEvent<RabbitChanged>("rabbit:changed"),
 	serviceStatusChanged: makeEvent<ServiceStatus>("service:status-changed"),
+	weightChanged: makeEvent<WeightChanged>("weight:changed"),
 };
 
 /* Types */
@@ -354,6 +578,28 @@ export type CommandError = {
 };
 
 /**
+ *  One row of the dashboard list (DASH-1, DASH-2, DASH-3, DASH-4).
+ * 
+ *  Both derived values are computed on read and never stored (D1.3): [`DashboardRow::never_weighed`]
+ *  and [`DashboardRow::has_weight_drop_alert`]. `never_weighed` is redundant with
+ *  `last_weighed_at: None` on purpose — DASH-2 asks for an explicit indication, and the flag keeps the
+ *  frontend from re-deriving a requirement out of an absence.
+ */
+export type DashboardRow = {
+	/**  The rabbit this row presents. */
+	rabbit: RabbitSummary,
+	/**  When the rabbit was last weighed, or `None` when it never was. */
+	last_weighed_at: Instant | null,
+	/**  Whether the rabbit has no weight entry at all (DASH-2). */
+	never_weighed: boolean,
+	/**
+	 *  Whether any of the rabbit's entries carries an active weight-drop alert (DASH-4, WT-7). It is
+	 *  the same derivation the entry flag is, so the two can never disagree.
+	 */
+	has_weight_drop_alert: boolean,
+};
+
+/**
  *  A redacted summary of the diagnostics sink (NFR-3, task 2.12).
  * 
  *  Identifiers, counts and outcomes are what the sink may record; no rabbit name, note text, photo
@@ -367,6 +613,28 @@ export type DiagnosticsSummary = {
 	/**  When the newest held record was recorded; `None` when the sink is empty. */
 	newest_at: Instant | null,
 };
+
+/**
+ *  A canonical weight in grams (D1.2, DM-1).
+ * 
+ *  It is the only weight representation the contract carries: a stored value, a submitted value and a
+ *  value on a chart point are all this type, and none of them has a unit field — the display unit
+ *  exists only in `src/features/weight/api.ts` at the boundary (see the design's IPC section, I1).
+ * 
+ *  **Why a newtype over `i32`.** `tauri-specta` refuses to export 64-bit integers (`i64`, `u64`,
+ *  `usize`, …) because JavaScript numbers cannot hold them without precision loss, and
+ *  `bun run gen:bindings` fails on one. `i32` is JS-safe: every value it holds is exact as a `number`,
+ *  and grams over its range (over two million kilograms) are far beyond any weight this product will
+ *  ever record — the plausibility bound is 10 kg (WT-4, D1.9). The alternative `Instant` uses —
+ *  a `String` — would make arithmetic on a weight impossible without parsing it, and it is only right
+ *  for an instant because a timestamp is never computed on at the boundary. The newtype also keeps a
+ *  weight from being passed where a percentage or a count is expected, which a bare `i32` would not.
+ * 
+ *  It is transparent, so the generated binding is `type Grams = number` and every `value_grams` field
+ *  is typed `Grams`: the JSON payload is a bare number, no name in the contract changes, and the unit
+ *  stays visible in the generated types.
+ */
+export type Grams = number;
 
 /**  One household as the contract presents it (HS-1, HS-3). */
 export type Household = {
@@ -542,6 +810,201 @@ export type Member = {
 export type MemberId = string;
 
 /**
+ *  A rabbit's neuter/spay status (RAB-1, D1.14).
+ * 
+ *  `neutered` and `spayed` stay distinct because the distinction is clinically meaningful; collapsing
+ *  them into one "fixed" value would lose it, and a free-text field would accept an invented status.
+ *  [`NeuterStatus::Unknown`] is recorded for the same reason [`Sex::Unknown`] is.
+ */
+export type NeuterStatus = 
+/**  Not neutered and not spayed. */
+"intact" | 
+/**  Neutered (a male rabbit). */
+"neutered" | 
+/**  Spayed (a female rabbit). */
+"spayed" | 
+/**  Not stated, or not known. */
+"unknown";
+
+/**
+ *  One rabbit profile as the contract presents it (RAB-1 … RAB-5).
+ * 
+ *  Every optional field is genuinely absent rather than defaulted: a breed, a photo reference and an
+ *  adoption date the person did not supply are `None`, and the frontend renders nothing for them.
+ *  [`Rabbit::dob`] with [`Rabbit::dob_unknown`] is the exception the requirement names — "unknown" is
+ *  a stated fact distinct from "absent", so it is recorded as a flag rather than inferred from `None`
+ *  (RAB-1's unknown-date-of-birth scenario).
+ * 
+ *  There is deliberately **no baseline, target or healthy-range field** (D1.7, D5): re-introducing one
+ *  is a new change, not a deferred task.
+ * 
+ *  It derives `PartialEq` but not `Eq`, because [`Rabbit::weight_drop_threshold_percent`] is a
+ *  floating-point percentage.
+ */
+export type Rabbit = {
+	/**  The rabbit's opaque identifier. */
+	id: RabbitId,
+	/**  The household whose collection holds this rabbit (RAB-3). */
+	household_id: HouseholdId,
+	/**
+	 *  The name the person supplied. Non-blank by contract; the domain validates it (RAB-2), not the
+	 *  wire type.
+	 */
+	name: string,
+	/**
+	 *  A reference to the rabbit's photo, when one is recorded. Choosing one from the device's photo
+	 *  library is PHOTO-2 in P2 (D1.11); P1 only carries and renders the reference.
+	 */
+	photo_ref: string | null,
+	/**  The breed, when the person recorded one. */
+	breed: string | null,
+	/**
+	 *  The date of birth, when one is known and not marked unknown.
+	 * 
+	 *  It is a **calendar date**, not a moment: it is pinned to a fixed offset (UTC) and never
+	 *  timezone-shifted, so the day a person entered is the day every member and every device shows
+	 *  (RAB-1; DM-6's absolute-instant rule is about timestamps, not dates).
+	 */
+	dob: Instant | null,
+	/**
+	 *  Whether the person marked the date of birth as unknown (RAB-1). Distinct from `dob: None`
+	 *  meaning "not supplied".
+	 * 
+	 *  `true` requires `dob: None`; a command refuses the pair `true` with a date as `validation`
+	 *  rather than picking a winner.
+	 */
+	dob_unknown: boolean,
+	/**  The recorded sex (D1.14). */
+	sex: Sex,
+	/**  The recorded neuter/spay status (D1.14). */
+	neuter_status: NeuterStatus,
+	/**
+	 *  The adoption date, when the person recorded one.
+	 * 
+	 *  A **calendar date** like [`Rabbit::dob`]: pinned to a fixed offset (UTC), never timezone-shifted.
+	 */
+	adoption_date: Instant | null,
+	/**
+	 *  Whether the rabbit is archived (RAB-6). Archived rabbits are hidden from the active list and
+	 *  their data is immutable at the write boundary (D1.5).
+	 */
+	is_archived: boolean,
+	/**
+	 *  The weight-drop threshold as a percentage of the previous entry (default 5, RAB-1/RAB-5,
+	 *  WT-7). The alert is derived from it on read and never stored (D1.3), so editing it re-derives
+	 *  every alert without rewriting an entry.
+	 */
+	weight_drop_threshold_percent: number | null,
+};
+
+/**
+ *  How a rabbit changed, as `rabbit:changed` reports it (RAB-1, RAB-5 … RAB-7, RAB-10).
+ * 
+ *  The five kinds are the five lifecycle operations the contract exposes, so a listener can act on
+ *  the difference between a reversible archive and an irreversible deletion without a second read.
+ */
+export type RabbitChangeKind = 
+/**  A rabbit profile was created (RAB-1). */
+"created" | 
+/**  A field of an active rabbit's profile was edited (RAB-5). */
+"updated" | 
+/**  A rabbit was archived: a reversible soft delete (RAB-6). */
+"archived" | 
+/**  An archived rabbit was returned to the active list (RAB-7). */
+"restored" | 
+/**  An archived rabbit and its entries were permanently removed (RAB-10). */
+"deleted";
+
+/**
+ *  The `rabbit:changed` payload: which rabbit in which household changed, and how.
+ * 
+ *  It mirrors [`HouseholdChanged`]: the household id scopes the invalidation and the rabbit id narrows
+ *  it to one row and one detail. The household id is carried even though the rabbit id addresses the
+ *  rabbit, because the frontend's cache is keyed by household and a change must invalidate the
+ *  dashboard of the household it belongs to without a lookup (task 3.4).
+ */
+export type RabbitChanged = {
+	/**  The household the rabbit belongs to. */
+	household_id: HouseholdId,
+	/**
+	 *  The rabbit that changed. For [`RabbitChangeKind::Deleted`] it is the rabbit that no longer
+	 *  exists — the id a listener needs to drop its cached rows.
+	 */
+	rabbit_id: RabbitId,
+	/**  What happened to it. */
+	kind: RabbitChangeKind,
+};
+
+/**
+ *  A rabbit's opaque, stable identifier within its household collection (RAB-1, D0.7 criterion 1).
+ * 
+ *  Same style as [`HouseholdId`]: the value is opaque, stable across members and devices, and unique
+ *  within the household's collection. Nothing may be parsed out of it.
+ */
+export type RabbitId = string;
+
+/**
+ *  The editable field set of a rabbit profile, as the create and edit forms submit it (RAB-1, RAB-5).
+ * 
+ *  It is the input counterpart of [`Rabbit`] — no id, no household, no archived state — and it is
+ *  used by **both** [`create_rabbit`](super::commands::rabbit::create_rabbit) and
+ *  [`update_rabbit`](super::commands::rabbit::update_rabbit).
+ * 
+ *  **Update is a whole-profile replacement, not a partial patch.** A patch would have to distinguish
+ *  "field unchanged" from "field cleared" for every optional field, which the frozen wire style
+ *  carries no double-optional for; the edit form is pre-filled with the current profile anyway, so it
+ *  submits the full set. What the design's contract table calls `patch` is therefore this type: the
+ *  *command* is still `update_rabbit`, and every field of an active rabbit's profile — including the
+ *  threshold — is editable through it (RAB-5).
+ */
+export type RabbitProfile = {
+	/**  The name; a blank or whitespace-only value is refused (RAB-2). */
+	name: string,
+	/**  The photo reference, or `None` for none (D1.11). */
+	photo_ref: string | null,
+	/**  The breed, or `None`. */
+	breed: string | null,
+	/**
+	 *  The date of birth, or `None` when not supplied or marked unknown.
+	 * 
+	 *  A **calendar date** pinned to a fixed offset (UTC), never timezone-shifted (RAB-1). `None` with
+	 *  `dob_unknown: true` means "unknown"; `Some` with `dob_unknown: true` is refused as
+	 *  `validation` rather than resolved by precedence.
+	 */
+	dob: Instant | null,
+	/**  Whether the date of birth is explicitly unknown (RAB-1). */
+	dob_unknown: boolean,
+	/**  The recorded sex (D1.14). Always present: `unknown` is how "not stated" is recorded. */
+	sex: Sex,
+	/**  The recorded neuter/spay status (D1.14). Always present, `unknown` included. */
+	neuter_status: NeuterStatus,
+	/**  The adoption date, or `None`. A calendar date pinned to a fixed offset, like `dob`. */
+	adoption_date: Instant | null,
+	/**  The weight-drop threshold percentage (WT-7). */
+	weight_drop_threshold_percent: number | null,
+};
+
+/**
+ *  One rabbit as a list, row or picker presents it (DASH-1, WT-2).
+ * 
+ *  It is the small shape the dashboard rows and the quick-entry picker need, so neither has to load
+ *  every profile field to render a name and a thumbnail.
+ */
+export type RabbitSummary = {
+	/**  The rabbit's opaque identifier. */
+	id: RabbitId,
+	/**  The name to present. */
+	name: string,
+	/**
+	 *  The photo to present as the thumbnail, or `None` — and then the frontend presents a
+	 *  placeholder (RAB-1).
+	 */
+	thumbnail_ref: string | null,
+	/**  Whether the rabbit is archived. */
+	is_archived: boolean,
+};
+
+/**
  *  The identity of one client-originated operation (D0.14).
  * 
  *  The frontend generates a fresh value for every state-changing command and re-uses the *same*
@@ -642,6 +1105,181 @@ export type ServiceStatus = {
 	cause: SaveCause | null,
 	/**  When the observation was made. `None` until a fresh outcome exists. */
 	observed_at: Instant | null,
+};
+
+/**
+ *  A rabbit's recorded sex (RAB-1, D1.14).
+ * 
+ *  The set is closed and frozen with the contract: the creation and edit forms offer exactly these
+ *  three options, and [`Sex::Unknown`] is a recorded value, not an absent field — a person is not
+ *  forced to invent a value they do not have.
+ */
+export type Sex = 
+/**  Male. */
+"male" | 
+/**  Female. */
+"female" | 
+/**  Not stated, or not known. */
+"unknown";
+
+/**  How a weight entry changed, as `weight:changed` reports it (WT-1, WT-5). */
+export type WeightChangeKind = 
+/**  An entry was recorded (WT-1). */
+"created" | 
+/**  A past entry was corrected (WT-5). */
+"updated" | 
+/**  A past entry was removed (WT-5). */
+"deleted";
+
+/**
+ *  The `weight:changed` payload: which entry of which rabbit changed, and how.
+ * 
+ *  The rabbit id is carried beside the entry id because every weight surface is scoped by rabbit: a
+ *  listener invalidates that rabbit's trend, history, its dashboard row and — because an edit or a
+ *  deletion re-derives the alerts around the change (D1.13) — the entries next to it. The entry id
+ *  narrows that further to the detail view, and names the entry that no longer exists for a deletion.
+ */
+export type WeightChanged = {
+	/**  The household the rabbit and its entry belong to. */
+	household_id: HouseholdId,
+	/**  The rabbit whose entry changed. */
+	rabbit_id: RabbitId,
+	/**  The entry that changed, or the entry that was removed. */
+	entry_id: WeightEntryId,
+	/**  What happened to it. */
+	kind: WeightChangeKind,
+};
+
+/**
+ *  One weight entry as the detail view and the edit form present it (WT-1, WT-8, DM-1).
+ * 
+ *  The value is grams and there is **no unit field** (D1.2, DM-1): a display unit is applied by
+ *  `src/features/weight/api.ts` at the boundary, so changing the unit cannot rewrite history.
+ * 
+ *  [`WeightEntry::has_weight_drop_alert`] is the derived flag WT-8's detail shows (D1.13). It is not a
+ *  stored property of the entry — it is re-derived from the current entry set on every read, which is
+ *  why it sits on the response type rather than in the collection.
+ */
+export type WeightEntry = {
+	/**  The entry's opaque identifier. */
+	id: WeightEntryId,
+	/**  The rabbit the entry belongs to. */
+	rabbit_id: RabbitId,
+	/**  The canonical value in grams (D1.2). Never negative; zero and negative are refused (WT-4). */
+	value_grams: Grams,
+	/**
+	 *  The entry's timestamp, absolute (DM-6). Defaults to the creation moment when the draft omits
+	 *  it, and is otherwise stored unchanged, including in the past (WT-1).
+	 */
+	timestamp: Instant,
+	/**  The full note, or `None`. Never truncated by the contract (WT-8). */
+	note: string | null,
+	/**  References to the entry's photos, in presentation order; empty when it has none (WT-8). */
+	photo_refs: string[],
+	/**  Whether the drop against the previous entry exceeds the rabbit's threshold (WT-7, D1.13). */
+	has_weight_drop_alert: boolean,
+};
+
+/**
+ *  What a weight entry form submits, for creation and for a correction (WT-1, WT-4, WT-5, DM-1).
+ * 
+ *  The value is grams, converted from the person's display unit before the call: no command accepts a
+ *  per-entry unit (D1.2). [`WeightEntryDraft::timestamp`] is optional because WT-1 defaults it to the
+ *  moment of creation; the storage boundary stamps "now" rather than the command, so the default is
+ *  one instant, not one per retry.
+ */
+export type WeightEntryDraft = {
+	/**  The canonical value in grams (DM-1). Zero and negative values are refused (WT-4). */
+	value_grams: Grams,
+	/**
+	 *  The timestamp, or `None`, and the two commands read `None` differently.
+	 * 
+	 *  On `create_weight_entry` it records the moment of creation (WT-1). On `update_weight_entry` it
+	 *  **keeps the entry's existing timestamp** — an edit never restamps a back-dated entry to the
+	 *  present, and WT-5's "correct a past entry" is a correction of what the person changed, not a
+	 *  side effect on when it was weighed. A timestamp the person deliberately moves is an explicit
+	 *  `Some(..)`; there is no "reset to now" on the update path.
+	 */
+	timestamp: Instant | null,
+	/**  The optional note (WT-1). */
+	note: string | null,
+	/**
+	 *  Whether the person confirmed a value above [`PLAUSIBILITY_BOUND_GRAMS`] (WT-4).
+	 * 
+	 *  A value above the bound is a *confirmation* threshold, not a rejection (D1.9): the same value
+	 *  is saved once the person confirms it. Until then the command refuses it through the failure
+	 *  surface, so the boundary — not only the form — holds WT-4.
+	 */
+	outlier_confirmed: boolean,
+};
+
+/**
+ *  A weight entry's opaque, stable identifier within its household collection (WT-1, SYNC-1).
+ * 
+ *  It is its own newtype rather than a shared "item id": a weight entry is addressed by the weight
+ *  commands and a rabbit by the rabbit commands, and the two must not be interchangeable at a call
+ *  site.
+ */
+export type WeightEntryId = string;
+
+/**
+ *  One point of the weight trend and one row of the weight-only history (WT-6, WT-7).
+ * 
+ *  It is the small shape both views need, so neither loads full notes or photo references to render a
+ *  series or a list. The flag is derived, exactly like [`WeightEntry::has_weight_drop_alert`] (D1.13).
+ */
+export type WeightEntrySummary = {
+	/**  The entry's opaque identifier — also the detail view's route parameter (WT-8). */
+	id: WeightEntryId,
+	/**  The canonical value in grams (DM-1). */
+	value_grams: Grams,
+	/**  The entry's timestamp, absolute (DM-6). */
+	timestamp: Instant,
+	/**  Whether the drop against the previous entry exceeds the rabbit's threshold (WT-7). */
+	has_weight_drop_alert: boolean,
+};
+
+/**
+ *  A weight window: 7 days, 30 days, 90 days or the whole history (WT-6).
+ * 
+ *  It is a **query window**, not a stored value (D1.4). The same enum serves the trend's range and the
+ *  weight-only history's range, and the two views hold theirs independently in the route's typed
+ *  search parameters, so changing one cannot change the other.
+ * 
+ *  The wire values are spelled out per variant rather than derived with `rename_all = "snake_case"`:
+ *  serde's snake_case of `Days7` is `days7`, and the frozen set this change states is `days_7`,
+ *  `days_30`, `days_90`, `all`. The explicit renames are what make the generated binding say so.
+ */
+export type WeightRange = 
+/**  The last 7 days. */
+"days_7" | 
+/**  The last 30 days. */
+"days_30" | 
+/**  The last 90 days. */
+"days_90" | 
+/**  The whole history: the absence of a lower bound, not a computed period. */
+"all";
+
+/**
+ *  One rabbit's weight series for one window, with the threshold it is judged against (WT-6, WT-7).
+ * 
+ *  The threshold travels with the series so a surface that draws the chart can state the rule it is
+ *  applying without a second read, and so the entry flags and the dashboard flag are visibly one
+ *  derivation (R2). [`WeightTrend::points`] is ordered **oldest first** — the order the previous-entry
+ *  derivation uses (D1.12) — and a view that presents newest first reverses it.
+ * 
+ *  The window limits which points are returned, **not** how the flags are derived: a flag is computed
+ *  over the rabbit's full entry set, so the earliest point of a window can be flagged on the basis of
+ *  an entry outside it (D1.13). A derivation that re-based at the window edge would make the same
+ *  entry disagree with the dashboard flag as soon as a range was selected.
+ */
+export type WeightTrend = {
+	/**  The window these points were read for. */
+	range: WeightRange,
+	/**  The entries inside the window, oldest first. */
+	points: WeightEntrySummary[],
+	/**  The rabbit's weight-drop threshold percentage at read time (WT-7). */
+	drop_threshold_percent: number | null,
 };
 
 /**

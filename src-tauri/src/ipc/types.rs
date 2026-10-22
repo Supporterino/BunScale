@@ -1,4 +1,5 @@
-//! The frozen shared types of the P0 IPC contract (task 1.3).
+//! The frozen shared types of the IPC contract: P0's set (task 1.3) and P1's rabbit and weight types
+//! (task 1.1).
 //!
 //! Every type here crosses the Rust/frontend boundary, so the single builder in [`super::builder`]
 //! exports it into `src/bindings.ts`: the generated file, not this module, is what the frontend
@@ -327,6 +328,353 @@ pub struct HouseholdCollection {
     pub source: CollectionSource,
     /// When this device last loaded the collection from the service; `None` when it never has.
     pub loaded_at: Option<Instant>,
+}
+
+// ---------------------------------------------------------------------------------------------
+// P1 — rabbits and weight entries (task 1.1, RAB-1 … RAB-10, WT-1 … WT-8, DASH-1 … DASH-9, DM-1)
+// ---------------------------------------------------------------------------------------------
+//
+// Frozen by task 1.1 for `add-rabbit-weight-core-loop`. Everything here follows the P0 conventions
+// above: opaque id newtypes are transparent, enums are `snake_case` on the wire, struct fields carry
+// no `rename_all` (exactly like [`Household`] and [`HouseholdSummary`]), and no type carries a
+// per-entry unit — grams are canonical (D1.2, DM-1). The three shapes that are **inputs** rather
+// than read models ([`RabbitProfile`], [`WeightEntryDraft`]) exist because a command with three or
+// more parameters takes one typed argument struct (`tauri-ipc-contract`); they are the wire form of
+// what a form submits, and neither has a unit field either.
+
+/// A rabbit's opaque, stable identifier within its household collection (RAB-1, D0.7 criterion 1).
+///
+/// Same style as [`HouseholdId`]: the value is opaque, stable across members and devices, and unique
+/// within the household's collection. Nothing may be parsed out of it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(transparent)]
+pub struct RabbitId(pub String);
+
+/// A weight entry's opaque, stable identifier within its household collection (WT-1, SYNC-1).
+///
+/// It is its own newtype rather than a shared "item id": a weight entry is addressed by the weight
+/// commands and a rabbit by the rabbit commands, and the two must not be interchangeable at a call
+/// site.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(transparent)]
+pub struct WeightEntryId(pub String);
+
+/// A canonical weight in grams (D1.2, DM-1).
+///
+/// It is the only weight representation the contract carries: a stored value, a submitted value and a
+/// value on a chart point are all this type, and none of them has a unit field — the display unit
+/// exists only in `src/features/weight/api.ts` at the boundary (see the design's IPC section, I1).
+///
+/// **Why a newtype over `i32`.** `tauri-specta` refuses to export 64-bit integers (`i64`, `u64`,
+/// `usize`, …) because JavaScript numbers cannot hold them without precision loss, and
+/// `bun run gen:bindings` fails on one. `i32` is JS-safe: every value it holds is exact as a `number`,
+/// and grams over its range (over two million kilograms) are far beyond any weight this product will
+/// ever record — the plausibility bound is 10 kg (WT-4, D1.9). The alternative `Instant` uses —
+/// a `String` — would make arithmetic on a weight impossible without parsing it, and it is only right
+/// for an instant because a timestamp is never computed on at the boundary. The newtype also keeps a
+/// weight from being passed where a percentage or a count is expected, which a bare `i32` would not.
+///
+/// It is transparent, so the generated binding is `type Grams = number` and every `value_grams` field
+/// is typed `Grams`: the JSON payload is a bare number, no name in the contract changes, and the unit
+/// stays visible in the generated types.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Type,
+)]
+#[serde(transparent)]
+pub struct Grams(pub i32);
+
+/// A rabbit's recorded sex (RAB-1, D1.14).
+///
+/// The set is closed and frozen with the contract: the creation and edit forms offer exactly these
+/// three options, and [`Sex::Unknown`] is a recorded value, not an absent field — a person is not
+/// forced to invent a value they do not have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum Sex {
+    /// Male.
+    Male,
+    /// Female.
+    Female,
+    /// Not stated, or not known.
+    Unknown,
+}
+
+/// A rabbit's neuter/spay status (RAB-1, D1.14).
+///
+/// `neutered` and `spayed` stay distinct because the distinction is clinically meaningful; collapsing
+/// them into one "fixed" value would lose it, and a free-text field would accept an invented status.
+/// [`NeuterStatus::Unknown`] is recorded for the same reason [`Sex::Unknown`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum NeuterStatus {
+    /// Not neutered and not spayed.
+    Intact,
+    /// Neutered (a male rabbit).
+    Neutered,
+    /// Spayed (a female rabbit).
+    Spayed,
+    /// Not stated, or not known.
+    Unknown,
+}
+
+/// One rabbit profile as the contract presents it (RAB-1 … RAB-5).
+///
+/// Every optional field is genuinely absent rather than defaulted: a breed, a photo reference and an
+/// adoption date the person did not supply are `None`, and the frontend renders nothing for them.
+/// [`Rabbit::dob`] with [`Rabbit::dob_unknown`] is the exception the requirement names — "unknown" is
+/// a stated fact distinct from "absent", so it is recorded as a flag rather than inferred from `None`
+/// (RAB-1's unknown-date-of-birth scenario).
+///
+/// There is deliberately **no baseline, target or healthy-range field** (D1.7, D5): re-introducing one
+/// is a new change, not a deferred task.
+///
+/// It derives `PartialEq` but not `Eq`, because [`Rabbit::weight_drop_threshold_percent`] is a
+/// floating-point percentage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct Rabbit {
+    /// The rabbit's opaque identifier.
+    pub id: RabbitId,
+    /// The household whose collection holds this rabbit (RAB-3).
+    pub household_id: HouseholdId,
+    /// The name the person supplied. Non-blank by contract; the domain validates it (RAB-2), not the
+    /// wire type.
+    pub name: String,
+    /// A reference to the rabbit's photo, when one is recorded. Choosing one from the device's photo
+    /// library is PHOTO-2 in P2 (D1.11); P1 only carries and renders the reference.
+    pub photo_ref: Option<String>,
+    /// The breed, when the person recorded one.
+    pub breed: Option<String>,
+    /// The date of birth, when one is known and not marked unknown.
+    ///
+    /// It is a **calendar date**, not a moment: it is pinned to a fixed offset (UTC) and never
+    /// timezone-shifted, so the day a person entered is the day every member and every device shows
+    /// (RAB-1; DM-6's absolute-instant rule is about timestamps, not dates).
+    pub dob: Option<Instant>,
+    /// Whether the person marked the date of birth as unknown (RAB-1). Distinct from `dob: None`
+    /// meaning "not supplied".
+    ///
+    /// `true` requires `dob: None`; a command refuses the pair `true` with a date as `validation`
+    /// rather than picking a winner.
+    pub dob_unknown: bool,
+    /// The recorded sex (D1.14).
+    pub sex: Sex,
+    /// The recorded neuter/spay status (D1.14).
+    pub neuter_status: NeuterStatus,
+    /// The adoption date, when the person recorded one.
+    ///
+    /// A **calendar date** like [`Rabbit::dob`]: pinned to a fixed offset (UTC), never timezone-shifted.
+    pub adoption_date: Option<Instant>,
+    /// Whether the rabbit is archived (RAB-6). Archived rabbits are hidden from the active list and
+    /// their data is immutable at the write boundary (D1.5).
+    pub is_archived: bool,
+    /// The weight-drop threshold as a percentage of the previous entry (default 5, RAB-1/RAB-5,
+    /// WT-7). The alert is derived from it on read and never stored (D1.3), so editing it re-derives
+    /// every alert without rewriting an entry.
+    pub weight_drop_threshold_percent: f64,
+}
+
+/// The editable field set of a rabbit profile, as the create and edit forms submit it (RAB-1, RAB-5).
+///
+/// It is the input counterpart of [`Rabbit`] — no id, no household, no archived state — and it is
+/// used by **both** [`create_rabbit`](super::commands::rabbit::create_rabbit) and
+/// [`update_rabbit`](super::commands::rabbit::update_rabbit).
+///
+/// **Update is a whole-profile replacement, not a partial patch.** A patch would have to distinguish
+/// "field unchanged" from "field cleared" for every optional field, which the frozen wire style
+/// carries no double-optional for; the edit form is pre-filled with the current profile anyway, so it
+/// submits the full set. What the design's contract table calls `patch` is therefore this type: the
+/// *command* is still `update_rabbit`, and every field of an active rabbit's profile — including the
+/// threshold — is editable through it (RAB-5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct RabbitProfile {
+    /// The name; a blank or whitespace-only value is refused (RAB-2).
+    pub name: String,
+    /// The photo reference, or `None` for none (D1.11).
+    pub photo_ref: Option<String>,
+    /// The breed, or `None`.
+    pub breed: Option<String>,
+    /// The date of birth, or `None` when not supplied or marked unknown.
+    ///
+    /// A **calendar date** pinned to a fixed offset (UTC), never timezone-shifted (RAB-1). `None` with
+    /// `dob_unknown: true` means "unknown"; `Some` with `dob_unknown: true` is refused as
+    /// `validation` rather than resolved by precedence.
+    pub dob: Option<Instant>,
+    /// Whether the date of birth is explicitly unknown (RAB-1).
+    pub dob_unknown: bool,
+    /// The recorded sex (D1.14). Always present: `unknown` is how "not stated" is recorded.
+    pub sex: Sex,
+    /// The recorded neuter/spay status (D1.14). Always present, `unknown` included.
+    pub neuter_status: NeuterStatus,
+    /// The adoption date, or `None`. A calendar date pinned to a fixed offset, like `dob`.
+    pub adoption_date: Option<Instant>,
+    /// The weight-drop threshold percentage (WT-7).
+    pub weight_drop_threshold_percent: f64,
+}
+
+/// One rabbit as a list, row or picker presents it (DASH-1, WT-2).
+///
+/// It is the small shape the dashboard rows and the quick-entry picker need, so neither has to load
+/// every profile field to render a name and a thumbnail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct RabbitSummary {
+    /// The rabbit's opaque identifier.
+    pub id: RabbitId,
+    /// The name to present.
+    pub name: String,
+    /// The photo to present as the thumbnail, or `None` — and then the frontend presents a
+    /// placeholder (RAB-1).
+    pub thumbnail_ref: Option<String>,
+    /// Whether the rabbit is archived.
+    pub is_archived: bool,
+}
+
+/// One row of the dashboard list (DASH-1, DASH-2, DASH-3, DASH-4).
+///
+/// Both derived values are computed on read and never stored (D1.3): [`DashboardRow::never_weighed`]
+/// and [`DashboardRow::has_weight_drop_alert`]. `never_weighed` is redundant with
+/// `last_weighed_at: None` on purpose — DASH-2 asks for an explicit indication, and the flag keeps the
+/// frontend from re-deriving a requirement out of an absence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DashboardRow {
+    /// The rabbit this row presents.
+    pub rabbit: RabbitSummary,
+    /// When the rabbit was last weighed, or `None` when it never was.
+    pub last_weighed_at: Option<Instant>,
+    /// Whether the rabbit has no weight entry at all (DASH-2).
+    pub never_weighed: bool,
+    /// Whether any of the rabbit's entries carries an active weight-drop alert (DASH-4, WT-7). It is
+    /// the same derivation the entry flag is, so the two can never disagree.
+    pub has_weight_drop_alert: bool,
+}
+
+/// One weight entry as the detail view and the edit form present it (WT-1, WT-8, DM-1).
+///
+/// The value is grams and there is **no unit field** (D1.2, DM-1): a display unit is applied by
+/// `src/features/weight/api.ts` at the boundary, so changing the unit cannot rewrite history.
+///
+/// [`WeightEntry::has_weight_drop_alert`] is the derived flag WT-8's detail shows (D1.13). It is not a
+/// stored property of the entry — it is re-derived from the current entry set on every read, which is
+/// why it sits on the response type rather than in the collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct WeightEntry {
+    /// The entry's opaque identifier.
+    pub id: WeightEntryId,
+    /// The rabbit the entry belongs to.
+    pub rabbit_id: RabbitId,
+    /// The canonical value in grams (D1.2). Never negative; zero and negative are refused (WT-4).
+    pub value_grams: Grams,
+    /// The entry's timestamp, absolute (DM-6). Defaults to the creation moment when the draft omits
+    /// it, and is otherwise stored unchanged, including in the past (WT-1).
+    pub timestamp: Instant,
+    /// The full note, or `None`. Never truncated by the contract (WT-8).
+    pub note: Option<String>,
+    /// References to the entry's photos, in presentation order; empty when it has none (WT-8).
+    pub photo_refs: Vec<String>,
+    /// Whether the drop against the previous entry exceeds the rabbit's threshold (WT-7, D1.13).
+    pub has_weight_drop_alert: bool,
+}
+
+/// What a weight entry form submits, for creation and for a correction (WT-1, WT-4, WT-5, DM-1).
+///
+/// The value is grams, converted from the person's display unit before the call: no command accepts a
+/// per-entry unit (D1.2). [`WeightEntryDraft::timestamp`] is optional because WT-1 defaults it to the
+/// moment of creation; the storage boundary stamps "now" rather than the command, so the default is
+/// one instant, not one per retry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct WeightEntryDraft {
+    /// The canonical value in grams (DM-1). Zero and negative values are refused (WT-4).
+    pub value_grams: Grams,
+    /// The timestamp, or `None`, and the two commands read `None` differently.
+    ///
+    /// On `create_weight_entry` it records the moment of creation (WT-1). On `update_weight_entry` it
+    /// **keeps the entry's existing timestamp** — an edit never restamps a back-dated entry to the
+    /// present, and WT-5's "correct a past entry" is a correction of what the person changed, not a
+    /// side effect on when it was weighed. A timestamp the person deliberately moves is an explicit
+    /// `Some(..)`; there is no "reset to now" on the update path.
+    pub timestamp: Option<Instant>,
+    /// The optional note (WT-1).
+    pub note: Option<String>,
+    /// Whether the person confirmed a value above [`PLAUSIBILITY_BOUND_GRAMS`] (WT-4).
+    ///
+    /// A value above the bound is a *confirmation* threshold, not a rejection (D1.9): the same value
+    /// is saved once the person confirms it. Until then the command refuses it through the failure
+    /// surface, so the boundary — not only the form — holds WT-4.
+    pub outlier_confirmed: bool,
+}
+
+/// The plausibility bound WT-4 states, in canonical grams: above 10 kg a value needs confirmation.
+///
+/// It is a **confirmation** threshold, never a rejection (D1.9): a genuinely heavy rabbit is still
+/// recorded once the person confirms the value. The command is the enforcement point
+/// ([`WeightEntryDraft::outlier_confirmed`]); `src/features/weight/api.ts` mirrors this number only to
+/// decide *when* to ask, never what is stored, so the two cannot disagree about the saved value even
+/// if they were to drift.
+///
+/// It is a [`Grams`] rather than a bare integer so it is compared and passed as the same type the
+/// entries carry; a bare number here would be one more place a display unit could be assumed. It is a
+/// constant, not a field of an exported type, so it appears in no binding.
+pub const PLAUSIBILITY_BOUND_GRAMS: Grams = Grams(10_000);
+
+/// One point of the weight trend and one row of the weight-only history (WT-6, WT-7).
+///
+/// It is the small shape both views need, so neither loads full notes or photo references to render a
+/// series or a list. The flag is derived, exactly like [`WeightEntry::has_weight_drop_alert`] (D1.13).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct WeightEntrySummary {
+    /// The entry's opaque identifier — also the detail view's route parameter (WT-8).
+    pub id: WeightEntryId,
+    /// The canonical value in grams (DM-1).
+    pub value_grams: Grams,
+    /// The entry's timestamp, absolute (DM-6).
+    pub timestamp: Instant,
+    /// Whether the drop against the previous entry exceeds the rabbit's threshold (WT-7).
+    pub has_weight_drop_alert: bool,
+}
+
+/// A weight window: 7 days, 30 days, 90 days or the whole history (WT-6).
+///
+/// It is a **query window**, not a stored value (D1.4). The same enum serves the trend's range and the
+/// weight-only history's range, and the two views hold theirs independently in the route's typed
+/// search parameters, so changing one cannot change the other.
+///
+/// The wire values are spelled out per variant rather than derived with `rename_all = "snake_case"`:
+/// serde's snake_case of `Days7` is `days7`, and the frozen set this change states is `days_7`,
+/// `days_30`, `days_90`, `all`. The explicit renames are what make the generated binding say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub enum WeightRange {
+    /// The last 7 days.
+    #[serde(rename = "days_7")]
+    Days7,
+    /// The last 30 days.
+    #[serde(rename = "days_30")]
+    Days30,
+    /// The last 90 days.
+    #[serde(rename = "days_90")]
+    Days90,
+    /// The whole history: the absence of a lower bound, not a computed period.
+    #[serde(rename = "all")]
+    All,
+}
+
+/// One rabbit's weight series for one window, with the threshold it is judged against (WT-6, WT-7).
+///
+/// The threshold travels with the series so a surface that draws the chart can state the rule it is
+/// applying without a second read, and so the entry flags and the dashboard flag are visibly one
+/// derivation (R2). [`WeightTrend::points`] is ordered **oldest first** — the order the previous-entry
+/// derivation uses (D1.12) — and a view that presents newest first reverses it.
+///
+/// The window limits which points are returned, **not** how the flags are derived: a flag is computed
+/// over the rabbit's full entry set, so the earliest point of a window can be flagged on the basis of
+/// an entry outside it (D1.13). A derivation that re-based at the window edge would make the same
+/// entry disagree with the dashboard flag as soon as a range was selected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct WeightTrend {
+    /// The window these points were read for.
+    pub range: WeightRange,
+    /// The entries inside the window, oldest first.
+    pub points: Vec<WeightEntrySummary>,
+    /// The rabbit's weight-drop threshold percentage at read time (WT-7).
+    pub drop_threshold_percent: f64,
 }
 
 /// A redacted summary of the diagnostics sink (NFR-3, task 2.12).

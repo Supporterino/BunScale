@@ -1,21 +1,30 @@
-//! The P0 event contract: `household:changed` and `service:status-changed` (task 1.3).
+//! The event contract: P0's `household:changed` and `service:status-changed` (task 1.3), and P1's
+//! `rabbit:changed` and `weight:changed` (task 1.1).
 //!
-//! Both events are registered in the single builder's `collect_events![]` and mounted by
+//! All four events are registered in the single builder's `collect_events![]` and mounted by
 //! `Builder::mount_events` inside the app's one `setup` closure, so the running app and the
 //! generated bindings cannot disagree about which events exist.
 //!
-//! The frontend subscribes through the generated `events` object — `events.householdChanged` and
-//! `events.serviceStatusChanged` (task 3.6) — and never builds an event name by hand. The names
-//! carry a colon because they are frozen in `domain:event` form (`tauri-ipc-contract`, design
-//! "IPC contract").
+//! The frontend subscribes through the generated `events` object — `events.householdChanged`,
+//! `events.serviceStatusChanged`, `events.rabbitChanged` and `events.weightChanged` (task 3.6) — and
+//! never builds an event name by hand. The names carry a colon because they are frozen in
+//! `domain:event` form (`tauri-ipc-contract`, design "IPC contract").
 //!
 //! **Why the trait is implemented by hand.** `tauri-specta` gates its `Event` derive macro behind
 //! its optional `derive` feature, and section 0 pins that crate with `features = ["typescript"]`
 //! alone (D0.8). `tauri_specta::Event` has exactly one required item — `const NAME` — so an
 //! explicit implementation registers the same event the derive would, with the colon-bearing name
-//! the contract fixes, and this task needs no manifest change. If a later phase enables `derive`
-//! (P1 adds `rabbit:changed` and `weight:changed`), these two blocks are what it replaces with
+//! the contract fixes, and this module needs no manifest change. The four payloads below each get one
+//! such block; if a later phase enables `derive`, those blocks are what it replaces with
 //! `#[tauri_specta(event_name = "...")]` on the payload types.
+//!
+//! # The P1 pair
+//!
+//! [`RabbitChanged`] and [`WeightChanged`] mirror [`HouseholdChanged`] deliberately: household-scoped
+//! payloads that name the affected entity and the kind of change, so a member's edit reaches the other
+//! members without a cold reload (HS-8) and the frontend invalidates only the affected queries. They
+//! carry no data the frontend would have to apply — the invalidation refetches through the read
+//! commands, so an event can never become a second write path or a stale copy of the truth.
 //!
 //! # Who publishes `household:changed`
 //!
@@ -32,7 +41,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use super::types::{HouseholdId, ServiceStatus};
+use super::types::{HouseholdId, RabbitId, ServiceStatus, WeightEntryId};
 
 /// How a household changed, as `household:changed` reports it (SYNC-1, HS-3, DM-3).
 ///
@@ -100,6 +109,82 @@ impl HouseholdChangePublisher for tauri::AppHandle {
 /// [`super::types`] and only its event name lives here.
 impl tauri_specta::Event for ServiceStatus {
     const NAME: &'static str = "service:status-changed";
+}
+
+/// How a rabbit changed, as `rabbit:changed` reports it (RAB-1, RAB-5 … RAB-7, RAB-10).
+///
+/// The five kinds are the five lifecycle operations the contract exposes, so a listener can act on
+/// the difference between a reversible archive and an irreversible deletion without a second read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RabbitChangeKind {
+    /// A rabbit profile was created (RAB-1).
+    Created,
+    /// A field of an active rabbit's profile was edited (RAB-5).
+    Updated,
+    /// A rabbit was archived: a reversible soft delete (RAB-6).
+    Archived,
+    /// An archived rabbit was returned to the active list (RAB-7).
+    Restored,
+    /// An archived rabbit and its entries were permanently removed (RAB-10).
+    Deleted,
+}
+
+/// The `rabbit:changed` payload: which rabbit in which household changed, and how.
+///
+/// It mirrors [`HouseholdChanged`]: the household id scopes the invalidation and the rabbit id narrows
+/// it to one row and one detail. The household id is carried even though the rabbit id addresses the
+/// rabbit, because the frontend's cache is keyed by household and a change must invalidate the
+/// dashboard of the household it belongs to without a lookup (task 3.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct RabbitChanged {
+    /// The household the rabbit belongs to.
+    pub household_id: HouseholdId,
+    /// The rabbit that changed. For [`RabbitChangeKind::Deleted`] it is the rabbit that no longer
+    /// exists — the id a listener needs to drop its cached rows.
+    pub rabbit_id: RabbitId,
+    /// What happened to it.
+    pub kind: RabbitChangeKind,
+}
+
+/// Registers the frozen event name for [`RabbitChanged`].
+impl tauri_specta::Event for RabbitChanged {
+    const NAME: &'static str = "rabbit:changed";
+}
+
+/// How a weight entry changed, as `weight:changed` reports it (WT-1, WT-5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WeightChangeKind {
+    /// An entry was recorded (WT-1).
+    Created,
+    /// A past entry was corrected (WT-5).
+    Updated,
+    /// A past entry was removed (WT-5).
+    Deleted,
+}
+
+/// The `weight:changed` payload: which entry of which rabbit changed, and how.
+///
+/// The rabbit id is carried beside the entry id because every weight surface is scoped by rabbit: a
+/// listener invalidates that rabbit's trend, history, its dashboard row and — because an edit or a
+/// deletion re-derives the alerts around the change (D1.13) — the entries next to it. The entry id
+/// narrows that further to the detail view, and names the entry that no longer exists for a deletion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct WeightChanged {
+    /// The household the rabbit and its entry belong to.
+    pub household_id: HouseholdId,
+    /// The rabbit whose entry changed.
+    pub rabbit_id: RabbitId,
+    /// The entry that changed, or the entry that was removed.
+    pub entry_id: WeightEntryId,
+    /// What happened to it.
+    pub kind: WeightChangeKind,
+}
+
+/// Registers the frozen event name for [`WeightChanged`].
+impl tauri_specta::Event for WeightChanged {
+    const NAME: &'static str = "weight:changed";
 }
 
 /// The publication seam's test side: it records what the app would have emitted.
