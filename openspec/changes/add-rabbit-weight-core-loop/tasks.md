@@ -117,7 +117,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   search parameters (WT-6).
 - [ ] 3.4 [frontend-logic] Add the rabbit mutations (create, update, archive, restore, delete) with
   invalidation of only the affected queries (RAB-1, RAB-5, RAB-6, RAB-7, RAB-10).
-- [ ] 3.5 [frontend-logic] Add the weight mutations (create, update, delete) with the display-unit
+- [x] 3.5 [frontend-logic] Add the weight mutations (create, update, delete) with the display-unit
   parse/format at the entry boundary and invalidation of only the affected trend, history, detail and
   dashboard queries (WT-1, WT-3, WT-5, DM-1).
 - [ ] 3.6 [frontend-logic] Implement weight form validation state: non-positive values rejected with a
