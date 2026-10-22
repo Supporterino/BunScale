@@ -1,5 +1,5 @@
 //! The rabbit domain: one rabbit's recorded field set, and the one write path a rabbit is created
-//! through (RAB-1, RAB-2, RAB-3; D1.1, D1.14, I8).
+//! and edited through (RAB-1, RAB-2, RAB-3, RAB-5; D1.1, D1.14, I8).
 //!
 //! The contract in [`crate::ipc::types`] fixes the *shape* that crosses the boundary — [`Rabbit`],
 //! [`RabbitProfile`], [`Sex`], [`NeuterStatus`]. This module fixes what that shape may not violate:
@@ -9,6 +9,10 @@
 //!   create path and the update path that follows it call. A name with any non-whitespace character
 //!   is kept exactly as supplied — the rule decides whether a name exists, it does not edit one
 //!   (RAB-2).
+//! * **An edit replaces the whole editable set of an existing rabbit.** [`RabbitRecord::updated`]
+//!   takes the target's identity and household from the caller and every other field from the
+//!   submitted [`RabbitProfile`], so the profile cannot move a rabbit or rename its item — and the
+//!   weight-drop threshold is edited like any other profile field (RAB-5, WT-7).
 //! * **A profile is recorded field for field, and a field the person did not supply stays absent.**
 //!   [`RabbitRecord::created`] copies the submitted profile into the record as it stands: an
 //!   unsupplied photo reference, breed, date of birth or adoption date is `None`, never `Some("")`
@@ -39,16 +43,16 @@
 //!   operation rather than refusing it as a changed payload.
 //!
 //! **Nothing here touches Tauri, and nothing here writes storage.** [`save_rabbit`] is the one write
-//! path, and it goes through P0's reachability-gated [`SaveGate`]: a rabbit exists once the shared
-//! service has accepted the write, so no local-only rabbit and no second write path can be produced
-//! here (D1.1, D0.1). What this device holds afterwards is its **copy of the shared collection**,
+//! path — a create and an edit are the same item write — and it goes through P0's
+//! reachability-gated [`SaveGate`]: a rabbit exists once the shared service has accepted the write,
+//! so no local-only rabbit and no second write path can be produced here (D1.1, D0.1, RAB-5). What this device holds afterwards is its **copy of the shared collection**,
 //! filled by the read path (SYNC-3) — never by this module writing it.
 
 use serde_json::{Value, json};
 
 use crate::ipc::types::{
-    CommandError, HouseholdId, Instant, MemberId, NeuterStatus, Rabbit, RabbitId, RabbitProfile,
-    RequestId, Sex,
+    CommandError, HouseholdId, Instant, ItemId, MemberId, NeuterStatus, Rabbit, RabbitId,
+    RabbitProfile, RequestId, Sex,
 };
 use crate::sync::{SaveGate, SaveRequest, SharedService};
 
@@ -192,6 +196,66 @@ impl RabbitRecord {
         })
     }
 
+    /// Replace the editable field set of an already-recorded rabbit (RAB-5).
+    ///
+    /// An edit **replaces the whole profile** rather than patching single fields: [`RabbitProfile`]
+    /// is exactly the editable set — no id, no household, no archived state — so the pre-filled form
+    /// submits the full set and no "unchanged" versus "cleared" distinction is needed.
+    ///
+    /// The two facts an edit may not change come from the target, not from the submission: the item
+    /// identity is the [`RabbitId`] the command addressed, and the household is the one whose
+    /// collection already holds it. A profile therefore cannot move a rabbit between households or
+    /// rename its item.
+    ///
+    /// **The weight-drop threshold is an ordinary profile field.** Editing it is saved like any other
+    /// field, and because the alert is derived from the stored threshold on read (D1.3), the new value
+    /// re-derives every alert without rewriting an entry (RAB-5, WT-7).
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank name — the same [`validate_name`] rule creation uses, whitespace-only
+    /// included (RAB-2) — for the contradictory date-of-birth pair (I8), and for a blank operation
+    /// identity or a blank rabbit id, because neither names the item being edited. Every refusal
+    /// happens here, before the caller checks the account, and none sends anything to the shared
+    /// service. Each carries the operation's identity like every failure of a state-changing command
+    /// (D0.14).
+    pub fn updated(
+        household_id: HouseholdId,
+        id: RabbitId,
+        profile: RabbitProfile,
+        request_id: &RequestId,
+    ) -> Result<Self, CommandError> {
+        if request_id.0.trim().is_empty() || id.0.trim().is_empty() {
+            return Err(CommandError::validation(Some(request_id.clone())));
+        }
+
+        let name = validate_name(profile.name, request_id)?;
+
+        if profile.dob_unknown && profile.dob.is_some() {
+            return Err(CommandError::validation(Some(request_id.clone())));
+        }
+
+        Ok(Self {
+            id,
+            household_id,
+            name,
+            photo_ref: profile.photo_ref,
+            breed: profile.breed,
+            dob: profile.dob,
+            dob_unknown: profile.dob_unknown,
+            sex: profile.sex,
+            neuter_status: profile.neuter_status,
+            adoption_date: profile.adoption_date,
+            // An edit targets an active rabbit (RAB-5). Archiving is task 2.5's operation and the
+            // refusal of a write to an archived rabbit is task 2.8's, so no record carries `true`
+            // yet, and the archived state is not an input to this constructor — it cannot check it.
+            // The refusal belongs in `AppState::update_rabbit`, beside the household resolution;
+            // task 2.8 must cover that command as well as the weight-entry writes.
+            is_archived: false,
+            weight_drop_threshold_percent: profile.weight_drop_threshold_percent,
+        })
+    }
+
     /// This record as the frozen wire value (RAB-1).
     ///
     /// Nothing is derived here: the record holds the RAB-1 field set and the wire shape presents the
@@ -235,14 +299,29 @@ fn rabbit_id(request_id: &RequestId) -> RabbitId {
     RabbitId(request_id.0.clone())
 }
 
-/// Write one recorded rabbit as an item of its household's shared collection (RAB-1, D1.1).
+/// The collection item id a rabbit is stored under (ADR 0002 criterion 3).
+///
+/// The identity is the [`RabbitId`]'s opaque string: creation mints the rabbit id from its operation
+/// and writes it as `item_id`, so every later write — an edit now, an archive or a deletion in later
+/// tasks — addresses that same item through that same value. Nothing else may derive an item id,
+/// which is what keeps one rabbit from becoming two rows.
+pub fn item_id(rabbit_id: &RabbitId) -> ItemId {
+    ItemId(rabbit_id.0.clone())
+}
+
+/// Write one recorded rabbit — created or edited — as an item of its household's shared collection
+/// (RAB-1, RAB-5, D1.1).
+///
+/// A create and an edit are the same item write. Creation mints the item's identity from its
+/// operation; an edit keeps the rabbit's existing [`RabbitId`], so only the `request_id` is the
+/// operation's identity there and the item id is never taken from it (D0.14).
 ///
 /// The write goes through P0's reachability gate: the attempt is refused before anything leaves the
 /// device when the service cannot be reached or the account is not usable, and a failure is never
-/// presented as a created rabbit (SYNC-2). A receipt is proof the service accepted the write and
+/// presented as a saved rabbit (SYNC-2). A receipt is proof the service accepted the write and
 /// nothing more — the operation's own answer schema carries no field this path needs, because the
-/// rabbit is fully determined by the request (its id is the operation's identity, and every other
-/// field is the one the person supplied).
+/// rabbit is fully determined by the request (every field is the one the person supplied, and an
+/// edit's identity is the target's).
 ///
 /// The rabbit is written to the **household the caller named**, not to the person's active
 /// household: the active household is a per-device selection rather than a scope the backend may
@@ -259,7 +338,7 @@ fn rabbit_id(request_id: &RequestId) -> RabbitId {
 /// The gate's own causes for the attempt — `connectivity`, `no_account`, `allowance_exceeded`,
 /// `rate_limited`, `timeout`, `validation` and `unknown` — and `validation` for a blank operation
 /// identity, which [`SaveRequest::new`] refuses because a blank key would break the service's
-/// deduplication (D0.14). No failure is ever reported as a created rabbit.
+/// deduplication (D0.14). No failure is ever reported as a saved rabbit.
 pub async fn save_rabbit(
     service: &dyn SharedService,
     record: &RabbitRecord,
@@ -298,7 +377,7 @@ fn save_body(
     json!({
         "request_id": request_id.0,
         "household_id": record.household_id.0,
-        "item_id": record.id.0,
+        "item_id": item_id(&record.id).0,
         "updated_at": marker.0,
         "writer_id": writer.0,
         "payload": {
@@ -424,6 +503,40 @@ mod tests {
     /// One value out of the written payload's rabbit.
     fn written_field(service: &ScriptedService, field: &str) -> Value {
         written_body(service)["payload"]["rabbit"][field].clone()
+    }
+
+    /// Every write the transport was asked to submit, in call order.
+    fn written_bodies(service: &ScriptedService) -> Vec<Value> {
+        service
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                RecordedCall::Save { request, .. } => Some(request.body().clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Edit one rabbit exactly as the command path does: build the replacement record for the
+    /// existing identity, then write it through the same gate a create uses.
+    fn update_with(
+        service: &ScriptedService,
+        household_id: &HouseholdId,
+        rabbit_id: RabbitId,
+        profile: RabbitProfile,
+        request_id: RequestId,
+    ) -> Result<Rabbit, CommandError> {
+        let record = RabbitRecord::updated(household_id.clone(), rabbit_id, profile, &request_id)?;
+
+        block_on_ready(save_rabbit(
+            service,
+            &record,
+            &writer(),
+            &marker(),
+            request_id,
+        ))?;
+
+        Ok(record.to_wire())
     }
 
     #[test]
@@ -850,5 +963,167 @@ mod tests {
         assert!(error.retryable);
         assert_eq!(error.request_id, Some(request_id));
         assert_eq!(service.write_count(), 0, "nothing was sent");
+    }
+
+    /// RAB-5's edit: every field of the profile is replaceable, including the weight-drop threshold,
+    /// and the write is one item write of the rabbit's **existing** item in the household's
+    /// collection — which is what every member resolves (RAB-5, HS-8).
+    #[test]
+    fn an_edit_replaces_every_editable_field_including_the_weight_drop_threshold() {
+        let service = ScriptedService::new();
+        let one = household("household-1");
+        let target = RabbitId("rabbit-1".to_owned());
+        let edited = RabbitProfile {
+            name: "Clover".to_owned(),
+            photo_ref: Some("photo-2".to_owned()),
+            breed: Some("Netherland Dwarf".to_owned()),
+            dob: Some(at("2025-06-01T00:00:00Z")),
+            dob_unknown: false,
+            sex: Sex::Male,
+            neuter_status: NeuterStatus::Neutered,
+            adoption_date: Some(at("2025-08-01T00:00:00Z")),
+            weight_drop_threshold_percent: 15.0,
+        };
+
+        let rabbit = update_with(
+            &service,
+            &one,
+            target.clone(),
+            edited,
+            request_id("operation-2"),
+        )
+        .expect("the double accepted the edit");
+
+        // A whole-profile replacement: every submitted value is recorded.
+        assert_eq!(rabbit.id, target);
+        assert_eq!(rabbit.household_id, one);
+        assert_eq!(rabbit.name, "Clover");
+        assert_eq!(rabbit.photo_ref, Some("photo-2".to_owned()));
+        assert_eq!(rabbit.breed, Some("Netherland Dwarf".to_owned()));
+        assert_eq!(rabbit.dob, Some(at("2025-06-01T00:00:00Z")));
+        assert!(!rabbit.dob_unknown);
+        assert_eq!(rabbit.sex, Sex::Male);
+        assert_eq!(rabbit.neuter_status, NeuterStatus::Neutered);
+        assert_eq!(rabbit.adoption_date, Some(at("2025-08-01T00:00:00Z")));
+        assert_eq!(rabbit.weight_drop_threshold_percent, 15.0);
+        assert!(!rabbit.is_archived);
+
+        // One write, to the target's existing item in the household's shared collection, carrying
+        // the operation's identity and the writing member like a create does (ADR 0002 criteria 3
+        // and 6, D0.14).
+        let body = written_body(&service);
+        assert_eq!(body["household_id"], json!(one.0));
+        assert_eq!(body["item_id"], json!(target.0));
+        assert_eq!(body["request_id"], json!("operation-2"));
+        assert_eq!(body["writer_id"], json!(writer().0));
+        assert_eq!(body["updated_at"], json!(marker().0));
+        assert_eq!(
+            written_field(&service, "weight_drop_threshold_percent"),
+            json!(15.0)
+        );
+        assert_eq!(written_field(&service, "name"), json!("Clover"));
+        assert_eq!(written_field(&service, "id"), json!(target.0));
+    }
+
+    /// A retried edit is the same item write again: the item id is the rabbit's, never the
+    /// operation's, so a re-issued edit can neither create a second rabbit nor miss the one it edits
+    /// (D0.14).
+    #[test]
+    fn a_retried_edit_resends_the_same_item_write_and_never_mints_a_rabbit() {
+        let service = ScriptedService::new();
+        let one = household("household-1");
+        let target = RabbitId("rabbit-1".to_owned());
+        let operation = request_id("operation-2");
+
+        update_with(
+            &service,
+            &one,
+            target.clone(),
+            minimal_profile(),
+            operation.clone(),
+        )
+        .expect("the first attempt completed");
+        update_with(&service, &one, target.clone(), minimal_profile(), operation)
+            .expect("the re-issued attempt completed");
+
+        let bodies = written_bodies(&service);
+        assert_eq!(bodies.len(), 2, "one attempt submits exactly one write");
+        assert_eq!(bodies[0], bodies[1], "a retry re-sends the same write");
+
+        for body in bodies {
+            assert_eq!(
+                body["item_id"],
+                json!(target.0),
+                "the edit never mints an item id from the operation"
+            );
+        }
+    }
+
+    #[test]
+    fn an_edit_with_a_blank_name_is_refused_and_nothing_is_sent() {
+        let service = ScriptedService::new();
+        let request_id = request_id("operation-2");
+
+        // The same validate_name rule creation uses, so an edit cannot slip a blank name through
+        // (RAB-2).
+        for blank in ["", " ", "   ", "\t\n"] {
+            let error = update_with(
+                &service,
+                &household("household-1"),
+                RabbitId("rabbit-1".to_owned()),
+                RabbitProfile {
+                    name: blank.to_owned(),
+                    ..minimal_profile()
+                },
+                request_id.clone(),
+            )
+            .expect_err("a rabbit needs a name, on edit as on create");
+
+            assert_eq!(error.cause, SaveCause::Validation, "{blank:?}");
+            assert_eq!(error.message_key, "error.validation", "{blank:?}");
+            assert!(!error.retryable, "{blank:?}");
+            assert_eq!(error.request_id, Some(request_id.clone()), "{blank:?}");
+        }
+
+        // A property of the input: nothing was probed and nothing was sent (RAB-2).
+        assert!(service.calls().is_empty());
+        assert_eq!(service.write_count(), 0);
+    }
+
+    #[test]
+    fn an_edit_with_a_blank_identity_is_refused_before_anything_is_sent() {
+        let service = ScriptedService::new();
+        let household_id = household("household-1");
+
+        for blank in ["", "   "] {
+            let error = update_with(
+                &service,
+                &household_id,
+                RabbitId(blank.to_owned()),
+                minimal_profile(),
+                request_id("operation-2"),
+            )
+            .expect_err("a blank rabbit id names no item");
+
+            assert_eq!(error.cause, SaveCause::Validation, "{blank:?}");
+            assert_eq!(
+                error.request_id,
+                Some(request_id("operation-2")),
+                "{blank:?}"
+            );
+        }
+
+        // A blank operation identity is the same refusal: the write could not be deduplicated.
+        let error = RabbitRecord::updated(
+            household_id,
+            RabbitId("rabbit-1".to_owned()),
+            minimal_profile(),
+            &request_id("   "),
+        )
+        .expect_err("a blank identity names no operation");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.request_id, Some(request_id("   ")));
+        assert!(service.calls().is_empty());
     }
 }

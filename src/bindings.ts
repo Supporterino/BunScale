@@ -317,13 +317,16 @@ export const commands = {
 	 *  threshold edit re-derives the entry flags and the dashboard flag without rewriting an entry.
 	 * 
 	 *  The change applies only to an **active** rabbit; an archived rabbit's profile is not editable
-	 *  (RAB-5, D1.5).
+	 *  (RAB-5, D1.5). **That refusal is not produced by this body yet:** no rabbit can be archived before
+	 *  task 2.5, and task 2.8 adds the write-boundary check for this command as well as the weight-entry
+	 *  writes — see [`crate::state::AppState::update_rabbit`], where the check belongs.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for a blank name (RAB-2), for an archived or unknown rabbit — the request is refused
-	 *  rather than accepted and ignored — and for a blank operation identity. The write path's service
-	 *  conditions are reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
+	 *  `validation` for a blank name (RAB-2), for an unknown or already-deleted rabbit — the request is
+	 *  refused rather than accepted and ignored — and for a blank operation identity; once tasks 2.5 and
+	 *  2.8 land, an archived rabbit is refused the same way. The write path's service conditions are
+	 *  reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
 	 */
 	updateRabbit: (rabbitId: RabbitId, profile: RabbitProfile, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("update_rabbit", { rabbitId, profile, requestId })),
 	/**

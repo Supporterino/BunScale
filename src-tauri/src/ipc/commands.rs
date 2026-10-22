@@ -24,8 +24,9 @@
 //! `error.not_implemented` — remains the distinct state a future not-yet-implemented command would
 //! return. It is not a second key for `unknown`: one cause owns one key (NFR-8).
 //!
-//! **Twelve of the thirteen P1 bodies are stubs; `create_rabbit`'s is implemented (task 2.1).** Each
-//! remaining stub returns [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
+//! **Eleven of the thirteen P1 bodies are stubs; `create_rabbit`'s (task 2.1) and `update_rabbit`'s
+//! (task 2.4) are implemented.** Each remaining stub returns [`CommandError::not_implemented`] — cause
+//! `unknown`, `retryable: false`, key
 //! `error.not_implemented` — carrying the command's [`RequestId`] on the writing commands and `None` on
 //! the reading ones, so a frozen signature can never be mistaken for implemented behaviour. Section 2
 //! replaces them; the signatures, the argument names the bindings export and this module split are what
@@ -106,21 +107,6 @@ mod tests {
         HouseholdId("household-1".to_owned())
     }
 
-    /// A profile with every field set, so the argument is a complete value rather than a default.
-    fn profile() -> RabbitProfile {
-        RabbitProfile {
-            name: "Pebble".to_owned(),
-            photo_ref: None,
-            breed: None,
-            dob: None,
-            dob_unknown: true,
-            sex: Sex::Unknown,
-            neuter_status: NeuterStatus::Unknown,
-            adoption_date: None,
-            weight_drop_threshold_percent: 5.0,
-        }
-    }
-
     fn draft() -> WeightEntryDraft {
         WeightEntryDraft {
             value_grams: Grams(1_800),
@@ -143,9 +129,10 @@ mod tests {
         assert_eq!(error.request_id, expected);
     }
 
-    /// The seven remaining state-changing P1 stubs carry the operation identity, so the retry the
+    /// The six remaining state-changing P1 stubs carry the operation identity, so the retry the
     /// failure surface offers has something to re-issue (D0.14, design I5). `create_rabbit` left this
-    /// list when task 2.1 implemented its body; it is covered by that task's own tests.
+    /// list when task 2.1 implemented its body and `update_rabbit` when task 2.4 did; each is covered
+    /// by that task's own tests.
     ///
     /// Each body is polled once through the double's helper: a stub has nothing to wait for, so a
     /// future that is not immediately ready is itself the defect.
@@ -154,8 +141,6 @@ mod tests {
         let id = request_id();
 
         let failures = [
-            block_on_ready(rabbit::update_rabbit(rabbit(), profile(), id.clone()))
-                .expect_err("update_rabbit is a stub"),
             block_on_ready(rabbit::archive_rabbit(rabbit(), id.clone()))
                 .expect_err("archive_rabbit is a stub"),
             block_on_ready(rabbit::restore_rabbit(rabbit(), id.clone()))
@@ -170,7 +155,7 @@ mod tests {
                 .expect_err("delete_weight_entry is a stub"),
         ];
 
-        assert_eq!(failures.len(), 7, "every remaining P1 write is covered");
+        assert_eq!(failures.len(), 6, "every remaining P1 write is covered");
 
         for failure in &failures {
             assert_not_implemented(failure, Some(id.clone()));

@@ -79,7 +79,7 @@ use crate::domain::{
 };
 use crate::ipc::types::{
     AccountUserId, CollectionSource, CommandError, Household, HouseholdCollection, HouseholdId,
-    HouseholdSummary, Instant, MemberId, Rabbit, RabbitProfile, RequestId,
+    HouseholdSummary, Instant, MemberId, Rabbit, RabbitId, RabbitProfile, RequestId,
 };
 use crate::storage::{
     AbsoluteInstant, BoundaryRefusal, CollectionStore, CollectionStoreError, DeviceSnapshot,
@@ -535,6 +535,82 @@ impl AppState {
         Ok(record.to_wire())
     }
 
+    /// Replace an active rabbit's editable field set (RAB-5, HS-8).
+    ///
+    /// The steps are the create path's, plus the one lookup the frozen signature forces:
+    ///
+    /// 1. The household is resolved from this device's guarded copy — an edit is addressed by the
+    ///    rabbit alone, and the collection it writes is the one that **claimed the item** when the
+    ///    rabbit was loaded ([`AppState::rabbit_household`]). The item must also still be live: a
+    ///    tombstone keeps its claim, so a permanently deleted rabbit is refused here rather than
+    ///    resurrected by a full-payload write (RAB-10). A rabbit this device holds no live row for is
+    ///    refused as `validation`, and nothing is sent. That is not a retryable backend failure: the
+    ///    detail is read from the same copy (SYNC-3), so a rabbit the device has not loaded cannot be
+    ///    presented for an edit. The one reachable window is a just-created rabbit rendered from
+    ///    [`AppState::create_rabbit`]'s return before the read path has loaded the collection, which
+    ///    is why the frontend gates the edit control on the detail query instead.
+    /// 2. The profile is recorded next, so the refusals the input itself produces — a blank name,
+    ///    which RAB-2 treats as empty and whitespace-only alike, the contradictory date-of-birth pair
+    ///    (I8), and a blank operation identity — are reported as `validation` even when no account
+    ///    exists, because that is what the form has to change.
+    /// 3. No account is `no_account` before any probe. P0 always takes this path: it has no sign-in
+    ///    flow (Q25), and pretending otherwise would report a write the service never saw.
+    /// 4. The **writing member** is resolved from the person's own household book exactly as
+    ///    [`AppState::create_rabbit`] does, so the member who performs the edit is named and no
+    ///    per-member or device-local copy is involved: every member writes into the one household
+    ///    collection (HS-8).
+    /// 5. The version marker is the one minted for the operation, so a retry re-sends a byte-identical
+    ///    body, and the write then goes through [`crate::sync::SaveGate`] as one `save_item` call into
+    ///    the household's collection. Because there is exactly one item, not one per member, every
+    ///    member resolves the edited profile — the sharing is by construction, not by a fan-out
+    ///    (RAB-5, HS-8).
+    ///
+    /// The returned rabbit is the recorded one. **This device's copy of the household's collection is
+    /// deliberately not written here**, exactly as a create does not write it: the copy is the read
+    /// path's (SYNC-3), so the edit reaches this device the same way it reaches every other member —
+    /// by the read that follows `rabbit:changed`.
+    ///
+    /// **An archived rabbit's profile is not editable (RAB-5, D1.5).** No rabbit can be archived
+    /// before task 2.5 introduces archiving, and task 2.8 owns the refusal on every write path — this
+    /// command included, not only the weight-entry writes — so there is no archived state to read here
+    /// yet; the check belongs beside the household resolution above once the boundary can observe
+    /// that state.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank name (RAB-2), for the contradictory date-of-birth pair (I8), for a
+    /// blank operation identity, for a blank rabbit id or a rabbit with no live row (absent or
+    /// tombstoned), and for a household with no member for this account; `no_account` when no account
+    /// is available;
+    /// and otherwise the gate's mapped causes (`connectivity`, `no_account`, `allowance_exceeded`,
+    /// `rate_limited`, `timeout`, `unknown`). A refusal never edits a rabbit, and one that is a
+    /// property of the input never reaches the shared service at all.
+    pub async fn update_rabbit(
+        &self,
+        rabbit_id: RabbitId,
+        profile: RabbitProfile,
+        request_id: RequestId,
+    ) -> Result<Rabbit, CommandError> {
+        let Some(household_id) = self.rabbit_household(&rabbit_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+
+        let record = RabbitRecord::updated(household_id.clone(), rabbit_id, profile, &request_id)?;
+
+        if self.account.is_none() {
+            return Err(CommandError::no_account(Some(request_id)));
+        }
+
+        let Some(writer) = self.writing_member(&household_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+        let marker = self.operation_marker(&request_id);
+
+        domain::save_rabbit(self.service.as_ref(), &record, &writer, &marker, request_id).await?;
+
+        Ok(record.to_wire())
+    }
+
     /// The member id this person's account has in `household_id`, when this device holds the
     /// household and records them as one of its members.
     ///
@@ -550,6 +626,31 @@ impl AppState {
             .get(household_id)
             .and_then(|record| local_member_id(record.members(), account))
             .cloned()
+    }
+
+    /// The household whose copy holds `rabbit_id`'s **live** item.
+    ///
+    /// An edit is addressed by the rabbit alone (the frozen `update_rabbit` signature carries no
+    /// household), so the collection it writes is the one that claimed the item when the rabbit was
+    /// loaded — the same claim that keeps a rabbit from being presented under another household.
+    ///
+    /// **The claim alone is not enough to write.** It is an identity claim that survives a tombstone,
+    /// so a permanently deleted rabbit still names its household (task 2.7). The stored row is
+    /// therefore required to exist and **not** be a tombstone: a full-payload write to a tombstoned
+    /// item would resurrect it, which RAB-10's permanent deletion must not allow (D1.5, NFR-10). A
+    /// deleted or never-loaded rabbit is refused as unknown rather than written (RAB-5, RAB-10;
+    /// SYNC-3 for the never-loaded case).
+    fn rabbit_household(&self, rabbit_id: &RabbitId) -> Option<HouseholdId> {
+        let item_id = domain::rabbit::item_id(rabbit_id);
+        let copies = lock(&self.copies);
+        let household_id = copies.household_of(&item_id)?.clone();
+        let item = copies.item(&household_id, &item_id).ok()??;
+
+        if item.deleted {
+            None
+        } else {
+            Some(household_id)
+        }
     }
 
     /// The version marker for `request_id`: the one already minted for that operation, or a fresh one
@@ -820,7 +921,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ipc::types::{CollectionItem, ItemId, NeuterStatus, RabbitProfile, SaveCause, Sex};
+    use crate::ipc::types::{
+        CollectionItem, ItemId, NeuterStatus, RabbitId, RabbitProfile, SaveCause, Sex,
+    };
     use crate::sync::double::ScriptedService;
     use crate::sync::double::test_support::block_on_ready;
     use crate::sync::{Answer, ServiceReply};
@@ -864,6 +967,15 @@ mod tests {
         }
     }
 
+    /// A removal, as a load delivers it: a tombstone row that keeps its identity and version.
+    fn tombstone(item_id: &str, updated_at: &str) -> CollectionItem {
+        CollectionItem {
+            item_id: ItemId(item_id.to_owned()),
+            updated_at: at(updated_at),
+            deleted: true,
+        }
+    }
+
     fn wire_collection(
         household_id: &HouseholdId,
         items: Vec<CollectionItem>,
@@ -874,6 +986,44 @@ mod tests {
             source: CollectionSource::Service,
             loaded_at: None,
         }
+    }
+
+    /// Every write the transport was asked to submit, in call order.
+    fn write_bodies(service: &ScriptedService) -> Vec<serde_json::Value> {
+        service
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                crate::sync::double::RecordedCall::Save { request, .. } => {
+                    Some(request.body().clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A state that holds `household-1`, one created rabbit, and the copy the read path delivers
+    /// after that create — the state an edit starts from, since an edit is addressed by the rabbit
+    /// alone and the copy is what names its household.
+    fn state_with_one_rabbit() -> (Arc<ScriptedService>, AppState, Rabbit) {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        let rabbit =
+            block_on_ready(state.create_rabbit(one.clone(), profile(), request_id("operation-2")))
+                .expect("the rabbit is created");
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire(&rabbit.id.0, "2026-10-22T09:30:00Z")]),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        (service, state, rabbit)
     }
 
     /// One accepted create answer the domain can read.
@@ -1569,6 +1719,205 @@ mod tests {
         assert_eq!(ids, ["item-1", "item-2"]);
 
         remove_temp_data_dir(&directory);
+    }
+
+    /// RAB-5 and HS-8: an edit including the threshold is one write of the household's single rabbit
+    /// item, so every member resolves it, and it never becomes a second, device-local copy.
+    #[test]
+    fn editing_a_rabbit_writes_the_one_shared_item_every_member_resolves() {
+        let (service, state, rabbit) = state_with_one_rabbit();
+        let one = household("household-1");
+        let held_before = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the read path's copy is held");
+
+        let edited = block_on_ready(state.update_rabbit(
+            rabbit.id.clone(),
+            RabbitProfile {
+                name: "Clover".to_owned(),
+                breed: Some("Netherland Dwarf".to_owned()),
+                weight_drop_threshold_percent: 15.0,
+                ..profile()
+            },
+            request_id("operation-3"),
+        ))
+        .expect("the double accepted the edit");
+
+        // The edit lands on the same rabbit, in the same household, with every submitted field.
+        assert_eq!(edited.id, rabbit.id);
+        assert_eq!(edited.household_id, one);
+        assert_eq!(edited.name, "Clover");
+        assert_eq!(edited.breed, Some("Netherland Dwarf".to_owned()));
+        assert_eq!(edited.weight_drop_threshold_percent, 15.0);
+
+        // Exactly one write was added, and it is one `save_item` of the rabbit's existing item into
+        // the household's collection: one item every member reads, not one per member (HS-8).
+        let bodies = write_bodies(&service);
+        assert_eq!(bodies.len(), 3, "the household, the create and the edit");
+        let body = &bodies[2];
+        assert_eq!(body["household_id"], json!(one.0));
+        assert_eq!(body["item_id"], json!(rabbit.id.0));
+        assert_eq!(body["request_id"], json!("operation-3"));
+        assert_eq!(body["writer_id"], json!("member-1"));
+        assert_eq!(
+            body["payload"]["rabbit"]["weight_drop_threshold_percent"],
+            json!(15.0)
+        );
+        assert_eq!(body["payload"]["rabbit"]["name"], json!("Clover"));
+        assert_eq!(
+            body["payload"]["rabbit"]["breed"],
+            json!("Netherland Dwarf")
+        );
+
+        // The device's own copy belongs to the read path: this write must not update it, or the edit
+        // would exist twice and could disagree with what the other members read (SYNC-3).
+        let held_after = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is still held");
+        assert_eq!(held_after.items, held_before.items);
+        assert_eq!(held_after.loaded_at, held_before.loaded_at);
+    }
+
+    #[test]
+    fn an_edit_of_a_rabbit_this_device_holds_no_copy_of_is_refused_and_nothing_is_sent() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        let error = block_on_ready(state.update_rabbit(
+            RabbitId("rabbit-1".to_owned()),
+            profile(),
+            request_id.clone(),
+        ))
+        .expect_err("the device holds no rabbit to edit");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// RAB-10 / D1.5: a permanently deleted rabbit keeps its identity claim, and that claim alone must
+    /// not authorize a write. A full-payload edit sent to a tombstoned item would resurrect it, so the
+    /// boundary refuses it and nothing is sent.
+    #[test]
+    fn an_edit_of_a_permanently_deleted_rabbit_is_refused_and_never_resurrects_it() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        // The deletion (task 2.7) leaves a tombstone row, and the guard keeps the item's household
+        // claim after the row is removed (NFR-10).
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![tombstone("rabbit-1", "2026-10-22T10:00:00Z")]),
+                at("2026-10-22T10:01:00Z"),
+            )
+            .expect("the collection is the household's own");
+        assert_eq!(
+            state.item_owner(&ItemId("rabbit-1".to_owned())),
+            Some(one.clone()),
+            "the identity claim deliberately survives the tombstone"
+        );
+
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        let error = block_on_ready(state.update_rabbit(
+            RabbitId("rabbit-1".to_owned()),
+            profile(),
+            request_id.clone(),
+        ))
+        .expect_err("a deleted rabbit is not editable");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+
+        // The row is still the tombstone it was: no write reached the device copy either.
+        let held = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is held");
+        assert_eq!(
+            held.items,
+            vec![tombstone("rabbit-1", "2026-10-22T10:00:00Z")]
+        );
+    }
+
+    #[test]
+    fn a_blank_edit_name_is_refused_before_the_account_is_checked() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service.clone(), None);
+        let one = household("household-1");
+
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire("rabbit-1", "2026-10-22T09:30:00Z")]),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+        let request_id = request_id("operation-2");
+
+        // The same validate_name rule creation uses, and it runs before the account check: the person
+        // is prompted for a name rather than told their account is missing (RAB-2).
+        for blank in ["", " \t\n"] {
+            let error = block_on_ready(state.update_rabbit(
+                RabbitId("rabbit-1".to_owned()),
+                RabbitProfile {
+                    name: blank.to_owned(),
+                    ..profile()
+                },
+                request_id.clone(),
+            ))
+            .expect_err("a blank name is refused");
+
+            assert_eq!(error.cause, SaveCause::Validation, "{blank:?}");
+            assert_eq!(error.message_key, "error.validation", "{blank:?}");
+            assert!(!error.retryable, "{blank:?}");
+            assert_eq!(error.request_id, Some(request_id.clone()), "{blank:?}");
+        }
+
+        assert!(service.calls().is_empty(), "nothing was probed or sent");
+    }
+
+    #[test]
+    fn an_edit_without_an_account_is_refused_with_no_account_and_nothing_is_sent() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service.clone(), None);
+        let one = household("household-1");
+
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire("rabbit-1", "2026-10-22T09:30:00Z")]),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+        let request_id = request_id("operation-2");
+
+        let error = block_on_ready(state.update_rabbit(
+            RabbitId("rabbit-1".to_owned()),
+            profile(),
+            request_id.clone(),
+        ))
+        .expect_err("P0 has no account");
+
+        assert_eq!(error.cause, SaveCause::NoAccount);
+        assert_eq!(error.message_key, "error.no_account");
+        assert!(error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert!(service.calls().is_empty(), "nothing was probed or sent");
     }
 
     /// A fresh directory under the process's temporary area, unique per call.

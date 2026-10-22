@@ -6,14 +6,15 @@
 //! time, and the signatures are what `src/bindings.ts` is generated from, so a stub is the contract
 //! rather than a placeholder to be reshaped.
 //!
-//! **[`create_rabbit`] is implemented (task 2.1); the other six are still stubs.** The implemented
-//! body takes the app's state and a publication seam — `tauri::State` is how a command reaches the
-//! shared service and the account, and `tauri::AppHandle` is the seam [`RabbitChangePublisher`] is
-//! implemented by — which are parameters Tauri supplies and `src/bindings.ts` does not export, so the
-//! command the frontend calls keeps the three arguments it was frozen with. A successful create
-//! publishes `rabbit:changed` with kind `created`, as the contract's event table requires of every
-//! successful rabbit write; a refusal publishes nothing. The six remaining stubs keep exactly the
-//! arguments they were frozen with, so their bindings do not move either.
+//! **[`create_rabbit`] (task 2.1) and [`update_rabbit`] (task 2.4) are implemented; the other five
+//! are still stubs.** Each implemented body takes the app's state and a publication seam —
+//! `tauri::State` is how a command reaches the shared service and the account, and
+//! `tauri::AppHandle` is the seam [`RabbitChangePublisher`] is implemented by — which are parameters
+//! Tauri supplies and `src/bindings.ts` does not export, so the command the frontend calls keeps the
+//! three arguments it was frozen with. A successful create publishes `rabbit:changed` with kind
+//! `created`, and a successful edit with kind `updated`, as the contract's event table requires of
+//! every successful rabbit write; a refusal publishes nothing. The five remaining stubs keep exactly
+//! the arguments they were frozen with, so their bindings do not move either.
 //!
 //! Three things the signatures already encode, because section 2 must not have to renegotiate them:
 //!
@@ -27,6 +28,8 @@
 //!   target — `update_rabbit` and the two lifecycle commands included — and reports it through the one
 //!   failure surface. P0's cause list is frozen and has no "immutable target" variant, so the refusal
 //!   is `validation`: the request itself is refused and a retry cannot clear it (D1.5, NFR-10).
+//!   `update_rabbit` cannot observe that state yet: archiving arrives with task 2.5 and the refusal
+//!   with task 2.8, so the check is the hook [`crate::state::AppState::update_rabbit`] documents.
 //!
 //! Every remaining stub body consumes its arguments deliberately: the parameters are part of the
 //! frozen signature and the bindings' argument names, and an unused-parameter warning under
@@ -58,6 +61,29 @@ async fn created_rabbit(
         household_id: rabbit.household_id.clone(),
         rabbit_id: rabbit.id.clone(),
         kind: RabbitChangeKind::Created,
+    });
+
+    Ok(rabbit)
+}
+
+/// The `update_rabbit` body over the state and a publication seam.
+///
+/// It is the outermost layer a unit test can call, for the same reason [`created_rabbit`] is. The
+/// change is published only after the edit succeeded, so a refusal leaves the recorder empty and the
+/// frontend's policy never invalidates a profile the service did not accept.
+async fn updated_rabbit(
+    state: &crate::state::AppState,
+    publisher: &impl RabbitChangePublisher,
+    rabbit_id: RabbitId,
+    profile: RabbitProfile,
+    request_id: RequestId,
+) -> Result<Rabbit, CommandError> {
+    let rabbit = state.update_rabbit(rabbit_id, profile, request_id).await?;
+
+    publisher.publish(&RabbitChanged {
+        household_id: rabbit.household_id.clone(),
+        rabbit_id: rabbit.id.clone(),
+        kind: RabbitChangeKind::Updated,
     });
 
     Ok(rabbit)
@@ -140,23 +166,26 @@ pub async fn get_rabbit(rabbit_id: RabbitId) -> Result<Rabbit, CommandError> {
 /// threshold edit re-derives the entry flags and the dashboard flag without rewriting an entry.
 ///
 /// The change applies only to an **active** rabbit; an archived rabbit's profile is not editable
-/// (RAB-5, D1.5).
+/// (RAB-5, D1.5). **That refusal is not produced by this body yet:** no rabbit can be archived before
+/// task 2.5, and task 2.8 adds the write-boundary check for this command as well as the weight-entry
+/// writes — see [`crate::state::AppState::update_rabbit`], where the check belongs.
 ///
 /// # Errors
 ///
-/// `validation` for a blank name (RAB-2), for an archived or unknown rabbit — the request is refused
-/// rather than accepted and ignored — and for a blank operation identity. The write path's service
-/// conditions are reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
+/// `validation` for a blank name (RAB-2), for an unknown or already-deleted rabbit — the request is
+/// refused rather than accepted and ignored — and for a blank operation identity; once tasks 2.5 and
+/// 2.8 land, an archived rabbit is refused the same way. The write path's service conditions are
+/// reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_rabbit(
     rabbit_id: RabbitId,
     profile: RabbitProfile,
     request_id: RequestId,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Rabbit, CommandError> {
-    let _ = (rabbit_id, profile);
-
-    Err(CommandError::not_implemented(Some(request_id)))
+    updated_rabbit(state.inner(), &app, rabbit_id, profile, request_id).await
 }
 
 /// Archive a rabbit: a reversible soft delete that discards nothing (RAB-6, RAB-9).
@@ -231,7 +260,10 @@ mod tests {
 
     use super::*;
     use crate::ipc::events::test_support::RecordingRabbitPublisher;
-    use crate::ipc::types::{AccountUserId, NeuterStatus, Sex};
+    use crate::ipc::types::{
+        AccountUserId, CollectionItem, CollectionSource, HouseholdCollection, ItemId, NeuterStatus,
+        Sex,
+    };
     use crate::state::AppState;
     use crate::sync::double::test_support::block_on_ready;
     use crate::sync::{Answer, ScriptedService, ServiceReply};
@@ -333,6 +365,95 @@ mod tests {
         .expect_err("P0 has no account");
 
         assert_eq!(error.cause, SaveCause::NoAccount);
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
+
+    /// One collection row for the rabbit, as the read path delivers the household's copy.
+    fn collection_with(household_id: &HouseholdId, rabbit: &Rabbit) -> HouseholdCollection {
+        HouseholdCollection {
+            household_id: household_id.clone(),
+            items: vec![CollectionItem {
+                item_id: ItemId(rabbit.id.0.clone()),
+                updated_at: Instant("2026-10-22T09:30:00Z".to_owned()),
+                deleted: false,
+            }],
+            source: CollectionSource::Service,
+            loaded_at: None,
+        }
+    }
+
+    /// A state whose book holds `household-1`, whose copy holds one rabbit, and that rabbit itself —
+    /// the state an edit starts from, since the edit is addressed by the rabbit alone.
+    fn state_with_one_rabbit(service: Arc<ScriptedService>) -> (AppState, Rabbit) {
+        let state = state_with_a_held_household(service);
+        let one = household("household-1");
+        let rabbit =
+            block_on_ready(state.create_rabbit(one.clone(), profile(), request_id("operation-2")))
+                .expect("the rabbit is created");
+
+        state
+            .load_collection(
+                &one,
+                collection_with(&one, &rabbit),
+                Instant("2026-10-22T09:31:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        (state, rabbit)
+    }
+
+    #[test]
+    fn a_successful_edit_publishes_exactly_one_updated_for_the_rabbit() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service);
+        let publisher = RecordingRabbitPublisher::default();
+
+        let edited = block_on_ready(updated_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            RabbitProfile {
+                name: "Clover".to_owned(),
+                weight_drop_threshold_percent: 15.0,
+                ..profile()
+            },
+            request_id("operation-3"),
+        ))
+        .expect("the double accepted the edit");
+
+        assert_eq!(edited.id, rabbit.id);
+        assert_eq!(edited.name, "Clover");
+        assert_eq!(edited.weight_drop_threshold_percent, 15.0);
+        assert_eq!(
+            publisher.published(),
+            vec![RabbitChanged {
+                household_id: household("household-1"),
+                rabbit_id: rabbit.id,
+                kind: RabbitChangeKind::Updated,
+            }],
+            "one report, with the edit's kind, for the rabbit the command returned"
+        );
+    }
+
+    #[test]
+    fn a_refused_edit_publishes_nothing() {
+        // The device holds no copy naming the rabbit, so the edit is refused before anything is sent.
+        let state = AppState::new(Arc::new(ScriptedService::new()), None);
+        let publisher = RecordingRabbitPublisher::default();
+
+        let error = block_on_ready(updated_rabbit(
+            &state,
+            &publisher,
+            RabbitId("rabbit-1".to_owned()),
+            profile(),
+            request_id("operation-1"),
+        ))
+        .expect_err("there is no rabbit to edit");
+
+        assert_eq!(error.cause, SaveCause::Validation);
         assert!(
             publisher.published().is_empty(),
             "a refusal never reports a rabbit change"
