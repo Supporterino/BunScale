@@ -1188,6 +1188,68 @@ surface keeps a failure record alive across an attempt (as the shell's store doe
 the visible state there. This follows the 7.5/Q46 precedent: implement, measure, and record when the
 state is unreachable rather than claiming it.
 
+## Second 6.1 review — task 8.4/8.5 (2026-10-22, reviewer)
+
+The fixes for Q56–Q59 were verified real, but the review returned **CHANGES REQUIRED** again with one
+major and three minors. Verified in the tree before acting.
+
+### Q60 — the neutral-cause copy is write-shaped on read surfaces
+
+`error.unknown` is not only a write failure: `ConnectivityRequiredScreen.tsx` renders it as the
+account-unclassified body (line 82) and `HouseholdEntryScreens.tsx` renders it for a failed load. Tasks
+8.2/8.3 made it "The change could not be completed. Nothing was changed." — true for a refused save,
+false where no change was attempted (a status check or a load). Worse, the pinned constants now assert
+that sentence on those screens, and the test comment calling the generic wording "the honest one" is no
+longer true. **Owner:** 8.4 (operation-neutral wording), inside the cause map — no new cause.
+
+**Resolved (2026-10-22, task 8.4):** `error.unknown` now reads "That did not work. Nothing was
+changed." — true for a read and a write, still cause-neutral, still no retry promise; the unit store
+keeps its own device-specific key. The component and E2E constants moved with it.
+
+### The three minors
+
+1. **Retained status published a refresh.** `publish_active_refresh` gated on the value `re_evaluate`
+   returns, and the tracker deliberately retains a previous reachable status on an unanswered probe
+   below the offline threshold — so a foreground return whose probe got no answer still emitted
+   `refreshed`. Harmless (the refetch re-probes) but the doc claimed a fresh outcome. **Fixed by 8.5**:
+   the refresh is gated on the probe's own answered outcome, with a test for the retained case.
+2. **A vacuous test.** `a_load_or_refresh_publishes_no_household_change` never connected its recorder to
+   the load, so its empty assertion proved nothing. **Fixed by 8.5**: the structural guarantee (the load
+   path takes no publisher) is stated where it is true, rather than demonstrated by an unconnected
+   recorder.
+3. **Stale adapter comment.** `src-tauri/tests/failure_surface.rs` said the command adapter only unwraps
+   state; after 8.1 it also publishes. **Fixed by 8.5.**
+
+The reviewer also confirmed 6.1's positive halves again after the fixes: one publisher seam with tests,
+refresh only from the trigger path (not `re_evaluate`, not `load_household`), the frontend collection
+query actually reloading, typed copy override that keeps other causes, no product `invoke(`, no
+optimistic writes or queue, and `request_id` reuse. Screenshots could not be inspected in the reviewer's
+checkout; the copy change alters no markup or CSS.
+
+## Third 6.1 review — APPROVE with three carried minors (2026-10-22)
+
+The loop-2 fixes were verified (neutral copy, answered-probe gate with a non-vacuous test, the vacuous
+test gone, the adapter comment corrected), 6.1's positive halves re-confirmed, and the reviewer
+inspected `.artifacts/screens/` directly at both baselines (touch targets, insets, safe areas). Verdict:
+**APPROVE**. Three minors are recorded rather than fixed, on the reviewer's own "P4, not this loop":
+
+### Q61 — non-blocking copy/doc nits from the final 6.1 review
+
+1. **The unit-store key is write-shaped on the read branch.** `unitFailureMessageKey` is used for both
+   `DisplayUnitSection`'s read and write; a failed *read* renders "Your choice was not saved on this
+   device", though no save was attempted (the section's own spec says a read must not claim a save
+   outcome). The key still names the device store and "nothing was changed" is true, so it is minor.
+   **Owner:** the next change that touches `SettingsScreen`/`messages.ts` — split the read onto an
+   operation-neutral device-store key (or reword the key to be true of both).
+2. **A second stale adapter sentence** in `src-tauri/tests/failure_surface.rs:87-88` still frames the
+   adapter as only the state call; the 8.5 fix corrected the later occurrence, not this one.
+3. **Provenance comments** in `messages.ts`, `SettingsScreen.tsx` and `SaveFailureNotice.tsx` attribute
+   `settings.unit.store_failed` to task 8.3; task 8.2 introduced it and 8.3 consumed it. Documentation
+   only.
+
+None changes a requirement's outcome; each is a comment or a copy string. They are carried here so the
+next change inherits a named list rather than rediscovering them.
+
 Not a finding: hand-written command-name literals in `src/test/mock-ipc.ts` are test-only and fail
 loudly on a rename; recorded as residual risk, not an action. The reviewer also confirmed the positive
 halves of 6.1: no product `invoke(` or core-API import outside `src/bindings.ts`/`api.ts`, no optimistic

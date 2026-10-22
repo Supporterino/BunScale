@@ -960,7 +960,7 @@ file's header).
 
 ## 6. Review
 
-- [ ] 6.1 [reviewer] Review the P0 diff for contract conformance: frontend touches IPC only through
+- [x] 6.1 [reviewer] Review the P0 diff for contract conformance: frontend touches IPC only through
   generated bindings and `api.ts`, no optimistic write path exists, and no offline write queue was
   introduced (D1). Every state-changing command carries a client-generated `request_id` and a retry
   reuses it (D0.14). Confirm for every UI task the touch targets, the safe areas and the adaptive
