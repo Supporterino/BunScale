@@ -186,7 +186,7 @@ impl<T> Canonical<T> {
 ///
 /// The store starts empty and is filled only through its checked mutators, so the claims it holds
 /// and the rows it stores are written together and cannot disagree through the public API.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct GuardedStore {
     /// The device's copies; see [`LocalCopies`].
     copies: LocalCopies,
@@ -330,7 +330,10 @@ impl GuardedStore {
     /// Every row is checked before the copy is replaced, so a foreign or changed marked row refuses
     /// the load whole and leaves both the rows and the previous marker untouched. A marked entity is
     /// accepted **only when the incoming row is identical to the one stored in this household's
-    /// copy**; a changed row is a write to it, and the marker means "no write". An entity marked
+    /// copy** — identity, version, tombstone flag and content alike — a changed row is a write to
+    /// it, and the marker means "no write". Content is part of the comparison on purpose: the same
+    /// version delivered with a different payload would replace the stored profile behind the
+    /// marker, which is exactly the loss the marker forbids (D1.16, RAB-9). An entity marked
     /// immutable is for the same reason treated as undeletable through a load: a collection that
     /// omits it would make the replacement remove it, so the load is refused rather than allowed to
     /// drop it silently. **The consequence is a constraint on the service, and it is not recoverable
@@ -496,7 +499,7 @@ impl GuardedStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ipc::types::{CollectionItem, CollectionSource, Instant};
+    use crate::ipc::types::{CollectionItem, CollectionSource, Instant, ItemPayload};
 
     fn at(value: &str) -> Instant {
         Instant(value.to_owned())
@@ -519,6 +522,7 @@ mod tests {
             item_id: id(item_id),
             updated_at: at(updated_at),
             deleted: false,
+            payload: None,
         }
     }
 
@@ -527,6 +531,27 @@ mod tests {
             item_id: id(item_id),
             updated_at: at(updated_at),
             deleted: true,
+            payload: None,
+        }
+    }
+
+    /// One rabbit item's content, as `save_item` submits it (D1.16).
+    fn rabbit_payload(name: &str) -> ItemPayload {
+        ItemPayload::Rabbit {
+            rabbit: crate::ipc::types::Rabbit {
+                id: crate::ipc::types::RabbitId("item-1".to_owned()),
+                household_id: household("household-1"),
+                name: name.to_owned(),
+                photo_ref: None,
+                breed: None,
+                dob: None,
+                dob_unknown: true,
+                sex: crate::ipc::types::Sex::Unknown,
+                neuter_status: crate::ipc::types::NeuterStatus::Unknown,
+                adoption_date: None,
+                is_archived: false,
+                weight_drop_threshold_percent: 5.0,
+            },
         }
     }
 
@@ -887,6 +912,43 @@ mod tests {
         );
         let copy = store.collection(&one).expect("the copy is still held");
         assert_eq!(copy.loaded_at(), None, "no load was recorded");
+        assert_eq!(store.item(&one, &id("item-1")), Ok(Some(&original)));
+    }
+
+    #[test]
+    fn a_guarded_load_that_would_change_a_marked_rows_content_is_refused() {
+        // "Unchanged" means the whole row, content included: the same version and tombstone flag
+        // with a different payload would overwrite the stored profile behind the marker, so the load
+        // is a write and is refused (D1.16, RAB-9).
+        let mut store = GuardedStore::new();
+        let one = household("household-1");
+        let original = StoredItem::from(CollectionItem {
+            payload: Some(rabbit_payload("Pebble")),
+            ..wire("item-1", "2026-10-19T10:00:00Z")
+        });
+        store
+            .upsert_item(&one, original.clone())
+            .expect("a first write");
+        store.mark_immutable(&id("item-1"));
+
+        let refused = store.load_wire_collection(
+            &one,
+            wire_collection(
+                &one,
+                vec![CollectionItem {
+                    payload: Some(rabbit_payload("Clover")),
+                    ..wire("item-1", "2026-10-19T10:00:00Z")
+                }],
+            ),
+            at("2026-10-19T11:00:00Z"),
+        );
+
+        assert_eq!(
+            refused,
+            Err(BoundaryRefusal::Immutable {
+                item_id: id("item-1"),
+            })
+        );
         assert_eq!(store.item(&one, &id("item-1")), Ok(Some(&original)));
     }
 

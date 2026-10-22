@@ -44,7 +44,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   `storage/collection.rs` already names this as the intended additive step. **The type and plumbing
   changes are task 2.0** — they cannot be split from the crate without leaving it uncompilable.
   (RAB-6, RAB-9, WT-5, DM-4)
-- [ ] 2.0 [rust-backend] **Added mid-change (Q4).** Implement D1.16: `ItemPayload` and the `payload`
+- [x] 2.0 [rust-backend] **Added mid-change (Q4).** Implement D1.16: `ItemPayload` and the `payload`
   field on `CollectionItem`/`StoredItem`, carried unchanged through the collection snapshot, the
   change feed, the merge and persistence; every conversion site and test literal updated; the `Eq`
   drops applied where `f64` now appears. Version marker, tombstone and the LWW tuple stay unchanged —

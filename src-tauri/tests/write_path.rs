@@ -83,6 +83,7 @@ fn item(id: &str, updated_at: &str) -> CollectionItem {
         item_id: ItemId(id.to_owned()),
         updated_at: at(updated_at),
         deleted: false,
+        payload: None,
     }
 }
 

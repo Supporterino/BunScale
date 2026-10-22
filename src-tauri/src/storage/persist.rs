@@ -75,7 +75,7 @@ const FORMAT_VERSION: u32 = 1;
 const STALE_TEMPORARY_AGE: Duration = Duration::from_secs(60);
 
 /// Everything one device keeps across a relaunch (SYNC-3, HS-3).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct DeviceSnapshot {
     /// The loaded collection copies, each with its load instant.
     pub collections: Vec<HouseholdCollection>,
@@ -444,7 +444,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ipc::types::{ItemId, MemberId};
+    use crate::ipc::types::{ItemId, ItemPayload, MemberId};
 
     fn household(value: &str) -> HouseholdId {
         HouseholdId(value.to_owned())
@@ -459,6 +459,27 @@ mod tests {
             item_id: ItemId(item_id.to_owned()),
             updated_at: at(updated_at),
             deleted: false,
+            payload: None,
+        }
+    }
+
+    /// One rabbit item's content, as `save_item` submits it (D1.16).
+    fn rabbit_payload() -> ItemPayload {
+        ItemPayload::Rabbit {
+            rabbit: crate::ipc::types::Rabbit {
+                id: crate::ipc::types::RabbitId("item-1".to_owned()),
+                household_id: household("household-1"),
+                name: "Pebble".to_owned(),
+                photo_ref: None,
+                breed: Some("Mini Lop".to_owned()),
+                dob: None,
+                dob_unknown: true,
+                sex: crate::ipc::types::Sex::Female,
+                neuter_status: crate::ipc::types::NeuterStatus::Spayed,
+                adoption_date: None,
+                is_archived: false,
+                weight_drop_threshold_percent: 5.0,
+            },
         }
     }
 
@@ -523,6 +544,55 @@ mod tests {
 
         let restored = store.load().expect("the copies are readable");
         assert_eq!(restored.collections, copies);
+
+        remove_temp_data_dir(&directory);
+    }
+
+    #[test]
+    fn a_payload_round_trips_through_the_file() {
+        let directory = temp_data_dir("payload-round-trip");
+        let store = CollectionStore::in_dir(&directory);
+        let one = household("household-1");
+        let row = CollectionItem {
+            payload: Some(rabbit_payload()),
+            ..item("item-1", "2026-10-19T10:00:00Z")
+        };
+        let copies = vec![loaded(&one, vec![row])];
+
+        store
+            .save(&snapshot(copies.clone()))
+            .expect("the copies are stored");
+
+        let restored = store.load().expect("the copies are readable");
+        assert_eq!(restored.collections, copies);
+        assert_eq!(
+            restored.collections[0].items[0].payload,
+            Some(rabbit_payload())
+        );
+
+        remove_temp_data_dir(&directory);
+    }
+
+    #[test]
+    fn a_file_item_without_a_payload_reads_as_unknown_content() {
+        // A file written before D1.16 existed carries no payload field at all. It must read as
+        // "content unknown", not make the whole file unreadable (SYNC-3, D1.16).
+        let directory = temp_data_dir("payload-absent");
+        let store = CollectionStore::in_dir(&directory);
+        let content = json!({
+            "format": 1,
+            "collections": [{
+                "household_id": "household-1",
+                "items": [{ "item_id": "item-1", "updated_at": "2026-10-19T10:00:00Z",
+                            "deleted": false }],
+                "loaded_at": "2026-10-19T11:00:00Z"
+            }]
+        });
+        fs::write(store.path(), serde_json::to_vec(&content).expect("JSON"))
+            .expect("a file from before the field existed");
+
+        let restored = store.load().expect("an absent payload is not malformed");
+        assert_eq!(restored.collections[0].items[0].payload, None);
 
         remove_temp_data_dir(&directory);
     }

@@ -150,6 +150,7 @@ fn wire(id: &str, updated_at: &str) -> CollectionItem {
         item_id: item_id(id),
         updated_at: at(updated_at),
         deleted: false,
+        payload: None,
     }
 }
 

@@ -42,12 +42,18 @@
 //! therefore cannot reproduce the service's decision, and must not try to: a delivered row is the
 //! version the service already chose. At an equal `updated_at`:
 //!
-//! - if the delivered row's state is the one already stored (the same tombstone flag — P1 will add
-//!   content to this comparison), the merge is a **replay** and changes nothing;
+//! - if the delivered row's state is the one already stored (the same tombstone flag), the merge is
+//!   a **replay** and changes nothing;
 //! - if the state differs, the delivered row **replaces** the stored one, because the service could
 //!   only have chosen one winner for that instant and the row it delivers is that winner. Keeping
 //!   the stored row instead would let a device hold a losing same-instant version forever: every
 //!   later delivery of the winner would tie again and be ignored.
+//!
+//! **The item's content is not a second ordering input** (D1.16). `updated_at` stays the marker and
+//! the tombstone flag stays the state the tie rule compares, exactly as it did before the content
+//! existed: a row whose content is `None` ("unknown") is not older or newer than one that carries a
+//! payload, and an equal-instant delivery with different content is still decided by the service's
+//! tuple, not by the client comparing two payloads.
 //!
 //! When one batch carries two differing rows for the same item at the same instant, the **later row
 //! in the batch is the winner**: each row is resolved against the winner so far, so the last
@@ -106,8 +112,8 @@
 //!
 //! It owns no clock, opens no transport and writes no file. The guarded merge it calls is what
 //! schedules the device's own best-effort persistence, and only after a batch actually applied
-//! rows. It does not own the change-feed cursor (P6) or a payload schema (P1). The frozen wire
-//! types are read, never extended.
+//! rows. It does not own the change-feed cursor (P6) or an item schema: the row's content is carried
+//! through untouched (D1.16). The frozen wire types are read, never extended.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -341,9 +347,9 @@ impl MergeOutcome {
 ///
 /// The comparison is by absolute instant; the equal-instant rule is the tie rule documented in the
 /// module. An item with no stored row is admitted only when its version parses: a malformed version
-/// cannot be ordered, so storing it would leave a row no later merge could resolve. The row's only
-/// state in P0 is its tombstone flag, so "the same row state" is checked as that flag; when P1 adds
-/// content, this is the comparison that extends to it. A malformed incoming version is ignored
+/// cannot be ordered, so storing it would leave a row no later merge could resolve. The payload is
+/// deliberately **not** compared (D1.16): the row's state for the tie rule is its tombstone flag, so
+/// content can never make one version order above another. A malformed incoming version is ignored
 /// rather than allowed to win by accident, and a stored version that cannot be parsed cannot claim
 /// to be newer than a delivered, parseable one.
 fn incoming_wins(incoming: &CollectionItem, stored: Option<&CollectionItem>) -> bool {
@@ -386,7 +392,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::ipc::types::Instant;
+    use crate::ipc::types::{Instant, ItemPayload};
     use crate::sync::ScriptedService;
 
     fn household(value: &str) -> HouseholdId {
@@ -402,6 +408,7 @@ mod tests {
             item_id: ItemId(item_id.to_owned()),
             updated_at: at(updated_at),
             deleted: false,
+            payload: None,
         }
     }
 
@@ -410,6 +417,35 @@ mod tests {
             item_id: ItemId(item_id.to_owned()),
             updated_at: at(updated_at),
             deleted: true,
+            payload: None,
+        }
+    }
+
+    /// One rabbit item's content, as `save_item` submits it (D1.16).
+    fn rabbit_payload(is_archived: bool) -> ItemPayload {
+        ItemPayload::Rabbit {
+            rabbit: crate::ipc::types::Rabbit {
+                id: crate::ipc::types::RabbitId("item-1".to_owned()),
+                household_id: household("household-1"),
+                name: "Pebble".to_owned(),
+                photo_ref: None,
+                breed: Some("Mini Lop".to_owned()),
+                dob: None,
+                dob_unknown: true,
+                sex: crate::ipc::types::Sex::Female,
+                neuter_status: crate::ipc::types::NeuterStatus::Spayed,
+                adoption_date: None,
+                is_archived,
+                weight_drop_threshold_percent: 5.0,
+            },
+        }
+    }
+
+    /// One row carrying `payload` at `updated_at`.
+    fn row_with(item_id: &str, updated_at: &str, payload: ItemPayload) -> CollectionItem {
+        CollectionItem {
+            payload: Some(payload),
+            ..item(item_id, updated_at)
         }
     }
 
@@ -739,6 +775,62 @@ mod tests {
         let rows = held(&state, &one);
         assert!(!row(&rows, "item-1").deleted);
         assert_eq!(row(&rows, "item-1").updated_at, at("2026-10-19T12:00:00Z"));
+    }
+
+    #[test]
+    fn unknown_content_stays_distinct_from_an_archived_payload() {
+        // The device's row has no content; the merge delivers the archived version. The two are
+        // different states, and the archived payload arrives with everything restore needs (D1.16).
+        let one = household("household-1");
+        let stored = item("item-1", "2026-10-19T10:00:00Z");
+        let state = state_holding(&one, vec![stored.clone()]);
+
+        let outcome = MergePath::new().merge(
+            &state,
+            &one,
+            collection(
+                &one,
+                vec![row_with(
+                    "item-1",
+                    "2026-10-19T11:00:00Z",
+                    rabbit_payload(true),
+                )],
+            ),
+        );
+
+        assert!(outcome.changed());
+        let rows = held(&state, &one);
+        assert_eq!(rows.len(), 1);
+        let archived = &rows[0];
+        assert_ne!(archived, &stored, "unknown content is not archived content");
+        assert_eq!(archived.payload, Some(rabbit_payload(true)));
+    }
+
+    #[test]
+    fn content_is_not_a_second_ordering_input() {
+        // The same instant and the same tombstone flag: the tie rule is the service's, so a delivery
+        // that differs only in content is a replay. An unknown payload is not "older" than a known
+        // one, and a known payload does not outrank an unknown one (D1.16).
+        let one = household("household-1");
+        let stored = item("item-1", "2026-10-19T10:00:00Z");
+        let state = state_holding(&one, vec![stored.clone()]);
+
+        let outcome = MergePath::new().merge(
+            &state,
+            &one,
+            collection(
+                &one,
+                vec![row_with(
+                    "item-1",
+                    "2026-10-19T10:00:00Z",
+                    rabbit_payload(false),
+                )],
+            ),
+        );
+
+        assert!(!outcome.changed());
+        assert_eq!(ids(outcome.ignored()), ["item-1"]);
+        assert_eq!(held(&state, &one), vec![stored]);
     }
 
     #[test]

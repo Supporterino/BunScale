@@ -31,22 +31,26 @@
 //!
 //! **Why storage types exist although the wire types look the same.** [`CollectionItem`] is the
 //! frontend's shape and is frozen by task 1.3; [`StoredItem`] is the device's row. The conversions
-//! below are the single place the two could drift, so a P1 field the store keeps but the wire does
-//! not yet represent is an additive change here rather than an edit to a frozen type — and
-//! re-declaring the fields on both sides is exactly the duplication a conversion avoids.
+//! below are the single place the two could drift, so a field the store keeps and the wire does not
+//! represent would be an additive change here rather than an edit to a frozen type — and
+//! re-declaring the fields on both sides is exactly the duplication a conversion avoids. The item's
+//! content ([`ItemPayload`](crate::ipc::types::ItemPayload)) is carried by both sides and by every
+//! conversion unchanged (D1.16).
 
 use std::collections::HashMap;
 
-use crate::ipc::types::{CollectionItem, HouseholdId, Instant, ItemId};
+use crate::ipc::types::{CollectionItem, HouseholdId, Instant, ItemId, ItemPayload};
 
-/// One item as the device stores it: identity, version marker, tombstone (SYNC-1, SYNC-5).
+/// One item as the device stores it: identity, version marker, tombstone, content (SYNC-1, SYNC-5).
 ///
-/// The three fields are exactly the part of an item every member must resolve identically; the
-/// item's *content* arrives with the first domain type (P1's rabbits and weight entries) and is an
-/// additive change to this type. The two named constructors below are the only way to write a row,
-/// so a row can never be missing its identity or its version marker, and no construction site has to
-/// spell a bare tombstone flag.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The three identity/version fields are exactly the part of an item every member must resolve
+/// identically. `payload` is the item's content (D1.16): either one of [`ItemPayload`]'s kinds or
+/// `None`, which means **content unknown** — not archived, not empty. The two named constructors
+/// below produce a row with unknown content, and a content-bearing row is built from the wire row
+/// through [`From<CollectionItem> for StoredItem`], so a write and a load translate a version the
+/// same way. A row can never be missing its identity or its version marker, and no construction site
+/// has to spell a bare tombstone flag.
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoredItem {
     /// The item's opaque, stable identifier within its household. It is unique for the life of the
     /// item and shared verbatim across the household's devices, which is what makes the row set
@@ -60,19 +64,23 @@ pub struct StoredItem {
     /// than the row silently vanishing. The row keeps its identity and version, so the removal
     /// itself is ordered and resumable like any other change.
     pub deleted: bool,
+    /// The item's content, or `None` when this device has not read it (D1.16). A tombstone is not
+    /// required to blank it: the retained content is the content of the version that removed it.
+    pub payload: Option<ItemPayload>,
 }
 
 impl StoredItem {
-    /// A live row: the item exists, at version `updated_at`.
+    /// A live row with **unknown content**: the item exists, at version `updated_at`.
     pub fn live(item_id: ItemId, updated_at: Instant) -> Self {
         Self {
             item_id,
             updated_at,
             deleted: false,
+            payload: None,
         }
     }
 
-    /// A **tombstone** row: the item was removed, at version `updated_at`.
+    /// A **tombstone** row with **unknown content**: the item was removed, at version `updated_at`.
     ///
     /// The removal is reported rather than the row silently vanishing (D0.7 criterion 2): the row
     /// keeps its identity and version, so the removal is ordered and resumable like any other
@@ -83,6 +91,7 @@ impl StoredItem {
             item_id,
             updated_at,
             deleted: true,
+            payload: None,
         }
     }
 }
@@ -93,7 +102,7 @@ impl StoredItem {
 /// can swap the map for rows that belong to another household, and the one-row-per-item keying
 /// holds whatever a caller does. Instances are built per household; the device's set of them is
 /// [`LocalCopies`](super::LocalCopies).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoredCollection {
     /// The household this collection belongs to. It addresses exactly one logical collection; two
     /// instances with the same id would be two copies of one collection, which is why nothing in
@@ -181,15 +190,16 @@ impl StoredCollection {
 
 /// The wire item handed to the store becomes the device's row unchanged.
 ///
-/// No field is dropped or derived: the wire shape carries exactly what the layout owns. The
-/// conversion exists so an incoming batch is translated once, in one place, instead of both sides
-/// declaring the same three fields.
+/// No field is dropped or derived: the wire shape carries exactly what the layout owns, including
+/// the content (D1.16). The conversion exists so an incoming batch is translated once, in one place,
+/// instead of both sides declaring the same fields.
 impl From<CollectionItem> for StoredItem {
     fn from(item: CollectionItem) -> Self {
         Self {
             item_id: item.item_id,
             updated_at: item.updated_at,
             deleted: item.deleted,
+            payload: item.payload,
         }
     }
 }
@@ -208,6 +218,7 @@ impl From<StoredItem> for CollectionItem {
             item_id: item.item_id,
             updated_at: item.updated_at,
             deleted: item.deleted,
+            payload: item.payload,
         }
     }
 }
@@ -235,6 +246,26 @@ mod tests {
 
     fn household() -> HouseholdId {
         HouseholdId("household-1".to_owned())
+    }
+
+    /// One rabbit item's content, as `save_item` submits it (D1.16).
+    fn rabbit_payload(is_archived: bool) -> ItemPayload {
+        ItemPayload::Rabbit {
+            rabbit: crate::ipc::types::Rabbit {
+                id: crate::ipc::types::RabbitId("item-1".to_owned()),
+                household_id: household(),
+                name: "Pebble".to_owned(),
+                photo_ref: None,
+                breed: Some("Mini Lop".to_owned()),
+                dob: None,
+                dob_unknown: true,
+                sex: crate::ipc::types::Sex::Female,
+                neuter_status: crate::ipc::types::NeuterStatus::Spayed,
+                adoption_date: None,
+                is_archived,
+                weight_drop_threshold_percent: 5.0,
+            },
+        }
     }
 
     fn live(item_id: &str, updated_at: &str) -> StoredItem {
@@ -372,11 +403,38 @@ mod tests {
             item_id: id("item-1"),
             updated_at: at("2026-10-19T10:00:00Z"),
             deleted: true,
+            payload: Some(rabbit_payload(false)),
         };
 
         let stored = StoredItem::from(&wire);
         assert_eq!(CollectionItem::from(&stored), wire);
         assert_eq!(StoredItem::from(wire.clone()), stored);
+    }
+
+    #[test]
+    fn the_two_constructors_write_unknown_content() {
+        assert_eq!(live("item-1", "2026-10-19T10:00:00Z").payload, None);
+        assert_eq!(tombstone("item-1", "2026-10-19T10:00:00Z").payload, None);
+    }
+
+    #[test]
+    fn unknown_content_is_not_an_archived_payload() {
+        // Both rows are live and carry the same identity and version; only the content differs.
+        let unknown = StoredItem::live(id("item-1"), at("2026-10-19T10:00:00Z"));
+        let archived = StoredItem::from(CollectionItem {
+            item_id: id("item-1"),
+            updated_at: at("2026-10-19T10:00:00Z"),
+            deleted: false,
+            payload: Some(rabbit_payload(true)),
+        });
+
+        assert_ne!(unknown, archived);
+        assert_eq!(unknown.payload, None);
+        assert_ne!(archived.payload, None);
+        let Some(ItemPayload::Rabbit { rabbit }) = archived.payload else {
+            panic!("the archived row holds its rabbit");
+        };
+        assert!(rabbit.is_archived);
     }
 
     #[test]

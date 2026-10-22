@@ -379,6 +379,7 @@ mod tests {
                 item_id: ItemId(rabbit.id.0.clone()),
                 updated_at: Instant("2026-10-22T09:30:00Z".to_owned()),
                 deleted: false,
+                payload: None,
             }],
             source: CollectionSource::Service,
             loaded_at: None,

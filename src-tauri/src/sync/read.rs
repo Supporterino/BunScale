@@ -51,6 +51,18 @@
 //! through the guarded merge path and advance the cursor after the merge succeeded — never replace
 //! the copy. P0 keeps no cursor at all, so there is nothing that could skip an unapplied change.
 //!
+//! # A row of a kind this version does not model is dropped, not stored
+//!
+//! The shared collection is expected to hold items of later phases (P2's health items), and the
+//! frozen [`CollectionItem`] has no way to say "foreign": a stored row with no payload would read as
+//! an item this version models whose content was not loaded, and every P1 read would have to
+//! describe or refuse over it. The answer is therefore classified per row **before** the guarded
+//! load (see [`FeedRow`]): only a payload whose string `kind` this version does not model drops its
+//! row, while a known kind that fails to decode — like a missing payload or a body with no string
+//! `kind` — is kept as **unknown content**. The copy holds the items this version models; the shared
+//! collection remains the record, and the phase that models a kind starts storing it when its own
+//! type lands (D1.16). One later phase's item can therefore never take a collection read down.
+//!
 //! # When a refresh is attempted
 //!
 //! A start or foreground return calls [`ReadPath::load`]; that is the command path. The refresh is
@@ -78,12 +90,14 @@
 use std::sync::OnceLock;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::READ_REFRESH_TIMEOUT;
 use super::probe::probe;
 use super::service::SharedService;
 use crate::ipc::types::{
-    CollectionItem, CollectionSource, CommandError, HouseholdCollection, HouseholdId,
+    CollectionItem, CollectionSource, CommandError, HouseholdCollection, HouseholdId, Instant,
+    ItemId, ItemPayload,
 };
 use crate::state::AppState;
 use crate::storage::{AbsoluteInstant, LocalCopy};
@@ -225,22 +239,109 @@ impl ReadPath {
 struct ChangeFeed {
     /// The household the answer describes.
     household_id: HouseholdId,
-    /// The collection's rows.
-    items: Vec<CollectionItem>,
+    /// The collection's rows, still carrying their raw payload so its provenance can be decided
+    /// before anything reaches the store (see [`FeedRow`]).
+    items: Vec<FeedRow>,
 }
 
 impl ChangeFeed {
-    /// This answer as the collection the guarded load takes.
+    /// This answer as the collection the guarded load takes, without the rows whose payload belongs
+    /// to a kind this version does not model.
     ///
     /// `source` and `loaded_at` on the stored value are placeholders: the guarded load keeps the
     /// rows and records the caller's instant, and a subsequent read labels the copy's own source.
     fn into_collection(self) -> HouseholdCollection {
         HouseholdCollection {
             household_id: self.household_id,
-            items: self.items,
+            items: self.items.into_iter().filter_map(FeedRow::decode).collect(),
             source: CollectionSource::Service,
             loaded_at: None,
         }
+    }
+}
+
+/// One row of an answer, before its payload's provenance is known (D1.16).
+///
+/// The payload stays raw JSON on purpose. The frozen [`CollectionItem`] cannot say "foreign", and a
+/// tagged enum that refused an unrecognised `kind` would make one later phase's item — P2's health
+/// items share this household collection — take the whole answer down. [`FeedRow::decode`] therefore
+/// classifies it first, and the drop is a decode step rather than a field on any stored or exported
+/// type.
+#[derive(Debug, Deserialize)]
+struct FeedRow {
+    /// The item's opaque, stable identifier within its household.
+    item_id: ItemId,
+    /// The item's version marker, held unchanged.
+    updated_at: Instant,
+    /// Whether this row is a tombstone, held unchanged.
+    deleted: bool,
+    /// The payload exactly as the answer carried it; absent and `null` both mean unknown content.
+    #[serde(default)]
+    payload: Option<Value>,
+}
+
+impl FeedRow {
+    /// This row as the shape the store takes, or `None` when it is **foreign** and must be dropped.
+    ///
+    /// A foreign row is dropped rather than stored because the frozen wire type cannot express
+    /// "foreign": a stored row with `payload: None` would be indistinguishable from an item whose
+    /// content this device simply has not read, and every P1 read would then describe — or refuse
+    /// over — an item of a kind it does not model. Dropping it keeps the copy to the items this
+    /// version models, so a rabbit list is never withheld because a health item shares the
+    /// household, and no P1 write can reach the row. The shared collection stays the record, and the
+    /// phase that models the kind starts storing it when its own type lands (D1.16).
+    fn decode(self) -> Option<CollectionItem> {
+        let payload = match classify(self.payload) {
+            Provenance::Known(payload) => Some(payload),
+            Provenance::UnknownContent => None,
+            Provenance::Foreign => return None,
+        };
+
+        Some(CollectionItem {
+            item_id: self.item_id,
+            updated_at: self.updated_at,
+            deleted: self.deleted,
+            payload,
+        })
+    }
+}
+
+/// What one answer's payload is, as far as this version can tell (D1.16).
+#[derive(Debug)]
+enum Provenance {
+    /// A kind this version models, decoded whole.
+    Known(ItemPayload),
+    /// A kind this version models whose content did not decode, or no payload at all. Stored as
+    /// unknown content; the item is one this version must be able to describe.
+    UnknownContent,
+    /// A kind this version does not model. Its row is dropped before the guarded load.
+    Foreign,
+}
+
+/// Classify one payload by `kind` (D1.16).
+///
+/// **Foreign is exactly one case: a string `kind` this version does not model.** Everything else —
+/// no payload at all, `null`, a body that is not a tagged object, or a known tag whose body does not
+/// decode — is unknown content: the row is kept, because a modelled item whose content this version
+/// could not read must make the reads that need it refuse rather than silently omit it (SYNC-1).
+fn classify(payload: Option<Value>) -> Provenance {
+    let Some(value) = payload.filter(|value| !value.is_null()) else {
+        return Provenance::UnknownContent;
+    };
+
+    let Some(kind) = value.get("kind").and_then(Value::as_str) else {
+        // Not a tagged envelope this version can attribute to a kind, so it is content that failed
+        // to decode — never a licence to drop a row that might be one this version models.
+        return Provenance::UnknownContent;
+    };
+
+    if !ItemPayload::KINDS.contains(&kind) {
+        return Provenance::Foreign;
+    }
+
+    match serde_json::from_value::<ItemPayload>(value) {
+        Ok(payload) => Provenance::Known(payload),
+        Err(_) => Provenance::UnknownContent,
     }
 }
 
@@ -271,8 +372,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ipc::types::{AccountUserId, Instant, ItemId, RequestId, SaveCause};
+    use crate::ipc::types::{AccountUserId, Instant, ItemId, ItemPayload, RequestId, SaveCause};
     use crate::storage::{CollectionStore, DeviceSnapshot};
+    use crate::sync::MergePath;
     use crate::sync::REACHABILITY_PROBE_TIMEOUT;
     use crate::sync::READ_REFRESH_TIMEOUT;
     use crate::sync::double::test_support::block_on_ready;
@@ -292,6 +394,35 @@ mod tests {
             item_id: ItemId(item_id.to_owned()),
             updated_at: at(updated_at),
             deleted: false,
+            payload: None,
+        }
+    }
+
+    /// One rabbit item's content, as `save_item` submits it (D1.16).
+    fn rabbit_payload(is_archived: bool) -> ItemPayload {
+        ItemPayload::Rabbit {
+            rabbit: crate::ipc::types::Rabbit {
+                id: crate::ipc::types::RabbitId("item-1".to_owned()),
+                household_id: household("household-1"),
+                name: "Pebble".to_owned(),
+                photo_ref: None,
+                breed: Some("Mini Lop".to_owned()),
+                dob: None,
+                dob_unknown: true,
+                sex: crate::ipc::types::Sex::Female,
+                neuter_status: crate::ipc::types::NeuterStatus::Spayed,
+                adoption_date: None,
+                is_archived,
+                weight_drop_threshold_percent: 5.0,
+            },
+        }
+    }
+
+    /// One row carrying `payload` at `updated_at`.
+    fn row_with(item_id: &str, updated_at: &str, payload: ItemPayload) -> CollectionItem {
+        CollectionItem {
+            payload: Some(payload),
+            ..item(item_id, updated_at)
         }
     }
 
@@ -350,6 +481,19 @@ mod tests {
                 "household_id": household_id.0.as_str(),
                 "items": items,
                 // Present in the deployment's answer but not read in P0.
+                "change_seq": 7,
+            }),
+        ))
+    }
+
+    /// One readable whole-collection answer whose rows are given as raw JSON, so a test can send a
+    /// foreign kind or a known kind with an undecodable body.
+    fn feed_rows(household_id: &HouseholdId, items: Vec<serde_json::Value>) -> ServiceReply {
+        ServiceReply::Answered(Answer::with_body(
+            200,
+            json!({
+                "household_id": household_id.0.as_str(),
+                "items": items,
                 "change_seq": 7,
             }),
         ))
@@ -783,6 +927,290 @@ mod tests {
         assert_eq!(read.items, held);
         assert_eq!(read.loaded_at, persisted.loaded_at);
         assert!(read.loaded_at.is_some());
+
+        remove_temp_data_dir(&directory);
+    }
+
+    #[test]
+    fn a_payload_survives_storage_a_snapshot_a_feed_and_a_merge_unchanged() {
+        let one = household("household-1");
+        let directory = temp_data_dir("payload-round-trip");
+        let payload = rabbit_payload(false);
+        let first = "2026-10-19T10:00:00Z";
+        let second = "2026-10-19T11:00:00Z";
+        let third = "2026-10-19T12:00:00Z";
+
+        // Storage: a row carrying content enters through the guarded load and is persisted.
+        let writer = AppState::with_collection_store(
+            Arc::new(ScriptedService::new().on_service_check([ServiceReply::NoResponse])),
+            None,
+            CollectionStore::in_dir(&directory),
+        );
+        writer
+            .load_collection(
+                &one,
+                stored_collection(&one, vec![row_with("item-1", first, payload.clone())]),
+                at("2026-10-19T10:30:00Z"),
+            )
+            .expect("the copy is addressed correctly");
+        writer.persist_now();
+
+        // Snapshot: the next launch restores the content from the file.
+        let restored = AppState::with_collection_store(
+            Arc::new(ScriptedService::new().on_service_check([ServiceReply::NoResponse])),
+            None,
+            CollectionStore::in_dir(&directory),
+        );
+        let held = restored
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the restored copy is held");
+        assert_eq!(held.items[0].payload, Some(payload.clone()));
+
+        // Feed: a newer version of the same item, same content, arrives through the read path.
+        let fed = AppState::with_collection_store(
+            Arc::new(ScriptedService::new().on_read([feed(
+                &one,
+                vec![row_with("item-1", second, payload.clone())],
+            )])),
+            None,
+            CollectionStore::in_dir(&directory),
+        );
+        let read = block_on_ready(ReadPath::new().load(&fed, &one)).expect("the read resolves");
+        assert_eq!(read.source, CollectionSource::Service);
+        assert_eq!(read.items[0].payload, Some(payload.clone()));
+
+        // Merge: a newer version that still carries the same content, then a read.
+        let outcome = MergePath::new().merge(
+            &fed,
+            &one,
+            stored_collection(&one, vec![row_with("item-1", third, payload.clone())]),
+        );
+        assert!(outcome.changed());
+
+        let after = fed
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is held");
+        assert_eq!(after.items[0].updated_at, at(third));
+        assert_eq!(after.items[0].payload, Some(payload));
+
+        remove_temp_data_dir(&directory);
+    }
+
+    #[test]
+    fn a_payload_is_classified_by_provenance() {
+        // The three cases D1.16 distinguishes, decided before anything reaches the store.
+        assert!(matches!(classify(None), Provenance::UnknownContent));
+        assert!(matches!(
+            classify(Some(json!(null))),
+            Provenance::UnknownContent
+        ));
+
+        // A kind this version models, decoded whole: a payload.
+        assert!(matches!(
+            classify(Some(
+                serde_json::to_value(rabbit_payload(false)).expect("encodable")
+            )),
+            Provenance::Known(ItemPayload::Rabbit { .. })
+        ));
+        assert!(matches!(
+            classify(Some(json!({
+                "kind": "weight_entry",
+                "weight_entry": {
+                    "id": "entry-1",
+                    "rabbit_id": "item-1",
+                    "value_grams": 1250,
+                    "timestamp": "2026-10-20T09:00:00Z",
+                    "note": null,
+                    "photo_refs": [],
+                    "has_weight_drop_alert": false,
+                },
+            }))),
+            Provenance::Known(ItemPayload::WeightEntry { .. })
+        ));
+
+        // A kind this version models whose content did not decode: unknown content, still stored.
+        assert!(matches!(
+            classify(Some(
+                json!({ "kind": "rabbit", "rabbit": { "name": "Pebble" } })
+            )),
+            Provenance::UnknownContent
+        ));
+        assert!(matches!(
+            classify(Some(json!({ "kind": "weight_entry" }))),
+            Provenance::UnknownContent
+        ));
+
+        // A present payload this version cannot attribute to a kind failed to decode: unknown
+        // content, never a licence to drop a row that might be one this version models.
+        assert!(matches!(
+            classify(Some(json!({ "rabbit": { "name": "Pebble" } }))),
+            Provenance::UnknownContent
+        ));
+        assert!(matches!(
+            classify(Some(json!("not a tagged payload"))),
+            Provenance::UnknownContent
+        ));
+        assert!(matches!(
+            classify(Some(json!(7))),
+            Provenance::UnknownContent
+        ));
+
+        // Foreign is exactly a string kind outside the modelled set: the row is dropped.
+        assert!(matches!(
+            classify(Some(
+                json!({ "kind": "health", "health": { "weight_kg": 2.1 } })
+            )),
+            Provenance::Foreign
+        ));
+        assert!(matches!(
+            classify(Some(json!({ "kind": "future_kind" }))),
+            Provenance::Foreign
+        ));
+    }
+
+    #[test]
+    fn a_foreign_row_is_dropped_and_does_not_stop_a_known_row_from_being_read() {
+        let one = household("household-1");
+        let service = Arc::new(ScriptedService::new().on_read([feed_rows(
+            &one,
+            vec![
+                json!({
+                    "item_id": "item-1",
+                    "updated_at": "2026-10-19T10:00:00Z",
+                    "deleted": false,
+                    "payload": rabbit_payload(false),
+                }),
+                // A known kind whose body does not decode: one this version models, content unknown.
+                json!({
+                    "item_id": "item-2",
+                    "updated_at": "2026-10-19T10:00:00Z",
+                    "deleted": false,
+                    "payload": { "kind": "rabbit", "rabbit": { "name": "Pebble" } },
+                }),
+                // P2's kind: not modelled here, so its row is dropped, not stored.
+                json!({
+                    "item_id": "item-3",
+                    "updated_at": "2026-10-19T10:00:00Z",
+                    "deleted": false,
+                    "payload": { "kind": "health", "health": { "weight_kg": 2.1 } },
+                }),
+            ],
+        )]));
+        let state = AppState::new(service, None);
+
+        let read = block_on_ready(ReadPath::new().load(&state, &one)).expect("the read resolves");
+
+        assert_eq!(
+            read.source,
+            CollectionSource::Service,
+            "a foreign row does not stop the refresh"
+        );
+        let ids: Vec<&str> = read
+            .items
+            .iter()
+            .map(|row| row.item_id.0.as_str())
+            .collect();
+        assert_eq!(ids, ["item-1", "item-2"]);
+        assert_eq!(read.items[0].payload, Some(rabbit_payload(false)));
+        assert_eq!(
+            read.items[1].payload, None,
+            "a known kind that did not decode is unknown content"
+        );
+
+        let stored = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is held");
+        assert_eq!(stored.items, read.items);
+        assert_eq!(
+            state.item_owner(&ItemId("item-3".to_owned())),
+            None,
+            "a dropped row never claims its id"
+        );
+    }
+
+    #[test]
+    fn a_foreign_row_is_neither_written_back_nor_a_tombstone() {
+        let one = household("household-1");
+        let directory = temp_data_dir("foreign-drop");
+        let service = Arc::new(ScriptedService::new().on_read([feed_rows(
+            &one,
+            vec![
+                // A known removal stands as delivered; it is not what is under test here.
+                json!({
+                    "item_id": "item-2",
+                    "updated_at": "2026-10-19T11:00:00Z",
+                    "deleted": true,
+                }),
+                // A live foreign row and a foreign row that *claims* to be a tombstone. Neither may
+                // become a row: a foreign row is not a removal this version can apply, and storing
+                // the deleted one would let it look like a tombstone of an item it does not model.
+                json!({
+                    "item_id": "item-3",
+                    "updated_at": "2026-10-19T11:00:00Z",
+                    "deleted": false,
+                    "payload": { "kind": "health", "health": { "note": "P2" } },
+                }),
+                json!({
+                    "item_id": "item-4",
+                    "updated_at": "2026-10-19T12:00:00Z",
+                    "deleted": true,
+                    "payload": { "kind": "health", "health": { "note": "P2" } },
+                }),
+            ],
+        )]));
+        let state =
+            AppState::with_collection_store(service, None, CollectionStore::in_dir(&directory));
+
+        let read = block_on_ready(ReadPath::new().load(&state, &one)).expect("the read resolves");
+
+        let removed = read
+            .items
+            .iter()
+            .find(|row| row.item_id == ItemId("item-2".to_owned()))
+            .expect("the known removal is stored");
+        assert!(removed.deleted);
+        for dropped in ["item-3", "item-4"] {
+            assert!(
+                !read
+                    .items
+                    .iter()
+                    .any(|row| row.item_id == ItemId(dropped.to_owned())),
+                "{dropped} has no row at all — not a tombstone, not unknown content"
+            );
+            assert_eq!(
+                state.item_owner(&ItemId(dropped.to_owned())),
+                None,
+                "{dropped} never claimed its id"
+            );
+        }
+
+        // Not written back: the next launch reads a file that held neither dropped row, live or
+        // tombstoned.
+        state.persist_now();
+        let relaunched = AppState::with_collection_store(
+            Arc::new(ScriptedService::new().on_service_check([ServiceReply::NoResponse])),
+            None,
+            CollectionStore::in_dir(&directory),
+        );
+        let restored = relaunched
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is restored");
+        for dropped in ["item-3", "item-4"] {
+            assert!(
+                restored
+                    .items
+                    .iter()
+                    .all(|row| row.item_id != ItemId(dropped.to_owned())),
+                "{dropped} is never persisted, whatever its deleted flag said"
+            );
+        }
+        assert!(
+            restored
+                .items
+                .iter()
+                .any(|row| row.item_id == ItemId("item-2".to_owned()) && row.deleted),
+            "the known removal survived the relaunch"
+        );
 
         remove_temp_data_dir(&directory);
     }

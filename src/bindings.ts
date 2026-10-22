@@ -506,12 +506,12 @@ export const events = {
 export type AccountUserId = string;
 
 /**
- *  One item's identity and version inside a household's collection (SYNC-1, SYNC-5).
+ *  One item's identity, version, tombstone flag and content inside a household's collection
+ *  (SYNC-1, SYNC-5; D1.16).
  * 
- *  P0 fixes the collection layer, not a domain schema: an item's *content* arrives with the first
- *  domain type (P1's rabbits and weight entries), and adding a field here is an additive contract
- *  change. What P0 exposes is the part every member must resolve identically — one opaque id, one
- *  version marker, and whether the row is a tombstone.
+ *  The first three fields are the part every member must resolve identically — one opaque id, one
+ *  version marker, and whether the row is a tombstone. [`CollectionItem::payload`] is the item's
+ *  content, carried with the row so a read serves it without a second call (D1.16).
  */
 export type CollectionItem = {
 	/**  The item's opaque, stable identifier within its household. */
@@ -527,6 +527,21 @@ export type CollectionItem = {
 	 *  member instead of the row silently vanishing (a removal must appear in the change feed).
 	 */
 	deleted: boolean,
+	/**
+	 *  The item's content, or `None` when this device has not read it (D1.16).
+	 * 
+	 *  `None` is **"content unknown"**, never "no content" and never "archived". A live row with no
+	 *  payload is a row this device learnt of without ever reading the item; an archived row is the
+	 *  opposite — a **present** payload carrying `is_archived: true`. The write path depends on the
+	 *  distinction: a whole-item write replaces the stored version, so a row whose content is
+	 *  unknown must be read before it is written, while an archived row holds everything restore
+	 *  needs.
+	 * 
+	 *  The field is `#[serde(default)]` so a leaner feed or a file written before this field
+	 *  existed reads as unknown content rather than as an unreadable answer (SYNC-3). It is always
+	 *  present on the wire, as `null`, so "unknown" is a visible value rather than an omission.
+	 */
+	payload?: ItemPayload | null,
 };
 
 /**  Where a household-collection read resolved its items (D0.2, SYNC-3). */
@@ -792,6 +807,29 @@ export type Instant = string;
  *  rather than a client-side check (D0.7 criterion 1).
  */
 export type ItemId = string;
+
+/**
+ *  One item's content, in the envelope the write that saves it submits (RAB-6, RAB-9, WT-5, DM-4;
+ *  D1.16).
+ * 
+ *  It is **one** shape shared by the item write and the collection row, so the version this device
+ *  holds and the version it writes cannot drift into two representations of one value. The variant
+ *  names and the member names (`kind`, `rabbit`, `weight_entry`) are frozen: they are exactly what
+ *  `domain::rabbit::save_body` already sends for a rabbit item, and every item kind added later
+ *  adds a variant rather than re-shaping the existing two.
+ * 
+ *  It derives `PartialEq` but not `Eq`, because [`Rabbit::weight_drop_threshold_percent`] is a
+ *  floating-point percentage (D1.16).
+ */
+export type ItemPayload = 
+/**  A rabbit profile (RAB-1). */
+{ kind: "rabbit"; 
+/**  The rabbit as its write body carries it. */
+rabbit: Rabbit } | 
+/**  One weight entry (WT-1). */
+{ kind: "weight_entry"; 
+/**  The entry as its write body carries it. */
+weight_entry: WeightEntry };
 
 /**
  *  One member of a household (D0.3, SET-2).

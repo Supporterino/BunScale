@@ -42,7 +42,7 @@ use super::collection::{StoredCollection, StoredItem};
 use crate::ipc::types::{CollectionSource, HouseholdCollection, HouseholdId, Instant};
 
 /// The device's copy of one household's collection (D0.2).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocalCopy {
     /// The stored rows, keyed and deduplicated by the layout (see [`StoredCollection`]).
     collection: StoredCollection,
@@ -124,7 +124,7 @@ impl LocalCopy {
 /// one, and no copy is ever stored under an id it does not belong to. Which households are in the
 /// map is the read path's business (tasks 2.2 and 2.5); this type only refuses to hold two copies of
 /// one household.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct LocalCopies {
     copies: HashMap<HouseholdId, LocalCopy>,
 }
@@ -244,6 +244,7 @@ mod tests {
             item_id: id(item_id),
             updated_at: at(updated_at),
             deleted: false,
+            payload: None,
         }
     }
 
@@ -252,6 +253,7 @@ mod tests {
             item_id: id(item_id),
             updated_at: at(updated_at),
             deleted: true,
+            payload: None,
         }
     }
 

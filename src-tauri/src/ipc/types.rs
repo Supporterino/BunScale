@@ -292,13 +292,49 @@ pub enum CollectionSource {
     Local,
 }
 
-/// One item's identity and version inside a household's collection (SYNC-1, SYNC-5).
+/// One item's content, in the envelope the write that saves it submits (RAB-6, RAB-9, WT-5, DM-4;
+/// D1.16).
 ///
-/// P0 fixes the collection layer, not a domain schema: an item's *content* arrives with the first
-/// domain type (P1's rabbits and weight entries), and adding a field here is an additive contract
-/// change. What P0 exposes is the part every member must resolve identically — one opaque id, one
-/// version marker, and whether the row is a tombstone.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// It is **one** shape shared by the item write and the collection row, so the version this device
+/// holds and the version it writes cannot drift into two representations of one value. The variant
+/// names and the member names (`kind`, `rabbit`, `weight_entry`) are frozen: they are exactly what
+/// `domain::rabbit::save_body` already sends for a rabbit item, and every item kind added later
+/// adds a variant rather than re-shaping the existing two.
+///
+/// It derives `PartialEq` but not `Eq`, because [`Rabbit::weight_drop_threshold_percent`] is a
+/// floating-point percentage (D1.16).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ItemPayload {
+    /// A rabbit profile (RAB-1).
+    Rabbit {
+        /// The rabbit as its write body carries it.
+        rabbit: Rabbit,
+    },
+    /// One weight entry (WT-1).
+    WeightEntry {
+        /// The entry as its write body carries it.
+        weight_entry: WeightEntry,
+    },
+}
+
+impl ItemPayload {
+    /// The `kind` tokens this version models, one per variant.
+    ///
+    /// The feed uses this to tell a **foreign** payload — a kind this version does not model, whose
+    /// row is dropped — from a **known** kind whose content did not decode, which is stored as
+    /// unknown content (D1.16). A new variant adds its token here beside the variant itself, so the
+    /// two can never disagree about what this version models.
+    pub const KINDS: &'static [&'static str] = &["rabbit", "weight_entry"];
+}
+
+/// One item's identity, version, tombstone flag and content inside a household's collection
+/// (SYNC-1, SYNC-5; D1.16).
+///
+/// The first three fields are the part every member must resolve identically — one opaque id, one
+/// version marker, and whether the row is a tombstone. [`CollectionItem::payload`] is the item's
+/// content, carried with the row so a read serves it without a second call (D1.16).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct CollectionItem {
     /// The item's opaque, stable identifier within its household.
     pub item_id: ItemId,
@@ -309,6 +345,20 @@ pub struct CollectionItem {
     /// Whether this row is a tombstone — the item was removed and the removal is reported to every
     /// member instead of the row silently vanishing (a removal must appear in the change feed).
     pub deleted: bool,
+    /// The item's content, or `None` when this device has not read it (D1.16).
+    ///
+    /// `None` is **"content unknown"**, never "no content" and never "archived". A live row with no
+    /// payload is a row this device learnt of without ever reading the item; an archived row is the
+    /// opposite — a **present** payload carrying `is_archived: true`. The write path depends on the
+    /// distinction: a whole-item write replaces the stored version, so a row whose content is
+    /// unknown must be read before it is written, while an archived row holds everything restore
+    /// needs.
+    ///
+    /// The field is `#[serde(default)]` so a leaner feed or a file written before this field
+    /// existed reads as unknown content rather than as an unreadable answer (SYNC-3). It is always
+    /// present on the wire, as `null`, so "unknown" is a visible value rather than an omission.
+    #[serde(default)]
+    pub payload: Option<ItemPayload>,
 }
 
 /// One household's collection as a read resolved it (SYNC-1, SYNC-3).
@@ -318,7 +368,7 @@ pub struct CollectionItem {
 /// `source: local` with `loaded_at` set; and nothing ever loaded while unreachable is
 /// `source: local` with `loaded_at: None` — the explicit connectivity-required state, never an
 /// empty list presented as the household's current data.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct HouseholdCollection {
     /// The household the collection belongs to.
     pub household_id: HouseholdId,
@@ -689,4 +739,129 @@ pub struct DiagnosticsSummary {
     pub oldest_at: Option<Instant>,
     /// When the newest held record was recorded; `None` when the sink is empty.
     pub newest_at: Option<Instant>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// The one rabbit content the envelope tests carry.
+    fn rabbit() -> Rabbit {
+        Rabbit {
+            id: RabbitId("item-1".to_owned()),
+            household_id: HouseholdId("household-1".to_owned()),
+            name: "Pebble".to_owned(),
+            photo_ref: None,
+            breed: Some("Mini Lop".to_owned()),
+            dob: None,
+            dob_unknown: true,
+            sex: Sex::Female,
+            neuter_status: NeuterStatus::Spayed,
+            adoption_date: None,
+            is_archived: true,
+            weight_drop_threshold_percent: 5.0,
+        }
+    }
+
+    /// The one weight entry the envelope tests carry.
+    fn weight_entry() -> WeightEntry {
+        WeightEntry {
+            id: WeightEntryId("entry-1".to_owned()),
+            rabbit_id: RabbitId("item-1".to_owned()),
+            value_grams: Grams(1_250),
+            timestamp: Instant("2026-10-20T09:00:00Z".to_owned()),
+            note: None,
+            photo_refs: Vec::new(),
+            has_weight_drop_alert: false,
+        }
+    }
+
+    #[test]
+    fn a_rabbit_payload_is_the_envelope_save_item_submits() {
+        // Exactly the shape `domain::rabbit::save_body` sends: one internally tagged object whose
+        // member names are frozen (D1.16). A second shape would let a write and a row drift apart.
+        let payload = ItemPayload::Rabbit { rabbit: rabbit() };
+
+        assert_eq!(
+            serde_json::to_value(&payload).expect("the payload is encodable"),
+            json!({ "kind": "rabbit", "rabbit": rabbit() })
+        );
+    }
+
+    #[test]
+    fn every_payload_variant_names_a_kind_this_version_models() {
+        // Exhaustive on purpose: a new variant does not compile until it names its token here, and
+        // that token is then checked against both its own wire tag and the list the feed classifies
+        // by. A variant whose token is missing from `KINDS` would have its rows treated as foreign
+        // and dropped (D1.16).
+        fn token(payload: &ItemPayload) -> &'static str {
+            match payload {
+                ItemPayload::Rabbit { .. } => "rabbit",
+                ItemPayload::WeightEntry { .. } => "weight_entry",
+            }
+        }
+
+        for payload in [
+            ItemPayload::Rabbit { rabbit: rabbit() },
+            ItemPayload::WeightEntry {
+                weight_entry: weight_entry(),
+            },
+        ] {
+            let wire = serde_json::to_value(&payload).expect("the payload is encodable");
+            let kind = token(&payload);
+
+            assert_eq!(
+                wire["kind"].as_str(),
+                Some(kind),
+                "the variant's token is the tag it is written with"
+            );
+            assert!(
+                ItemPayload::KINDS.contains(&kind),
+                "{kind} must be in ItemPayload::KINDS or the feed would drop its rows as foreign"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_serialises_unknown_content_as_null_and_reads_a_missing_field_as_unknown() {
+        let row = CollectionItem {
+            item_id: ItemId("item-1".to_owned()),
+            updated_at: Instant("2026-10-19T10:00:00Z".to_owned()),
+            deleted: false,
+            payload: None,
+        };
+
+        let encoded = serde_json::to_value(&row).expect("the row is encodable");
+        assert_eq!(encoded["payload"], json!(null), "unknown is a visible null");
+
+        // `#[serde(default)]`: a leaner feed (SYNC-3) reads as content unknown, not as unreadable.
+        let leaned = json!({
+            "item_id": "item-1",
+            "updated_at": "2026-10-19T10:00:00Z",
+            "deleted": false,
+        });
+        let decoded: CollectionItem =
+            serde_json::from_value(leaned).expect("a row without the field is readable");
+        assert_eq!(decoded.payload, None);
+    }
+
+    #[test]
+    fn unknown_content_is_not_the_same_value_as_an_archived_payload() {
+        let unknown = CollectionItem {
+            item_id: ItemId("item-1".to_owned()),
+            updated_at: Instant("2026-10-19T10:00:00Z".to_owned()),
+            deleted: false,
+            payload: None,
+        };
+        let archived = CollectionItem {
+            payload: Some(ItemPayload::Rabbit { rabbit: rabbit() }),
+            ..unknown.clone()
+        };
+
+        assert_ne!(unknown, archived);
+        assert_eq!(unknown.payload, None);
+        assert!(matches!(archived.payload, Some(ItemPayload::Rabbit { .. })));
+    }
 }

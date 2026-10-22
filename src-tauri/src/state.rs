@@ -964,6 +964,7 @@ mod tests {
             item_id: ItemId(item_id.to_owned()),
             updated_at: at(updated_at),
             deleted: false,
+            payload: None,
         }
     }
 
@@ -973,6 +974,7 @@ mod tests {
             item_id: ItemId(item_id.to_owned()),
             updated_at: at(updated_at),
             deleted: true,
+            payload: None,
         }
     }
 

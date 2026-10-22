@@ -148,6 +148,7 @@ fn collection(household: &HouseholdId, items: &[&str]) -> HouseholdCollection {
                 item_id: item_id(item),
                 updated_at: at(VERSION),
                 deleted: false,
+                payload: None,
             })
             .collect(),
         source: CollectionSource::Service,

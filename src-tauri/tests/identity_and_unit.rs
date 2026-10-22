@@ -281,6 +281,7 @@ fn changing_the_unit_leaves_stored_values_unchanged() {
                     item_id: ItemId("item-1".to_owned()),
                     updated_at: at("2026-10-19T10:00:00Z"),
                     deleted: false,
+                    payload: None,
                 }],
                 source: CollectionSource::Service,
                 loaded_at: Some(at("2026-10-19T11:00:00Z")),
