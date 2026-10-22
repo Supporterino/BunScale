@@ -40,9 +40,11 @@ entered, and formatting grams into the display unit when a weight is shown. Noth
 
 The preference itself is not re-decided here: it is P0's SET-4, stored per device outside the
 household collection and defaulting from the device's regional settings. WT-3 adds only the
-entry-side behaviour: the form uses the preferred unit and offers **no unit picker**. `architect`
-decides in task 1.1 whether the parse/format lives in `api.ts` or in the command, but the stored
-shape is grams-only either way, and no command accepts a per-entry unit.
+entry-side behaviour: the form uses the preferred unit and offers **no unit picker**. Both
+conversions live in `src/features/weight/api.ts`, not in the commands: every weight command accepts
+and returns grams only, so the wrapper parses the typed text into grams before the call and formats
+the stored grams after it, taking the unit from P0's `get_display_weight_unit` (I1). No command
+takes a per-entry unit, and no command resolves the device's preference.
 
 Consequence worth stating: a displayed value is never stored, and a display-unit change can never
 rewrite history. This is what makes DM-1's "changing the display unit leaves stored weights unchanged"
@@ -58,7 +60,10 @@ be able to disagree with the threshold it was computed from. A derived alert can
 
 The threshold is a field of the rabbit (RAB-1/RAB-5, default 5%) so it is shared with the household
 like any other profile field, and a member's threshold edit reaches everyone through the ordinary
-change event. The dashboard flag (DASH-4 weight part) is the same derivation surfaced as a row
+change event. The read that carries the alert carries the threshold with it — `WeightTrend` is
+`range`, `points` and `drop_threshold_percent`, as frozen in 1.1 — so a point is judged against the
+same number that produced it, never against a threshold read separately and possibly changed in
+between. The dashboard flag (DASH-4 weight part) is the same derivation surfaced as a row
 indicator, so the dashboard flag and the entry flag can never disagree. The derivation is over the
 current entry set rather than a snapshot taken when an entry was saved, so an edit or a deletion also
 re-evaluates the alerts of the surrounding entries (D1.13) — a recomputation is a re-read, never a
