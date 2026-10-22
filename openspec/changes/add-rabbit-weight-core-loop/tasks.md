@@ -23,7 +23,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   `intact | neutered | spayed | unknown` (D1.14). Decide and record whether the entry-side unit
   conversion happens in `api.ts` or in the weight commands. Freeze the names for this phase.
   (RAB-1 … RAB-10, WT-1 … WT-8, DASH-1 … DASH-9, DM-1)
-- [ ] 1.2 [architect] Record the P1 decisions in `design.md`: the derived (never stored) drop alert
+- [x] 1.2 [architect] Record the P1 decisions in `design.md`: the derived (never stored) drop alert
   with the threshold travelling with the trend series (D1.3), range selection as route state with two
   independent ranges (D1.4), archived immutability enforced at the write boundary (D1.5), the alert
   ordering — timestamp order with the earlier-created entry as the previous entry on a tie (D1.12) —
