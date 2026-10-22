@@ -27,8 +27,9 @@
 //! unattributable local name is never borrowed, and an unresolved identity is a normal value rather
 //! than a failure that could block the screen.
 //!
-//! [`rabbit`] starts P1's domain: one rabbit's RAB-1 field set, the two rules creation fixes — an
-//! unsupplied field stays absent, and `dob_unknown: true` excludes a date of birth (I8) — and the one
+//! [`rabbit`] starts P1's domain: one rabbit's RAB-1 field set, the three rules creation fixes — an
+//! unsupplied field stays absent, `dob_unknown: true` excludes a date of birth (I8), and the name
+//! must not be blank, since empty and whitespace-only are the same refusal (RAB-2) — and the one
 //! write path a rabbit is created through, P0's reachability-gated save (D1.1). It holds no storage
 //! write: the created rabbit reaches the frontend from the command that created it, and this device's
 //! **copy** of the household's collection is the read path's (SYNC-3).

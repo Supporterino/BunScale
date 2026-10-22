@@ -465,13 +465,14 @@ impl AppState {
         Ok(stored.to_wire(account, is_active))
     }
 
-    /// Create a rabbit profile in a household (RAB-1, RAB-3; D1.1, I8).
+    /// Create a rabbit profile in a household (RAB-1, RAB-2, RAB-3; D1.1, I8).
     ///
     /// The steps are ordered for the person, as [`AppState::create_household`]'s are:
     ///
-    /// 1. The profile is recorded first, so the refusals the RAB-1 input itself can produce — a date
-    ///    of birth marked unknown **and** supplied (I8), and a blank operation identity — are reported
-    ///    as `validation` even when no account exists, because that is what the form has to change.
+    /// 1. The profile is recorded first, so the refusals the input itself can produce — a blank name,
+    ///    which RAB-2 treats as empty and whitespace-only alike, a date of birth marked unknown
+    ///    **and** supplied (I8), and a blank operation identity — are reported as `validation` even
+    ///    when no account exists, because that is what the form has to change.
     /// 2. No account is `no_account` before any probe. P0 always takes this path: it has no sign-in
     ///    flow (Q25), and pretending otherwise would report a write the service never saw.
     /// 3. The **writing member** is resolved from the person's own household book: a shared write
@@ -489,11 +490,12 @@ impl AppState {
     ///
     /// # Errors
     ///
-    /// `validation` for the contradictory date-of-birth pair, for a blank operation identity, and for
-    /// a household with no member for this account; `no_account` when no account is available; and
-    /// otherwise the gate's mapped causes: `connectivity`, `no_account`, `allowance_exceeded`,
-    /// `rate_limited`, `timeout` and the honest `unknown`. A refusal never creates a rabbit, and one
-    /// that is a property of the input never reaches the shared service at all.
+    /// `validation` for a blank name, for the contradictory date-of-birth pair, for a blank operation
+    /// identity, and for a household with no member for this account; `no_account` when no account is
+    /// available; and otherwise the gate's mapped causes: `connectivity`, `no_account`,
+    /// `allowance_exceeded`, `rate_limited`, `timeout` and the honest `unknown`. A refusal never
+    /// creates a rabbit, and one that is a property of the input never reaches the shared service at
+    /// all.
     pub async fn create_rabbit(
         &self,
         household_id: HouseholdId,
@@ -960,6 +962,62 @@ mod tests {
         // A property of the input: it is answered before the missing account is reported, and
         // nothing was probed or sent.
         assert!(service.calls().is_empty());
+    }
+
+    #[test]
+    fn a_blank_rabbit_name_is_refused_before_the_account_is_checked() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service.clone(), None);
+        let request_id = request_id("operation-1");
+
+        // RAB-2 treats an empty name and a whitespace-only one as the same blank name.
+        for blank in ["", " \t\n"] {
+            let error = block_on_ready(state.create_rabbit(
+                household("household-1"),
+                RabbitProfile {
+                    name: blank.to_owned(),
+                    ..profile()
+                },
+                request_id.clone(),
+            ))
+            .expect_err("a blank name is refused");
+
+            assert_eq!(error.cause, SaveCause::Validation, "{blank:?}");
+            assert_eq!(error.message_key, "error.validation", "{blank:?}");
+            assert!(!error.retryable, "{blank:?}");
+            assert_eq!(error.request_id, Some(request_id.clone()), "{blank:?}");
+        }
+
+        // The person is prompted for a name rather than told their account is missing, and nothing
+        // was probed or sent.
+        assert!(service.calls().is_empty());
+    }
+
+    #[test]
+    fn a_blank_rabbit_name_is_refused_before_the_write_is_sent() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+
+        // The writer can be named, so only the name itself stands between this call and a write.
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+
+        let error = block_on_ready(state.create_rabbit(
+            household("household-1"),
+            RabbitProfile {
+                name: "   ".to_owned(),
+                ..profile()
+            },
+            request_id("operation-2"),
+        ))
+        .expect_err("whitespace is not a name");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(
+            service.write_count(),
+            1,
+            "only the household create reached the service"
+        );
     }
 
     #[test]

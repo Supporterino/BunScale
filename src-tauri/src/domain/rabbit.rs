@@ -1,9 +1,14 @@
 //! The rabbit domain: one rabbit's recorded field set, and the one write path a rabbit is created
-//! through (RAB-1, RAB-3; D1.1, D1.14, I8).
+//! through (RAB-1, RAB-2, RAB-3; D1.1, D1.14, I8).
 //!
 //! The contract in [`crate::ipc::types`] fixes the *shape* that crosses the boundary — [`Rabbit`],
 //! [`RabbitProfile`], [`Sex`], [`NeuterStatus`]. This module fixes what that shape may not violate:
 //!
+//! * **A rabbit's name is non-blank.** [`validate_name`] refuses `""` and a name that is entirely
+//!   whitespace as `validation` before anything is sent, and it is the one rule both this module's
+//!   create path and the update path that follows it call. A name with any non-whitespace character
+//!   is kept exactly as supplied — the rule decides whether a name exists, it does not edit one
+//!   (RAB-2).
 //! * **A profile is recorded field for field, and a field the person did not supply stays absent.**
 //!   [`RabbitRecord::created`] copies the submitted profile into the record as it stands: an
 //!   unsupplied photo reference, breed, date of birth or adoption date is `None`, never `Some("")`
@@ -33,10 +38,6 @@
 //! service has accepted the write, so no local-only rabbit and no second write path can be produced
 //! here (D1.1, D0.1). What this device holds afterwards is its **copy of the shared collection**,
 //! filled by the read path (SYNC-3) — never by this module writing it.
-//!
-//! **Name validation is RAB-2 and is deliberately absent.** [`RabbitRecord::created`] records the
-//! name as supplied; the task that owns RAB-2 adds the non-blank rule, and this module must not
-//! pre-empt it with a check of its own.
 
 use serde_json::{Value, json};
 
@@ -53,6 +54,49 @@ use crate::sync::{SaveGate, SaveRequest, SharedService};
 /// item write of the household's collection — a rabbit now, a weight entry in the task that owns
 /// WT-1 — because the collection stores items, not per-kind endpoints.
 pub const SAVE_ITEM_RPC: &str = "save_item";
+
+/// A rabbit's name, once it is known not to be blank (RAB-2).
+///
+/// The stored value is the input as supplied: leading and trailing whitespace are preserved, just as
+/// a person typed them. What the constructor refuses is a name that is **entirely** whitespace,
+/// because that is the state RAB-2 calls blank.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RabbitName(String);
+
+impl RabbitName {
+    /// Parse a name, or answer `None` when it is blank (RAB-2).
+    ///
+    /// "Blank" means empty after trimming: `""`, `"   "` and `"\t\n"` are all refused, while a name
+    /// with any non-whitespace character is accepted.
+    pub fn parse(input: impl Into<String>) -> Option<Self> {
+        let input = input.into();
+
+        if input.trim().is_empty() {
+            None
+        } else {
+            Some(Self(input))
+        }
+    }
+
+    /// The name as it will be stored and shown.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Validate a rabbit name and report a blank one through the contract's failure surface (RAB-2).
+///
+/// This is the **one** name rule: [`RabbitRecord::created`] calls it before anything is sent, and the
+/// update path reuses it rather than repeating the check. It runs before the account check, so a
+/// person with no account who submits a blank name is prompted for a name rather than told that their
+/// account is missing — the same order P0's household name takes. A refused name is not retryable,
+/// which is the policy [`crate::ipc::failure`] owns rather than a flag chosen here.
+pub fn validate_name(
+    input: impl Into<String>,
+    request_id: &RequestId,
+) -> Result<RabbitName, CommandError> {
+    RabbitName::parse(input).ok_or_else(|| CommandError::validation(Some(request_id.clone())))
+}
 
 /// One rabbit profile as the domain holds it: the RAB-1 field set, once it does not contradict
 /// itself.
@@ -72,8 +116,8 @@ pub struct RabbitRecord {
     id: RabbitId,
     /// The household whose collection holds this rabbit (RAB-3).
     household_id: HouseholdId,
-    /// The name as supplied. Non-blank by contract; RAB-2's rule arrives with its own task.
-    name: String,
+    /// The name as supplied, non-blank by construction (RAB-2).
+    name: RabbitName,
     /// The photo reference, or `None` for none. Choosing a photo is PHOTO-2 in P2 (D1.11).
     photo_ref: Option<String>,
     /// The breed, or `None`.
@@ -104,13 +148,14 @@ impl RabbitRecord {
     ///
     /// # Errors
     ///
-    /// `validation` when the profile marks the date of birth unknown **and** supplies one: the two
-    /// cannot both be true, and refusing the pair is the only answer that cannot disagree with what
-    /// the form showed (I8). Also `validation` for a blank operation identity, because the item's id
-    /// is minted from it and a blank one would name no item at all. Both refusals happen here — before
-    /// the caller checks the account — so a request the *input* makes impossible is reported as
-    /// itself rather than as a missing account. Each carries the operation's identity, like every
-    /// failure of a state-changing command (D0.14), and neither sends anything to the shared service.
+    /// `validation` when the name is blank — empty or entirely whitespace, which RAB-2 treats as the
+    /// same refusal — and when the profile marks the date of birth unknown **and** supplies one: the
+    /// two cannot both be true, and refusing the pair is the only answer that cannot disagree with
+    /// what the form showed (I8). Also `validation` for a blank operation identity, because the item's
+    /// id is minted from it and a blank one would name no item at all. Every refusal happens here —
+    /// before the caller checks the account — so a request the *input* makes impossible is reported
+    /// as itself rather than as a missing account. Each carries the operation's identity, like every
+    /// failure of a state-changing command (D0.14), and none sends anything to the shared service.
     pub fn created(
         household_id: HouseholdId,
         profile: RabbitProfile,
@@ -120,6 +165,8 @@ impl RabbitRecord {
             return Err(CommandError::validation(Some(request_id.clone())));
         }
 
+        let name = validate_name(profile.name, request_id)?;
+
         if profile.dob_unknown && profile.dob.is_some() {
             return Err(CommandError::validation(Some(request_id.clone())));
         }
@@ -127,7 +174,7 @@ impl RabbitRecord {
         Ok(Self {
             id: rabbit_id(request_id),
             household_id,
-            name: profile.name,
+            name,
             photo_ref: profile.photo_ref,
             breed: profile.breed,
             dob: profile.dob,
@@ -149,7 +196,7 @@ impl RabbitRecord {
         Rabbit {
             id: self.id.clone(),
             household_id: self.household_id.clone(),
-            name: self.name.clone(),
+            name: self.name.as_str().to_owned(),
             photo_ref: self.photo_ref.clone(),
             breed: self.breed.clone(),
             dob: self.dob.clone(),
@@ -496,6 +543,79 @@ mod tests {
         // The refusal is a property of the input: nothing was probed and nothing was sent.
         assert!(service.calls().is_empty());
         assert_eq!(service.write_count(), 0);
+    }
+
+    #[test]
+    fn an_empty_name_is_refused_and_nothing_is_sent() {
+        let service = ScriptedService::new();
+        let request_id = request_id("operation-1");
+
+        let error = create_with(
+            &service,
+            &household("household-1"),
+            RabbitProfile {
+                name: String::new(),
+                ..minimal_profile()
+            },
+            request_id.clone(),
+        )
+        .expect_err("a rabbit needs a name");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+
+        // A property of the input: nothing was probed and nothing was sent (RAB-2).
+        assert!(service.calls().is_empty());
+        assert_eq!(service.write_count(), 0);
+    }
+
+    #[test]
+    fn a_whitespace_only_name_is_treated_as_blank_and_refused() {
+        let service = ScriptedService::new();
+        let request_id = request_id("operation-1");
+
+        // "Blank" is empty after trimming, so every one of these names is refused (RAB-2).
+        for blank in [" ", "   ", "\t", "\n", " \t\n "] {
+            let error = create_with(
+                &service,
+                &household("household-1"),
+                RabbitProfile {
+                    name: blank.to_owned(),
+                    ..minimal_profile()
+                },
+                request_id.clone(),
+            )
+            .expect_err("whitespace is not a name");
+
+            assert_eq!(error.cause, SaveCause::Validation, "{blank:?}");
+            assert_eq!(error.message_key, "error.validation", "{blank:?}");
+            assert_eq!(error.request_id, Some(request_id.clone()), "{blank:?}");
+        }
+
+        assert!(service.calls().is_empty());
+        assert_eq!(service.write_count(), 0);
+    }
+
+    #[test]
+    fn a_name_with_a_non_whitespace_character_is_recorded_exactly_as_supplied() {
+        let service = ScriptedService::new();
+
+        let rabbit = create_with(
+            &service,
+            &household("household-1"),
+            RabbitProfile {
+                name: "  Pebble  ".to_owned(),
+                ..minimal_profile()
+            },
+            request_id("operation-1"),
+        )
+        .expect("one non-whitespace character makes a name");
+
+        // The rule decides whether a name exists; it does not edit what the person typed.
+        assert_eq!(rabbit.name, "  Pebble  ");
+        assert_eq!(written_field(&service, "name"), json!("  Pebble  "));
     }
 
     #[test]
