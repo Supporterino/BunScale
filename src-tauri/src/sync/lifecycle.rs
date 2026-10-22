@@ -25,6 +25,16 @@
 //! `check_service_reachability` calls [`re_evaluate`] too, and asking for a status must not
 //! invalidate household data; and because the frontend's `refreshed` policy reloads the collection,
 //! an emit from the load would refetch in a loop. Only the trigger path (`Coalescer::run`) emits it.
+//! Structural guarantee, not a convention: neither [`re_evaluate`] nor
+//! [`ReadPath::load`](crate::sync::ReadPath::load) takes a [`HouseholdChangePublisher`] at all, so
+//! the load path cannot publish `household:changed` even by mistake.
+//!
+//! The trigger's own gate is the **fresh** outcome, not the status it leaves behind. A probe that
+//! got no answer does not prove connectivity: below the offline threshold the tracker deliberately
+//! retains the previous status, which can still be `reachable` with a valid account. Publishing a
+//! refresh from that retained value would claim a connection this trigger never had, so the gate
+//! also requires the probe to have answered. The trigger still publishes the retained status as
+//! `service:status-changed`; only the household refresh is withheld.
 //!
 //! # The bounds are applied once, in the tracker (D0.13)
 //!
@@ -89,7 +99,7 @@ use tauri::{AppHandle, Manager, RunEvent};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use super::StatusTracker;
-use super::probe::probe;
+use super::probe::{ProbeOutcome, probe};
 use crate::ipc::events::{HouseholdChangeKind, HouseholdChangePublisher, HouseholdChanged};
 use crate::ipc::types::{ServiceState, ServiceStatus};
 use crate::state::AppState;
@@ -134,6 +144,18 @@ pub fn current_status(state: &AppState) -> ServiceStatus {
 /// tracker decides whether that outcome replaces the status or counts towards the offline threshold.
 /// See the module documentation for the sequence and for where the bounds are applied.
 pub async fn re_evaluate(state: &AppState, publisher: &impl StatusPublisher) -> ServiceStatus {
+    observe_fresh(state, publisher).await.1
+}
+
+/// One fresh probe, recorded and published, together with the outcome it observed.
+///
+/// [`re_evaluate`] returns only the recorded status, but the trigger path also needs the outcome:
+/// the status can be a retained one, so it cannot say by itself whether this probe answered (see
+/// [`publish_active_refresh`]).
+async fn observe_fresh(
+    state: &AppState,
+    publisher: &impl StatusPublisher,
+) -> (ProbeOutcome, ServiceStatus) {
     let outcome = probe(state.service()).await;
     let observed_at = AbsoluteInstant::now().to_wire();
 
@@ -147,7 +169,7 @@ pub async fn re_evaluate(state: &AppState, publisher: &impl StatusPublisher) -> 
 
     publisher.publish(&status);
 
-    status
+    (outcome, status)
 }
 
 /// Handle one run-loop event, re-evaluating when it is this platform's lifecycle trigger.
@@ -260,12 +282,13 @@ impl Coalescer {
 
     /// Run trigger-driven re-evaluations until no trigger arrived while one was running.
     ///
-    /// Each pass is the same [`re_evaluate`] the command and the first trigger use: the probe is
-    /// outside the tracker lock, and publication follows the observation inside `re_evaluate`.
-    /// After a pass found the service reachable and the account valid, the trigger additionally
-    /// publishes `household:changed` with kind `refreshed` for the active household, which is how a
-    /// start or foreground return reloads the copy through the frontend's existing policy (D0.2,
-    /// D0.23). That publication lives here, not in [`re_evaluate`] (which
+    /// Each pass is the same fresh probe, observation and status publication the command and the
+    /// first trigger use: the probe is outside the tracker lock, and publication follows the
+    /// observation through [`observe_fresh`]. After a pass whose **own probe answered** with a usable
+    /// account, the trigger additionally publishes `household:changed` with kind `refreshed` for the
+    /// active household, which is how a start or foreground return reloads the copy through the
+    /// frontend's existing policy (D0.2, D0.23). That publication lives here, not in
+    /// [`re_evaluate`] (which
     /// [`check_service_reachability`](crate::ipc::commands::sync::check_service_reachability) also
     /// calls) and never in `load_household`: the frontend invalidates the collection on `refreshed`,
     /// so an emit from the load would refetch in a loop.
@@ -276,8 +299,8 @@ impl Coalescer {
         households: &H,
     ) {
         loop {
-            let status = re_evaluate(state, statuses).await;
-            publish_active_refresh(state, households, &status);
+            let (outcome, status) = observe_fresh(state, statuses).await;
+            publish_active_refresh(state, outcome, &status, households);
 
             if !self.finish() {
                 break;
@@ -286,23 +309,32 @@ impl Coalescer {
     }
 }
 
-/// Report the active household's collection as stale after a trigger found the service usable.
+/// Report the active household's collection as stale after a trigger's fresh probe found the
+/// service usable.
 ///
-/// This is the **trigger path's** extra step, after [`re_evaluate`] returned. It is deliberately
-/// not inside [`re_evaluate`]: the explicit `check_service_reachability` command calls that
-/// function too, and asking for a status must not invalidate household data. It is also never part
-/// of `load_household`/[`ReadPath::load`](crate::sync::ReadPath::load): the frontend's `refreshed`
-/// policy invalidates the collection, whose query calls `load_household`, so an emit from the load
-/// would refetch in a loop.
+/// This is the **trigger path's** extra step, after [`observe_fresh`] recorded and published the
+/// status. It is deliberately not inside [`re_evaluate`]: the explicit `check_service_reachability`
+/// command calls that function too, and asking for a status must not invalidate household data. It
+/// is also never part of `load_household`/[`ReadPath::load`](crate::sync::ReadPath::load): that path
+/// does not even receive a publisher, and the frontend's `refreshed` policy invalidates the
+/// collection, whose query calls `load_household`, so an emit from the load would refetch in a loop.
 ///
-/// Nothing is published when the fresh outcome is not a usable service (`reachable` **and** a valid
-/// account), or when this process holds no active household: the copy can only be reloaded when the
-/// service answered and there is a household to reload.
+/// Nothing is published when the probe **got no answer**, when the outcome is not a usable service
+/// (`reachable` **and** a valid account), or when this process holds no active household. The fresh
+/// outcome matters as well as the status: below the offline threshold the tracker retains the
+/// previous status on an unanswered probe, and a retained `reachable` does not prove that this
+/// trigger reached anything — so connectivity is gated on the probe having answered, not on what the
+/// tracker left behind.
 fn publish_active_refresh(
     state: &AppState,
-    publisher: &impl HouseholdChangePublisher,
+    outcome: ProbeOutcome,
     status: &ServiceStatus,
+    publisher: &impl HouseholdChangePublisher,
 ) {
+    if outcome.is_failed_probe() {
+        return;
+    }
+
     if status.state != ServiceState::Reachable || status.account_valid != Some(true) {
         return;
     }
@@ -397,7 +429,8 @@ mod tests {
     use crate::ipc::types::{AccountUserId, HouseholdId, RequestId, SaveCause, ServiceState};
     use crate::sync::double::test_support::block_on_ready;
     use crate::sync::double::{RecordedCall, ScriptedService};
-    use crate::sync::{Answer, REACHABILITY_PROBE_TIMEOUT, ReadPath, ServiceReply};
+    use crate::sync::probe::AccountOutcome;
+    use crate::sync::{Answer, REACHABILITY_PROBE_TIMEOUT, ServiceReply};
 
     /// The publication seam's test side: it records what the app would have emitted.
     #[derive(Debug, Default)]
@@ -440,10 +473,6 @@ mod tests {
         RequestId(value.to_owned())
     }
 
-    fn household(value: &str) -> HouseholdId {
-        HouseholdId(value.to_owned())
-    }
-
     /// One accepted create answer the domain can read.
     fn accepted_create(household_id: &str) -> ServiceReply {
         ServiceReply::Answered(Answer::with_body(
@@ -455,17 +484,6 @@ mod tests {
                     "owner_member_id": "member-1",
                     "created_at": "2026-10-19T10:00:00Z",
                 },
-            }),
-        ))
-    }
-
-    /// One readable whole-collection answer for `household_id`.
-    fn feed(household_id: &HouseholdId) -> ServiceReply {
-        ServiceReply::Answered(Answer::with_body(
-            200,
-            serde_json::json!({
-                "household_id": household_id.0.as_str(),
-                "items": [],
             }),
         ))
     }
@@ -669,27 +687,61 @@ mod tests {
         );
     }
 
+    /// A trigger probe that got no answer must not refresh on a status it did not observe.
+    ///
+    /// Below the offline threshold the tracker deliberately retains the previous status, so the
+    /// status can still say `reachable` with a valid account even though this trigger reached
+    /// nothing. The refresh is gated on the probe's own answered outcome, so nothing is published
+    /// for the household; the retained status is still published as the status fact.
     #[test]
-    fn a_load_or_refresh_publishes_no_household_change() {
-        let one = household("household-1");
+    fn a_trigger_whose_probe_gets_no_answer_publishes_no_refresh_for_a_retained_status() {
+        // The create's probe is answered; the trigger's probe then gets no answer.
         let service = Arc::new(
             ScriptedService::new()
                 .on_write([accepted_create("household-1")])
-                .on_read([feed(&one)]),
+                .on_service_check([
+                    ServiceReply::Answered(Answer::status_only(200)),
+                    ServiceReply::NoResponse,
+                ]),
         );
         let (state, active) = state_with_active_household(service);
-        assert_eq!(active, one);
 
+        // A previous fresh probe left the status `reachable` with a valid account; the trigger's
+        // unanswered probe is below the threshold, so the tracker retains exactly that.
+        {
+            let mut tracker = state.status();
+
+            tracker.observe(
+                ProbeOutcome::Answered(AccountOutcome::Identified),
+                AbsoluteInstant::now().to_wire(),
+            );
+        }
+
+        let coalescer = Coalescer::new();
+        let statuses = RecordingPublisher::default();
         let households = RecordingHouseholdPublisher::default();
-        let read = block_on_ready(ReadPath::new().load(&state, &one))
-            .expect("the load resolves against the service");
 
-        // The reload itself is the command path's job; it never reports a change, because the
-        // frontend's `refreshed` policy would invalidate the collection and call it again.
-        assert_eq!(read.source, crate::ipc::types::CollectionSource::Service);
+        assert!(coalescer.begin());
+        block_on_ready(coalescer.run(&state, &statuses, &households));
+
+        let retained = current_status(&state);
+        assert_eq!(retained.state, ServiceState::Reachable);
+        assert_eq!(
+            retained.account_valid,
+            Some(true),
+            "the retained status is the one that would have allowed a refresh"
+        );
+        assert_eq!(state.status().consecutive_failures(), 1);
+        assert_eq!(state.households().active_id(), Some(&active));
+
         assert!(
             households.published().is_empty(),
-            "load_household must not publish household:changed"
+            "an unanswered probe proves no connectivity, so the copy is not refreshed"
+        );
+        assert_eq!(
+            statuses.published().last(),
+            Some(&retained),
+            "the retained status is still published as the status fact"
         );
     }
 

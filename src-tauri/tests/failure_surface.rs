@@ -396,8 +396,10 @@ fn every_p0_command_has_a_cause_specific_error_path() {
     // The eleven frozen commands, as the frontend's bindings declare them.
     assert_eq!(shipped_commands(), SHIPPED_COMMANDS);
 
-    // --- create_household: the body is `AppState::create_household`; the adapter only unwraps the
-    // injected `tauri::State`. Its locally refutable conditions each name their cause.
+    // --- create_household: the body is `AppState::create_household`; the adapter unwraps the
+    // injected `tauri::State` and, once the create succeeds, publishes `household:changed` with kind
+    // `created` (a refusal publishes nothing). Its locally refutable conditions each name their
+    // cause.
     let blank = create_failure(Arc::new(ScriptedService::new()), " ", Some(account()));
     assert_eq!(blank.cause, SaveCause::Validation);
     let anonymous = create_failure(Arc::new(ScriptedService::new()), "Home", None);
