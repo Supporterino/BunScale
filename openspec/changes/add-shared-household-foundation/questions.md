@@ -1104,3 +1104,56 @@ The full gate was run again, fresh, on the tree as it stands after the 0.26/0.27
 No source changed between this run and the 0.26 run; the only intervening commits were the two
 verification records. This is the tree the review tasks 6.1/6.2 inspect, and the same 11 E2E skips
 (two projects' deliberate baseline gates) with no failures in either project.
+
+## Review findings — task 6.1 (2026-10-22, reviewer)
+
+Task 6.1 returned **CHANGES REQUIRED**. Three majors, two minors and one note. Verified by the
+orchestrator in the tree before acting (each claim reproduced by reading and grepping, not accepted on
+the reviewer's word). Fixed under section 8 of `tasks.md`, owner-approved the same day.
+
+### Q56 — `household:changed` is in the contract, the bindings and the consumer, and has no producer
+
+`src-tauri/src/ipc/events.rs` defines the type, `collect_events!` registers the frozen name,
+`src/bindings.ts` exports it and `src/features/app-events.ts` subscribes to it — but nothing in
+`src-tauri/src` calls `HouseholdChanged`'s emit. `service:status-changed` has a producer through
+`sync/lifecycle.rs`'s `StatusPublisher` seam (a trait with an `AppHandle` implementation and a recording
+double); the household event has no equivalent. Consequences: `applyHouseholdChange`
+(`src/features/households/events.ts`) is dead code in production, and the freshness comments in
+`src/lib/query-client.ts` and `src/features/app-events.ts` describe a mechanism that does not exist.
+**Owner:** task 8.1.
+
+### Q57 — the foreground-return refresh is documented and unwired
+
+D0.2 ("a start **or foreground return** with connectivity refreshes it") and D0.23 (the copy is
+refreshed "on start and on foreground return, driven by the Rust events task 3.6 subscribes to") are
+both stated as delivered. In code, `refetchOnWindowFocus` is `false`, no focus/visibility listener
+exists, `applyServiceStatus` deliberately writes only the status key (`src/features/sync/events.ts`
+even forbids touching household data), and the lifecycle trigger publishes only
+`service:status-changed`. A long-running app resumed after connectivity returns keeps its old copy
+until the route remounts. **Owner:** task 8.1, which emits `refreshed` from the foreground trigger so
+the existing `household:changed` policy performs the reload (and deliberately not from the load itself,
+which would loop).
+
+### Q58 — `error.unknown`'s copy is the bare message NFR-8 forbids, and it promises a retry that does not exist
+
+`src/features/i18n/messages.ts` maps `error.unknown` to "Something went wrong. Try again.". D0.6 says
+no operation reports a bare "something went wrong", and NFR-8 requires the message to identify what
+failed. Worse, the cause is `retryable: false` (`ipc/failure.rs`), so the Settings unit failure shows
+"Not saved / Something went wrong. Try again." with **no** retry control (Q44/7.3 pinned the absence).
+The key also carries the display-unit store fault, which is a local, device-specific condition the copy
+never names. **Owner:** task 8.2, within the frozen `SaveCause` set (a surface-specific key, not a new
+cause).
+
+### Q59 — two review minors
+
+`src/features/app-events.ts`'s header still says task 4.2 has not built the shell and that no route is
+edited, but the hook is mounted in the dashboard and Settings (fixed by 8.2's sub-step). The Settings
+inline create-retry notice does not pass an in-flight state, so its control stays pressable while
+`creation.isPending` — a second tap starts a second call on the same request handle (safe for the data,
+but the busy state the shell surface received in 7.9 is missing here). **Owner:** task 8.3.
+
+Not a finding: hand-written command-name literals in `src/test/mock-ipc.ts` are test-only and fail
+loudly on a rename; recorded as residual risk, not an action. The reviewer also confirmed the positive
+halves of 6.1: no product `invoke(` or core-API import outside `src/bindings.ts`/`api.ts`, no optimistic
+write or offline queue, one `request_id` per intent reused on retry, and touch targets/safe areas/
+baselines correct in the components and captures.

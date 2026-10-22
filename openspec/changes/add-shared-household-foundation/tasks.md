@@ -973,7 +973,9 @@ file's header).
   scenario, is scope creep and fails the review; confirm no requirement was added to a capability
   this change does not own. Verify the honesty of the offline/loaded-data and failure surfaces
   against NFR-1 and NFR-8, that the app identity matches D0.15, that the deployment targets are the
-  floor task 0.7 measured rather than a chosen number (D0.16), that the icon set is the one task 0.22
+  floor D0.16 records rather than an unexplained number (**Q16, 2026-10-20:** the product owner raised
+  the shipped floor to iOS 16.4 / macOS 13.3 on top of the measured SDK minimum of 15.0 / 12.0, so
+  16.4/13.3 is the correct value to check), that the icon set is the one task 0.22
   generated (D0.19, no Tauri default icon remains), and verify every UI task's `.artifacts/screens/`
   screenshots are present at 390×844 and 1280×800.
 
@@ -1039,3 +1041,34 @@ names the scenario or the `questions.md` entry it closes.
   node, label and position (the primitive's `disabled` loading state releases focus — see Q52).
   Capture the failure state at 390×844 and 1280×800 in `.artifacts/screens/`. Closes 7.7's presentation
   findings; SYNC-2's retry offer and the design system's safe-area rule.
+
+## 8. Review fixes (owner-approved 2026-10-22)
+
+Task 6.1's review found contract-conformance defects that no per-task review could see, because each
+task was reviewed against its own diff rather than against the seam between producer and consumer. The
+product owner's instruction for this session ("do the rest") authorises these fixes before the change is
+archived. Each is one owner and one commit, and names the finding it closes.
+
+- [ ] 8.1 [rust-backend] Give `household:changed` the producer the frozen contract promises, and wire
+  the foreground refresh D0.2/D0.23 describe. Publish `created` after a successful create, `switched`
+  after a successful active-household change, `removed` when a release is reachable, and `refreshed` for
+  the active household when a **foreground/resume** trigger re-evaluates connectivity — **never** from
+  the command-initiated load, because the frontend's `refreshed` policy invalidates the collection and
+  would refetch it in a loop. Follow `sync/lifecycle.rs`'s `StatusPublisher` seam: a trait, an
+  `AppHandle` implementation using the frozen event name, and a recording double. Prove with tests:
+  create emits `created`, switch emits `switched`, a foreground trigger with an active household emits
+  `refreshed`, and a load alone emits nothing. Closes Q56/Q57; SYNC-1/HS-3/D0.2/D0.23.
+- [ ] 8.2 [frontend-logic] Replace the bare `error.unknown` copy ("Something went wrong. Try again.")
+  with outcome-stating copy that neither reads as the message D0.6 forbids nor promises a retry the
+  cause does not offer. The cause is non-retryable and also carries the display-unit store failure, so
+  give the Settings unit section its own device-specific key (e.g. `settings.unit.store_failed`:
+  the choice was not saved on this device and nothing changed) and keep `error.unknown` for an
+  unclassified failure. Do **not** add or rename a `SaveCause`: the contract is frozen. Update the
+  `messages.ts` header comment and the stale "task 4.2 owns the shell" doc in `src/features/app-events.ts`
+  (the hook is mounted). The pinned assertions in `src/test/*` move in the same commit via a
+  `test-engineer` sub-step; the commit lands only when typecheck, lint and the suite are green. Closes
+  Q58 and Q59's comment finding; NFR-8/D0.6.
+- [ ] 8.3 [frontend-ui] Give the Settings inline create-retry notice the same in-flight state the shell
+  surface already has: pass the `Button`'s loading form while `creation.isPending` so a second tap
+  cannot start a second call on the same request handle. Screenshots at 390×844 and 1280×800 only if
+  the rendered result changes. Closes Q59's retry finding; SYNC-2's retry offer.
