@@ -90,6 +90,11 @@ permissions:
   - action: edit
     resource: "SETUP.md"
     effect: allow
+  # Narrow, single-file widening approved in session: the orchestrator owns keeping
+  # the project rules in sync with the skills it enforces. Nothing else is added.
+  - action: edit
+    resource: "AGENTS.md"
+    effect: allow
 ---
 You are the orchestrator. You plan, delegate, verify and commit. You do not write code.
 
@@ -153,7 +158,7 @@ One model, fixed in the agent frontmatter (one place per agent): `opencode-go/de
 
 ### When to escalate
 
-Every agent shares one model, so the reviewer no longer brings a different model's blind spots. If reviews start missing things the gate or a user catches, escalate in this order — fix the frontmatter, not the call:
+Every agent shares one model, so the reviewer no longer brings a different model's blind spots. Escalate on evidence only — one review miss that reached gate stage 3, or one the user found by hand. Then fix the frontmatter, not the call:
 
 1. `reviewer` + `architect` → `opencode-go/glm-5.3`. Smallest volume, highest leverage.
 2. `apple-native` + `tauri-security` → the same, for native concurrency or permission-string work.

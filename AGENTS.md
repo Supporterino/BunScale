@@ -41,7 +41,7 @@ docs/adr/                 architecture decisions
 .artifacts/screens/       UI screenshots for review (gitignored)
 ```
 
-## Commands (single source for the gate)
+## Commands (used by `definition-of-done`)
 
 | Purpose | Command |
 |---|---|
@@ -62,7 +62,7 @@ docs/adr/                 architecture decisions
 
 ## Hard rules
 
-1. **Gate:** a task is done only when every command in `definition-of-done` passes. Run them; never claim.
+1. **Gate:** a task is done only when every stage of `definition-of-done` whose condition holds passes. The orchestrator runs it and never trusts a specialist's claim.
 2. **Contract first:** IPC is defined by `architect` before Rust or frontend implementation. Frontend never calls `invoke` directly; only generated bindings via `src/features/*/api.ts`.
 3. **Generated files are read-only.** Regenerate, never edit. Regeneration leaves no diff.
 4. **One task = one commit.** `feat(<change-id>): <task>`.
@@ -88,6 +88,8 @@ docs/adr/                 architecture decisions
 | CI, signing, release | `release-ci` |
 | Orchestration | `orchestrator` (primary) |
 
+Every specialist loads `working-agreement` first: scope discipline, the smallest-complete-change ladder (adapted from Ponytail, MIT), stop-and-report, and the report shape. All agents share one model; escalation is a frontmatter edit documented in `orchestrator.md`.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
@@ -99,5 +101,5 @@ Rules:
 - Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- The commit hook refreshes the graph automatically, and that dirty `graphify-out/` is expected: nobody reviews or diffs it. Do not run `graphify update .` mid-task — refresh at change boundaries (after `openspec archive`, or after a large move).
 - A committed graphify-out/graph.json is rewritten whole on every build, so a large diff to it in a pull request is expected. Do not flag it as churn or suggest skipping the graph rebuild or its hooks.

@@ -354,70 +354,70 @@
     "semantic_hash": "393c4f769b3fd434a0916d125f48b038"
   },
   ".opencode/agents/apple-native.md": {
-    "mtime": 1792147076.0656726,
-    "seen": 1792147947.8345659,
-    "ast_hash": "42db25dddc859569778d71fb9c9e334d",
-    "semantic_hash": "42db25dddc859569778d71fb9c9e334d"
+    "mtime": 1792669424.8339424,
+    "seen": 1792669513.332271,
+    "ast_hash": "14ebf2191120af210d7ae43a4fd21ecb",
+    "semantic_hash": ""
   },
   ".opencode/agents/architect.md": {
-    "mtime": 1792147941.73154,
-    "seen": 1792147947.8345668,
-    "ast_hash": "74251d35d2be21c96e7b6101793b8228",
+    "mtime": 1792669424.835136,
+    "seen": 1792669513.332272,
+    "ast_hash": "18cc6c73eacbcb15fb7c7de7909f4a70",
     "semantic_hash": ""
   },
   ".opencode/agents/frontend-logic.md": {
-    "mtime": 1792149407.0600348,
-    "seen": 1792153173.188682,
-    "ast_hash": "b6f19c894eddd1b74cda1adf443be514",
+    "mtime": 1792669487.770196,
+    "seen": 1792669513.332273,
+    "ast_hash": "56ba48ec162767571759f423b93e7ccb",
     "semantic_hash": ""
   },
   ".opencode/agents/frontend-ui.md": {
-    "mtime": 1792404203.3253145,
-    "seen": 1792408389.029245,
-    "ast_hash": "e5f4d985f37b708c3a053234f1d9a52d",
+    "mtime": 1792669487.770196,
+    "seen": 1792669513.332274,
+    "ast_hash": "7923196dcfb69c806788d4cdd2ac4903",
     "semantic_hash": ""
   },
   ".opencode/agents/orchestrator.md": {
-    "mtime": 1792177831.730865,
-    "seen": 1792178067.6305048,
-    "ast_hash": "4d96d4375304b51ace3dca04286ea2e9",
+    "mtime": 1792669411.1989963,
+    "seen": 1792669513.332275,
+    "ast_hash": "0881a80758f6d47f3828f1147c9eca83",
     "semantic_hash": ""
   },
   ".opencode/agents/release-ci.md": {
-    "mtime": 1792090074.0406847,
-    "seen": 1792139607.4099321,
-    "ast_hash": "62a1b4e61aa0003a773771aa536a4583",
-    "semantic_hash": "62a1b4e61aa0003a773771aa536a4583"
+    "mtime": 1792669424.8369477,
+    "seen": 1792669513.3322759,
+    "ast_hash": "558e11fa47968f4df6e240f70715c0da",
+    "semantic_hash": ""
   },
   ".opencode/agents/reviewer.md": {
-    "mtime": 1792086368.6365263,
-    "seen": 1792139607.4099321,
-    "ast_hash": "d79293ee17fe2add2cbfb9a87ca73fbb",
-    "semantic_hash": "d79293ee17fe2add2cbfb9a87ca73fbb"
+    "mtime": 1792669430.88325,
+    "seen": 1792669513.332277,
+    "ast_hash": "937c59aa3ebbb0de0f523cfc56c6ea7a",
+    "semantic_hash": ""
   },
   ".opencode/agents/rust-backend.md": {
-    "mtime": 1792147076.0656188,
-    "seen": 1792147947.834573,
-    "ast_hash": "5195165f6f2b764d11769f5abdbd966b",
-    "semantic_hash": "5195165f6f2b764d11769f5abdbd966b"
+    "mtime": 1792669487.7708538,
+    "seen": 1792669513.332278,
+    "ast_hash": "8aec14f6c931d3180aef982aa5f38b9c",
+    "semantic_hash": ""
   },
   ".opencode/agents/spec-writer.md": {
-    "mtime": 1792086368.6371412,
-    "seen": 1792139607.409934,
-    "ast_hash": "304292c6fc334515799c4eb93020a820",
-    "semantic_hash": "304292c6fc334515799c4eb93020a820"
+    "mtime": 1792669479.622148,
+    "seen": 1792669513.332278,
+    "ast_hash": "af3a299f117bf405e7b064a74279c06b",
+    "semantic_hash": ""
   },
   ".opencode/agents/tauri-security.md": {
-    "mtime": 1792086368.6374073,
-    "seen": 1792139607.409935,
-    "ast_hash": "179c60f129cc0976e20e3f8e23233616",
-    "semantic_hash": "179c60f129cc0976e20e3f8e23233616"
+    "mtime": 1792669424.829066,
+    "seen": 1792669513.332279,
+    "ast_hash": "8feea295375a799f7dde395b7c0b7777",
+    "semantic_hash": ""
   },
   ".opencode/agents/test-engineer.md": {
-    "mtime": 1792086368.637679,
-    "seen": 1792139607.409935,
-    "ast_hash": "6deb2966f91f4bb060375d700f8ade49",
-    "semantic_hash": "6deb2966f91f4bb060375d700f8ade49"
+    "mtime": 1792669435.2385757,
+    "seen": 1792669513.3322802,
+    "ast_hash": "c594ffb62e699b8f8d95ba1033ff0d24",
+    "semantic_hash": ""
   },
   ".opencode/commands/opsx-apply.md": {
     "mtime": 1792086175.6108942,
@@ -570,10 +570,10 @@
     "semantic_hash": "f7a5da16b17f9792a93270626d97a978"
   },
   ".opencode/skills/definition-of-done/SKILL.md": {
-    "mtime": 1792086402.1783826,
-    "seen": 1792139607.409954,
-    "ast_hash": "3bb4212072999dadeafc731252775a94",
-    "semantic_hash": "3bb4212072999dadeafc731252775a94"
+    "mtime": 1792669447.7019303,
+    "seen": 1792669513.3323038,
+    "ast_hash": "80ede7259de1218f1b46f5f7950ce10b",
+    "semantic_hash": ""
   },
   ".opencode/skills/design-system/SKILL.md": {
     "mtime": 1792581199.2344122,
@@ -744,10 +744,10 @@
     "semantic_hash": "c65beb32416e54af4948f94fd054a12e"
   },
   ".opencode/skills/graphify-usage/SKILL.md": {
-    "mtime": 1792086402.2536724,
-    "seen": 1792139607.409974,
-    "ast_hash": "f26818910d752c6b5c45eb8e5d724705",
-    "semantic_hash": "f26818910d752c6b5c45eb8e5d724705"
+    "mtime": 1792669471.5335498,
+    "seen": 1792669513.3323321,
+    "ast_hash": "c6f172d0b947a4309ce4aec0afb8fb43",
+    "semantic_hash": ""
   },
   ".opencode/skills/openspec-apply-change/SKILL.md": {
     "mtime": 1792086175.6062815,
@@ -1038,10 +1038,10 @@
     "semantic_hash": "96083f7106a974b018cbf3bd8af806cd"
   },
   "openspec/changes/add-health-and-photo-history/tasks.md": {
-    "mtime": 1792137589.4340398,
-    "seen": 1792139607.4100108,
-    "ast_hash": "5616a9211d06daaad44dd861a75edf20",
-    "semantic_hash": "5616a9211d06daaad44dd861a75edf20"
+    "mtime": 1792669465.1483948,
+    "seen": 1792669513.332384,
+    "ast_hash": "b0d5e6dbcb97a1cc6dbddb2f3289d355",
+    "semantic_hash": ""
   },
   "openspec/changes/add-household-sharing-hardening/design.md": {
     "mtime": 1792138303.2811456,
@@ -1170,10 +1170,10 @@
     "semantic_hash": "fbce784c98edb1214bad39c70f94fa8b"
   },
   "openspec/changes/add-rabbit-weight-core-loop/tasks.md": {
-    "mtime": 1792137600.565221,
-    "seen": 1792139607.410027,
-    "ast_hash": "14584b1af8fef62d5a54fc65cb46815a",
-    "semantic_hash": "14584b1af8fef62d5a54fc65cb46815a"
+    "mtime": 1792669465.1483269,
+    "seen": 1792669513.332406,
+    "ast_hash": "973ce235cd264144f4410173e38bb51c",
+    "semantic_hash": ""
   },
   "openspec/changes/add-read-path-performance/design.md": {
     "mtime": 1792136173.657204,
@@ -1248,10 +1248,10 @@
     "semantic_hash": "e651b09a6125809fe33962ae493ba187"
   },
   "openspec/changes/add-vet-export-and-reminders/tasks.md": {
-    "mtime": 1792138908.5993304,
-    "seen": 1792139607.4100428,
-    "ast_hash": "6b3e6f03076022f7fc3a6808d395f6dd",
-    "semantic_hash": "6b3e6f03076022f7fc3a6808d395f6dd"
+    "mtime": 1792669465.1483765,
+    "seen": 1792669513.3324192,
+    "ast_hash": "35e90d90487bfc5025223daeb3dd8c29",
+    "semantic_hash": ""
   },
   "openspec/config.yaml": {
     "mtime": 1792086175.6132782,
@@ -1260,21 +1260,21 @@
     "semantic_hash": "a88f7d80935e1a432dc9b5affe49eb27"
   },
   "openspec/changes/add-household-sharing-hardening/tasks.md": {
-    "mtime": 1792479456.869595,
-    "seen": 1792480948.795128,
-    "ast_hash": "b3396b681e03725189794fc5a7e3ce79",
+    "mtime": 1792669465.1483514,
+    "seen": 1792669513.3323898,
+    "ast_hash": "6353ef1515dffae747b2cee9948aa342",
     "semantic_hash": ""
   },
   "openspec/changes/add-medication-tracking/tasks.md": {
-    "mtime": 1792138088.0401645,
-    "seen": 1792145715.719605,
-    "ast_hash": "97675c1f2e1ccb9c0aa7a005b25a974e",
+    "mtime": 1792669465.1483269,
+    "seen": 1792669513.332397,
+    "ast_hash": "a3bc0394a4e9d43909c5b035d0618a1e",
     "semantic_hash": ""
   },
   "openspec/changes/add-read-path-performance/tasks.md": {
-    "mtime": 1792136226.3240323,
-    "seen": 1792145715.71962,
-    "ast_hash": "09c54a4c7504cd66179e62ccb2af071a",
+    "mtime": 1792669465.1482794,
+    "seen": 1792669513.3324108,
+    "ast_hash": "740987ef9185a45e52e09bc41643b437",
     "semantic_hash": ""
   },
   "SETUP.md": {
@@ -2799,6 +2799,12 @@
     "mtime": 1792662973.8355088,
     "seen": 1792663050.6962078,
     "ast_hash": "b03b34e0d58204d749555e9f223da5f9",
+    "semantic_hash": ""
+  },
+  ".opencode/skills/working-agreement/SKILL.md": {
+    "mtime": 1792669383.2274566,
+    "seen": 1792669513.332368,
+    "ast_hash": "7c2218d3e4f2142a373c6bcee2f8c6b6",
     "semantic_hash": ""
   }
 }
