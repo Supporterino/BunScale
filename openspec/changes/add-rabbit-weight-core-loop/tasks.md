@@ -89,7 +89,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 3.1 [frontend-logic] Run `bun run gen:bindings` against the frozen P1 contract and add
   `src/features/rabbits/api.ts`, `src/features/weight/api.ts` and `src/features/dashboard/api.ts`
   wrappers; no `invoke` call anywhere outside these files (project hard rule 2).
-- [ ] 3.2 [frontend-logic] Add the rabbit query keys and hooks: the active list, the archived list,
+- [x] 3.2 [frontend-logic] Add the rabbit query keys and hooks: the active list, the archived list,
   one rabbit's profile and the dashboard rows (DASH-1, DASH-6, RAB-6).
 - [ ] 3.3 [frontend-logic] Add the weight query hooks parameterised by range, separately for the
   trend and for the weight-only history, so the two carry independent range state in the route's typed
