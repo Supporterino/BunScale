@@ -45,7 +45,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   (RAB-2).
 - [x] 2.3 [rust-backend] Implement multiple rabbits per household with no fixed upper limit, each
   belonging to exactly one household (RAB-3).
-- [ ] 2.4 [rust-backend] Implement editing every field of an active rabbit's profile, including the
+- [x] 2.4 [rust-backend] Implement editing every field of an active rabbit's profile, including the
   weight-drop threshold, and share the change with all members through P0's collection write path;
   refuse an edit to an archived rabbit (RAB-5, HS-8).
 - [ ] 2.5 [rust-backend] Implement archiving a rabbit: excluded from the active list, included in the
