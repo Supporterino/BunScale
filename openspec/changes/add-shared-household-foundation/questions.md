@@ -7,8 +7,10 @@ in `design.md` (D0.12 … D0.20); they are tabulated below and were never reopen
 owner. The decisions the loop follows are in "Resolutions" below; the evidence each was raised on is
 kept in "History".
 
-**Current open items:** none that block work. The product owner settled the remaining decisions on
-2026-10-20: **Q15** — CoreSimulator responds again (iOS 27.0 runtime and devices are listed), so task
+**Current open items:** **Q54** — the release half of task 0.26 is blocked by the host linker (Xcode
+27.1 `ld` emits malformed `__LINKEDIT` string pools), so only a debug-profile bundle could be exercised;
+see the verification record at the end of this file. Everything else is settled: the product owner
+resolved the remaining decisions on 2026-10-20 — **Q15** — CoreSimulator responds again (iOS 27.0 runtime and devices are listed), so task
 0.27's iOS evidence is unblocked; **Q20** — new dated `graphify-out/<date>/` snapshots are ignored;
 **Q25** — the sign-in/account-acquisition flow is folded into P3; **Q26** — the iOS region default is
 deferred and task 5.11 pins the rule; **Q28** — macOS accepts refocus plus explicit checks and no
@@ -929,3 +931,97 @@ landed in the same working tree, and separating their hunks in one file is not p
 orchestrator's allow-listed commands, so they share one commit. 7.5's contribution is comments plus the
 in-flight spec; 7.6's is the primitive contract and the labels. Recorded on the same precedent as
 5.4+5.5, 4.2+4.3 and 7.7+7.9.
+
+## Verification record — task 0.26 (2026-10-22, orchestrator)
+
+The **clean-checkout half was waived by the product owner on 2026-10-22** ("don't do the clean checkout");
+everything else in the task was run on HEAD `0b5ad89` with a tree clean apart from the expected
+`graphify-out/` churn, and the gate ran fresh in that tree. The release half is **blocked by the host
+toolchain** (Q54), so the task is not ticked.
+
+### Gate — all green
+
+| Command | Result |
+|---|---|
+| `cargo fmt --check` | pass, no output |
+| `cargo clippy --all-targets -- -D warnings` | pass |
+| `cargo test` | **235** lib + **47** integration tests (11 files: 3+5+3+3+6+5+3+4+4+4+7), 0 failed |
+| `cargo check --target aarch64-apple-ios` | pass |
+| `bun run gen:bindings` | ran; `git diff --exit-code src/bindings.ts` → no diff |
+| `bun run build` | 226 modules; `git diff --exit-code src/routeTree.gen.ts` → no diff |
+| `bun run typecheck` | pass |
+| `bun run lint` | pass, 129 files |
+| `bun run test` | **256** passed in 30 files, 0 failed |
+| `bun run test:e2e` | **45 passed**, 11 skipped by viewport gating, 0 failed |
+
+The 11 skips are the two E2E projects' deliberate viewport gates (desktop-settings in the compact
+project, household-flow in the expanded project), not failures; neither project reports a failure.
+
+### The mock seam — checked in both directions
+
+- `VITE_E2E_MOCK=1 bun run build` → 228 modules, including `dist/assets/mock-ipc-BvbNSULC.js`
+  (3.57 kB); `grep -rl "mock-ipc" dist/assets` matches the chunk and the entry. In the flagged entry
+  the runtime guard is compiled away, so the mock loader runs before first render.
+- shipped `bun run build` → 226 modules; no `mock-ipc` chunk, no `mock-ipc` string, and no
+  `VITE_E2E_MOCK` string in the entry. The seam is inert for a shipped build.
+- `bun run test:e2e` above is the positive path: it runs with the flag and its harness spec asserts
+  mocked IPC, so the mock is loaded and the suite passes.
+
+That closes the task's "with the mock file present, a non-mock build contains no `mock-ipc` chunk, and
+the `test:e2e` path does load the mock" assertion on both sides.
+
+### The built macOS artefact
+
+`bun run tauri build` **fails** during the release compile, before the bundle step (Q54): the release
+build cannot load its own proc-macro dylibs because Xcode 27.1's `ld-27037.1` writes `__LINKEDIT`
+string pools at offsets macOS 27's `dyld` rejects. Tried and failed: `--bundles app`,
+`CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_OPT_LEVEL=0`, and
+`RUSTFLAGS="-C linker-flavor=ld64.lld -C linker=…/rust-lld"` (LLD 21.1.8 cannot parse this SDK's
+`arm64e.x1` TAPI targets). The debug-profile bundle was built instead (`bun run tauri build --debug`,
+exit 0) and is what was exercised:
+
+- `src-tauri/target/debug/bundle/macos/BunScale.app` (35.07 MiB) and
+  `…/dmg/BunScale_0.1.0_aarch64.dmg` (9.93 MiB).
+- `Info.plist`: `CFBundleIdentifier com.bunscale.app`, `CFBundleName`/`CFBundleDisplayName BunScale`,
+  `CFBundleShortVersionString 0.1.0`, `CFBundleExecutable app`, `CFBundleIconFile icon.icns`,
+  **`LSMinimumSystemVersion 13.3`** — exactly the shipped floor from D0.16/Q16, no drift.
+- Host: macOS 27.0.1 (26A434), arm64; rustc 1.93.1.
+
+The bundled app (embedded `dist`, not the dev server) was launched and stayed up; the screenshot
+`.artifacts/screens/macos-built-boot.png` shows the first screen — the connectivity-required "Connect to
+continue" surface with its typography, colour and full-width action intact. That is the "the shipped
+policy does not break the UI" observation the task asks for. What cannot be claimed is a *release*
+artefact: none exists on this host. The unified log returned zero lines for the process
+(`log show --predicate 'process == "BunScale"'` and `… == "app"`), so there is no positive CSP log line
+either way — the observation is the rendered bundled UI, not a CSP enforcement log.
+
+One cosmetic note: the CLI warns that `com.bunscale.app` ends in `.app`; that is D0.15's chosen
+identifier, unchanged, and the warning is advisory only.
+
+### Q54 — The release build cannot run on this host (open; blocks task 0.26's release half)
+
+`bun run tauri build` fails during the Rust release compile, before any bundle step:
+
+```
+error[E0463]: can't find crate for `zerofrom_derive`
+error: …/libserde_derive-….dylib: dlopen(...) (mis-aligned LINKEDIT string pool, fileOffset=0x002D6EA4)
+```
+
+The offset is the `LC_SYMTAB` string-table offset and is not 8-byte aligned; 21 of 42 freshly built
+proc-macro dylibs are rejected, and the specific crates differ per run. Measured: Xcode 27.1
+(`ld-27037.1`), macOS 27.0.1 (26A434), rustc 1.93.1 / LLVM 21.1.8; the CLT `ld` is the same binary; no
+second Xcode or older toolchain is installed. Not a stale-cache artefact (a clean rebuild reproduces
+it), not project-specific (a scratch `serde_derive` build can land aligned), and not opt-level
+dependent (build-override 0 still leaves about half the dylibs malformed). `rust-lld` from rustc 1.93.1
+cannot substitute: LLD 21.1.8 rejects the SDK's `libSystem.tbd`, whose target list contains
+`arm64e.x1-macos` and no plain `arm64-macos`, so `-lSystem`/`-lc`/`-lm` resolve to nothing.
+
+**Consequence:** the release half of 0.26 cannot be evidenced on this host. The debug-profile bundle
+was produced and exercised instead; the gate, the mock-seam checks and the `Info.plist` floor are
+recorded above. The remaining gap is a **release** artefact and a CSP observation under it.
+
+**Owner:** `release-ci` (toolchain), not a code task. Directions, none attempted here: install an
+Xcode/`ld` without the defect, use a toolchain whose LLD understands this SDK (LLVM 22+), or build
+releases on a host with a different Xcode. Whichever is chosen, re-run `bun run tauri build`, read the
+release `Info.plist` (`LSMinimumSystemVersion` must be `13.3`) and load the release `.app` before 0.26
+is ticked.

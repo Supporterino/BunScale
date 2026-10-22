@@ -747,6 +747,10 @@ file's header).
   bundle contains no `mock-ipc` chunk, then assert the `test:e2e` path does load the mock. That is what
   turns "task 0.23 fills the seam with no edit to `src/main.tsx`" from a design assumption into a
   checked claim, and it also confirms the seam stays inert for the shipped build.
+  **Blocked (2026-10-22):** the gate, the mock-seam checks in both directions and a debug-profile
+  bundle (`LSMinimumSystemVersion 13.3`, app booted and rendered) all passed, but `bun run tauri build`
+  cannot produce a **release** artefact on this host (Q54), and the clean-checkout half was waived by
+  the product owner. Not ticked until a release `.app` has been loaded.
 
 ### Manual verification
 
