@@ -21,7 +21,50 @@
 
 // The shared contract types, including the ones only the doc comments link (see the parent module's
 // docs for why this is a glob).
+use super::super::events::{HouseholdChangeKind, HouseholdChangePublisher, HouseholdChanged};
 use super::super::types::*;
+
+/// The `create_household` body over the state and a publication seam.
+///
+/// It is the outermost layer a unit test can call: `tauri::State` has no public constructor outside
+/// a running app (the same reason `commands::sync`'s bodies exist). The change is published only
+/// after the create succeeded, so a refusal leaves the recorder empty and the frontend's policy
+/// never invalidates a collection for a write the service did not accept.
+async fn created_household(
+    state: &crate::state::AppState,
+    publisher: &impl HouseholdChangePublisher,
+    name: String,
+    request_id: RequestId,
+) -> Result<Household, CommandError> {
+    let household = state.create_household(name, request_id).await?;
+
+    publisher.publish(&HouseholdChanged {
+        household_id: household.id.clone(),
+        kind: HouseholdChangeKind::Created,
+    });
+
+    Ok(household)
+}
+
+/// The `set_active_household` body over the state and a publication seam.
+///
+/// A refused switch changes nothing, so it publishes nothing; a successful one reports the
+/// household the book now holds as active (which is the same value the command returns).
+fn switched_household(
+    state: &crate::state::AppState,
+    publisher: &impl HouseholdChangePublisher,
+    household_id: HouseholdId,
+    request_id: RequestId,
+) -> Result<Household, CommandError> {
+    let household = state.set_active_household(household_id, request_id)?;
+
+    publisher.publish(&HouseholdChanged {
+        household_id: household.id.clone(),
+        kind: HouseholdChangeKind::Switched,
+    });
+
+    Ok(household)
+}
 
 /// Create a household with a non-blank name; the creator becomes its first member and it becomes
 /// the active household (HS-1, HS-2).
@@ -54,9 +97,10 @@ use super::super::types::*;
 pub async fn create_household(
     name: String,
     request_id: RequestId,
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Household, CommandError> {
-    state.create_household(name, request_id).await
+    created_household(state.inner(), &app, name, request_id).await
 }
 
 /// Every household the person holds, with the active one indicated (HS-3, HS-4, DM-3).
@@ -139,7 +183,150 @@ pub async fn get_active_household(
 pub async fn set_active_household(
     household_id: HouseholdId,
     request_id: RequestId,
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Household, CommandError> {
-    state.set_active_household(household_id, request_id)
+    switched_household(state.inner(), &app, household_id, request_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::ipc::events::test_support::RecordingHouseholdPublisher;
+    use crate::ipc::types::{AccountUserId, SaveCause};
+    use crate::state::AppState;
+    use crate::sync::double::test_support::block_on_ready;
+    use crate::sync::{Answer, ScriptedService, ServiceReply};
+
+    fn account() -> AccountUserId {
+        AccountUserId("account-1".to_owned())
+    }
+
+    fn request_id(value: &str) -> RequestId {
+        RequestId(value.to_owned())
+    }
+
+    fn household(value: &str) -> HouseholdId {
+        HouseholdId(value.to_owned())
+    }
+
+    /// One accepted create answer the domain can read.
+    fn accepted_create(household_id: &str) -> ServiceReply {
+        ServiceReply::Answered(Answer::with_body(
+            200,
+            json!({
+                "outcome": "applied",
+                "household": {
+                    "id": household_id,
+                    "owner_member_id": "member-1",
+                    "created_at": "2026-10-19T10:00:00Z",
+                },
+            }),
+        ))
+    }
+
+    #[test]
+    fn a_successful_create_publishes_exactly_one_created_for_the_new_household() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_create("household-1")]));
+        let state = AppState::new(service, Some(account()));
+        let publisher = RecordingHouseholdPublisher::default();
+
+        let created = block_on_ready(created_household(
+            &state,
+            &publisher,
+            "Home".to_owned(),
+            request_id("operation-1"),
+        ))
+        .expect("the double accepted the write");
+
+        assert_eq!(created.id, household("household-1"));
+        assert_eq!(
+            publisher.published(),
+            vec![HouseholdChanged {
+                household_id: household("household-1"),
+                kind: HouseholdChangeKind::Created,
+            }],
+            "one report for the household the command returned"
+        );
+    }
+
+    #[test]
+    fn a_successful_switch_publishes_switched_for_the_household_now_active() {
+        let service = Arc::new(ScriptedService::new().on_write([
+            accepted_create("household-1"),
+            accepted_create("household-2"),
+        ]));
+        let state = AppState::new(service, Some(account()));
+
+        block_on_ready(state.create_household("First".to_owned(), request_id("operation-1")))
+            .expect("the first create completed");
+        block_on_ready(state.create_household("Second".to_owned(), request_id("operation-2")))
+            .expect("the second create completed");
+
+        // Use the body directly so only the switch's publication is observed: the creates above went
+        // through the state, not the publishing wrapper.
+        let publisher = RecordingHouseholdPublisher::default();
+        let switched = switched_household(
+            &state,
+            &publisher,
+            household("household-1"),
+            request_id("operation-3"),
+        )
+        .expect("the person holds household-1");
+
+        assert_eq!(switched.id, household("household-1"));
+        assert!(switched.is_active);
+        assert_eq!(
+            publisher.published(),
+            vec![HouseholdChanged {
+                household_id: household("household-1"),
+                kind: HouseholdChangeKind::Switched,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_refused_create_publishes_nothing() {
+        // P0 has no account, so the create is refused before anything is sent (Q25).
+        let state = AppState::new(Arc::new(ScriptedService::new()), None);
+        let publisher = RecordingHouseholdPublisher::default();
+
+        let error = block_on_ready(created_household(
+            &state,
+            &publisher,
+            "Home".to_owned(),
+            request_id("operation-1"),
+        ))
+        .expect_err("P0 has no account");
+
+        assert_eq!(error.cause, SaveCause::NoAccount);
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a household change"
+        );
+    }
+
+    #[test]
+    fn a_refused_switch_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_create("household-1")]));
+        let state = AppState::new(service, Some(account()));
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the create completed");
+
+        let publisher = RecordingHouseholdPublisher::default();
+        let error = switched_household(
+            &state,
+            &publisher,
+            household("household-2"),
+            request_id("operation-2"),
+        )
+        .expect_err("the person does not hold household-2");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert!(publisher.published().is_empty());
+    }
 }

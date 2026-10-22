@@ -16,6 +16,18 @@
 //! the contract fixes, and this task needs no manifest change. If a later phase enables `derive`
 //! (P1 adds `rabbit:changed` and `weight:changed`), these two blocks are what it replaces with
 //! `#[tauri_specta(event_name = "...")]` on the payload types.
+//!
+//! # Who publishes `household:changed`
+//!
+//! The event name and payload live here because they are the contract; the producer is the
+//! [`HouseholdChangePublisher`] seam below, mirroring `sync::lifecycle`'s
+//! [`StatusPublisher`](crate::sync::StatusPublisher). The running app's implementation is
+//! [`tauri::AppHandle`], which emits the frozen event name; the tests use a recorder. The command
+//! adapters publish `created`/`switched` after a successful call, and the platform lifecycle trigger
+//! publishes `refreshed` for the active household after a reachable, account-valid probe. Nothing
+//! publishes from `load_household` or from `re_evaluate`: the frontend's `refreshed` policy
+//! invalidates the collection, whose query calls `load_household`, so an emit from the load would
+//! refetch in a loop.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -57,10 +69,68 @@ impl tauri_specta::Event for HouseholdChanged {
     const NAME: &'static str = "household:changed";
 }
 
+/// Where one household change is published.
+///
+/// It exists for the same reason as
+/// [`StatusPublisher`](crate::sync::StatusPublisher): the production half is the app handle's
+/// event bus, and a unit test can observe the exact sequence without building a Tauri app. The
+/// seam covers *publication only* — the command or lifecycle path that decides a change happened is
+/// identical in both cases.
+pub trait HouseholdChangePublisher {
+    /// Publish `change` to whoever is listening.
+    fn publish(&self, change: &HouseholdChanged);
+}
+
+/// Publish through Tauri's own event bus (the frozen `household:changed` name).
+///
+/// The event was mounted by `ipc::builder().mount_events(app)` in the app's single `setup`, so
+/// [`tauri_specta::Event::emit`] resolves the frozen name from the registry instead of building one
+/// by hand. A publication failure is deliberately **not** a command failure: the state change has
+/// already happened and is what the caller returns, so a listener that could not be reached does not
+/// make the change less true (the same rule `StatusPublisher` documents).
+impl HouseholdChangePublisher for tauri::AppHandle {
+    fn publish(&self, change: &HouseholdChanged) {
+        let _published = tauri_specta::Event::emit(change, self);
+    }
+}
+
 /// Registers the frozen event name for [`ServiceStatus`].
 ///
 /// The payload is a shared type — it is also `get_service_status`'s result — so the type lives in
 /// [`super::types`] and only its event name lives here.
 impl tauri_specta::Event for ServiceStatus {
     const NAME: &'static str = "service:status-changed";
+}
+
+/// The publication seam's test side: it records what the app would have emitted.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Mutex;
+
+    use super::{HouseholdChangePublisher, HouseholdChanged};
+
+    /// A publisher that keeps every change it was handed, in order.
+    #[derive(Debug, Default)]
+    pub(crate) struct RecordingHouseholdPublisher {
+        published: Mutex<Vec<HouseholdChanged>>,
+    }
+
+    impl RecordingHouseholdPublisher {
+        /// Every recorded change, in publication order.
+        pub(crate) fn published(&self) -> Vec<HouseholdChanged> {
+            self.published
+                .lock()
+                .expect("the records are readable")
+                .clone()
+        }
+    }
+
+    impl HouseholdChangePublisher for RecordingHouseholdPublisher {
+        fn publish(&self, change: &HouseholdChanged) {
+            self.published
+                .lock()
+                .expect("the records are writable")
+                .push(change.clone());
+        }
+    }
 }

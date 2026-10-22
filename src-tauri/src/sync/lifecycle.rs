@@ -12,6 +12,20 @@
 //! 3. publish the resulting [`ServiceStatus`] as `service:status-changed`;
 //! 4. return it to the caller.
 //!
+//! # The trigger also refreshes the active household's copy (D0.2, D0.23)
+//!
+//! When a **lifecycle trigger's** fresh outcome is `reachable` with a valid account and this process
+//! holds an active household, the trigger additionally publishes `household:changed` with kind
+//! `refreshed` for that household. That is the producer the frozen event always promised: the
+//! frontend's existing `refreshed` policy invalidates the household's collection query, which calls
+//! `load_household` and therefore performs the reload D0.2 describes for a start or foreground
+//! return. `created` and `switched` come from the household commands instead.
+//!
+//! The publication is **not** part of [`re_evaluate`] and **not** part of `load_household`.
+//! `check_service_reachability` calls [`re_evaluate`] too, and asking for a status must not
+//! invalidate household data; and because the frontend's `refreshed` policy reloads the collection,
+//! an emit from the load would refetch in a loop. Only the trigger path (`Coalescer::run`) emits it.
+//!
 //! # The bounds are applied once, in the tracker (D0.13)
 //!
 //! [`super::probe`] gives each of its two checks [`super::REACHABILITY_PROBE_TIMEOUT`] (5 s), so a
@@ -76,7 +90,8 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use super::StatusTracker;
 use super::probe::probe;
-use crate::ipc::types::ServiceStatus;
+use crate::ipc::events::{HouseholdChangeKind, HouseholdChangePublisher, HouseholdChanged};
+use crate::ipc::types::{ServiceState, ServiceStatus};
 use crate::state::AppState;
 use crate::storage::AbsoluteInstant;
 
@@ -170,7 +185,7 @@ pub fn handle_run_event(app: &AppHandle, event: &RunEvent) {
             return;
         };
 
-        coalescer.run(&state, &app).await;
+        coalescer.run(&state, &app, &app).await;
     });
 }
 
@@ -247,14 +262,64 @@ impl Coalescer {
     ///
     /// Each pass is the same [`re_evaluate`] the command and the first trigger use: the probe is
     /// outside the tracker lock, and publication follows the observation inside `re_evaluate`.
-    async fn run<P: StatusPublisher>(&self, state: &AppState, publisher: &P) {
+    /// After a pass found the service reachable and the account valid, the trigger additionally
+    /// publishes `household:changed` with kind `refreshed` for the active household, which is how a
+    /// start or foreground return reloads the copy through the frontend's existing policy (D0.2,
+    /// D0.23). That publication lives here, not in [`re_evaluate`] (which
+    /// [`check_service_reachability`](crate::ipc::commands::sync::check_service_reachability) also
+    /// calls) and never in `load_household`: the frontend invalidates the collection on `refreshed`,
+    /// so an emit from the load would refetch in a loop.
+    async fn run<S: StatusPublisher, H: HouseholdChangePublisher>(
+        &self,
+        state: &AppState,
+        statuses: &S,
+        households: &H,
+    ) {
         loop {
-            let _status = re_evaluate(state, publisher).await;
+            let status = re_evaluate(state, statuses).await;
+            publish_active_refresh(state, households, &status);
 
             if !self.finish() {
                 break;
             }
         }
+    }
+}
+
+/// Report the active household's collection as stale after a trigger found the service usable.
+///
+/// This is the **trigger path's** extra step, after [`re_evaluate`] returned. It is deliberately
+/// not inside [`re_evaluate`]: the explicit `check_service_reachability` command calls that
+/// function too, and asking for a status must not invalidate household data. It is also never part
+/// of `load_household`/[`ReadPath::load`](crate::sync::ReadPath::load): the frontend's `refreshed`
+/// policy invalidates the collection, whose query calls `load_household`, so an emit from the load
+/// would refetch in a loop.
+///
+/// Nothing is published when the fresh outcome is not a usable service (`reachable` **and** a valid
+/// account), or when this process holds no active household: the copy can only be reloaded when the
+/// service answered and there is a household to reload.
+fn publish_active_refresh(
+    state: &AppState,
+    publisher: &impl HouseholdChangePublisher,
+    status: &ServiceStatus,
+) {
+    if status.state != ServiceState::Reachable || status.account_valid != Some(true) {
+        return;
+    }
+
+    // Clone the id and drop the book's guard before publishing, so no lock is held while an event
+    // listener runs.
+    let active = {
+        let households = state.households();
+
+        households.active_id().cloned()
+    };
+
+    if let Some(household_id) = active {
+        publisher.publish(&HouseholdChanged {
+            household_id,
+            kind: HouseholdChangeKind::Refreshed,
+        });
     }
 }
 
@@ -327,10 +392,12 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::ipc::types::{SaveCause, ServiceState};
+    use crate::ipc::events::test_support::RecordingHouseholdPublisher;
+    use crate::ipc::events::{HouseholdChangeKind, HouseholdChanged};
+    use crate::ipc::types::{AccountUserId, HouseholdId, RequestId, SaveCause, ServiceState};
     use crate::sync::double::test_support::block_on_ready;
     use crate::sync::double::{RecordedCall, ScriptedService};
-    use crate::sync::{Answer, REACHABILITY_PROBE_TIMEOUT, ServiceReply};
+    use crate::sync::{Answer, REACHABILITY_PROBE_TIMEOUT, ReadPath, ServiceReply};
 
     /// The publication seam's test side: it records what the app would have emitted.
     #[derive(Debug, Default)]
@@ -363,6 +430,44 @@ mod tests {
         let status = block_on_ready(re_evaluate(&state, &publisher));
 
         (state, publisher, status)
+    }
+
+    fn account() -> AccountUserId {
+        AccountUserId("account-1".to_owned())
+    }
+
+    fn request_id(value: &str) -> RequestId {
+        RequestId(value.to_owned())
+    }
+
+    fn household(value: &str) -> HouseholdId {
+        HouseholdId(value.to_owned())
+    }
+
+    /// One accepted create answer the domain can read.
+    fn accepted_create(household_id: &str) -> ServiceReply {
+        ServiceReply::Answered(Answer::with_body(
+            200,
+            serde_json::json!({
+                "outcome": "applied",
+                "household": {
+                    "id": household_id,
+                    "owner_member_id": "member-1",
+                    "created_at": "2026-10-19T10:00:00Z",
+                },
+            }),
+        ))
+    }
+
+    /// One readable whole-collection answer for `household_id`.
+    fn feed(household_id: &HouseholdId) -> ServiceReply {
+        ServiceReply::Answered(Answer::with_body(
+            200,
+            serde_json::json!({
+                "household_id": household_id.0.as_str(),
+                "items": [],
+            }),
+        ))
     }
 
     #[test]
@@ -480,6 +585,114 @@ mod tests {
         );
     }
 
+    /// A state holding one created household as its active one, over a transport the test scripts.
+    fn state_with_active_household(service: Arc<ScriptedService>) -> (AppState, HouseholdId) {
+        let state = AppState::new(service, Some(account()));
+        let created =
+            block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+                .expect("the double accepted the create");
+
+        (state, created.id)
+    }
+
+    #[test]
+    fn a_trigger_with_a_reachable_service_and_an_active_household_publishes_one_refreshed() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_create("household-1")]));
+        let (state, active) = state_with_active_household(service);
+
+        let coalescer = Coalescer::new();
+        let statuses = RecordingPublisher::default();
+        let households = RecordingHouseholdPublisher::default();
+
+        assert!(coalescer.begin(), "the trigger starts the run");
+        block_on_ready(coalescer.run(&state, &statuses, &households));
+
+        assert_eq!(
+            statuses.published(),
+            vec![current_status(&state)],
+            "the status is still published once per pass"
+        );
+        assert_eq!(
+            households.published(),
+            vec![HouseholdChanged {
+                household_id: active,
+                kind: HouseholdChangeKind::Refreshed,
+            }],
+            "exactly one refresh for the active household"
+        );
+    }
+
+    #[test]
+    fn a_trigger_with_no_active_household_publishes_no_household_change() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service, None);
+        let coalescer = Coalescer::new();
+        let statuses = RecordingPublisher::default();
+        let households = RecordingHouseholdPublisher::default();
+
+        assert!(coalescer.begin());
+        block_on_ready(coalescer.run(&state, &statuses, &households));
+        let status = current_status(&state);
+
+        // The status is usable; there is simply no household whose copy could be refreshed.
+        assert_eq!(status.state, ServiceState::Reachable);
+        assert_eq!(status.account_valid, Some(true));
+        assert!(households.published().is_empty());
+    }
+
+    #[test]
+    fn a_trigger_with_an_invalid_account_publishes_no_household_change() {
+        // The create's probe is answered with a valid account; the trigger's probe is answered `401`.
+        let service = Arc::new(
+            ScriptedService::new()
+                .on_write([accepted_create("household-1")])
+                .on_account_check([
+                    ServiceReply::Answered(Answer::status_only(200)),
+                    ServiceReply::Answered(Answer::status_only(401)),
+                ]),
+        );
+        let (state, _active) = state_with_active_household(service);
+
+        let coalescer = Coalescer::new();
+        let statuses = RecordingPublisher::default();
+        let households = RecordingHouseholdPublisher::default();
+
+        assert!(coalescer.begin());
+        block_on_ready(coalescer.run(&state, &statuses, &households));
+        let status = current_status(&state);
+
+        assert_eq!(status.state, ServiceState::Reachable);
+        assert_eq!(status.account_valid, Some(false));
+        assert!(
+            households.published().is_empty(),
+            "an unusable account cannot refresh a copy"
+        );
+    }
+
+    #[test]
+    fn a_load_or_refresh_publishes_no_household_change() {
+        let one = household("household-1");
+        let service = Arc::new(
+            ScriptedService::new()
+                .on_write([accepted_create("household-1")])
+                .on_read([feed(&one)]),
+        );
+        let (state, active) = state_with_active_household(service);
+        assert_eq!(active, one);
+
+        let households = RecordingHouseholdPublisher::default();
+        let read = block_on_ready(ReadPath::new().load(&state, &one))
+            .expect("the load resolves against the service");
+
+        // The reload itself is the command path's job; it never reports a change, because the
+        // frontend's `refreshed` policy would invalidate the collection and call it again.
+        assert_eq!(read.source, crate::ipc::types::CollectionSource::Service);
+        assert!(
+            households.published().is_empty(),
+            "load_household must not publish household:changed"
+        );
+    }
+
     /// A publisher that also reports triggers arriving while its re-evaluation is still in flight.
     ///
     /// `finish` has not run when the publisher is called, so a `begin` here is a trigger arriving
@@ -539,7 +752,7 @@ mod tests {
         let publisher = TriggeringPublisher::new(&coalescer);
 
         assert!(coalescer.begin(), "the first trigger starts the run");
-        block_on_ready(coalescer.run(&state, &publisher));
+        block_on_ready(coalescer.run(&state, &publisher, &RecordingHouseholdPublisher::default()));
 
         let probes = service
             .calls()
