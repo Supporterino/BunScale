@@ -105,7 +105,7 @@ const NO_ACCOUNT_COPY =
 const ALLOWANCE_COPY = 'This household has reached its storage limit.';
 const RATE_LIMITED_COPY =
   'Too many requests right now. Wait a moment and try again.';
-const GENERIC_COPY = 'Something went wrong. Try again.';
+const GENERIC_COPY = 'The change could not be completed. Nothing was changed.';
 
 /** A failure as the contract reports it, minus the operation's own identity. */
 type CreateFailure = {

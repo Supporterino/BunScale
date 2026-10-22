@@ -51,10 +51,14 @@ import type { SaveMessageKey } from '../sync/failure';
  * answer all of them, and a mismatch is a type error rather than a screen that
  * renders a key.
  *
- * `error.unknown` is worded to serve both roles the cause has (task 2.10's
- * note): the display-unit store reports a local failure as `unknown`, and a
- * genuinely unclassified failure also lands here. It therefore names neither
- * the service nor connectivity — only that the change did not complete.
+ * `error.unknown` is worded for the unclassified failure only (D0.6, NFR-8,
+ * Q58). It names neither the service nor connectivity — only that the change
+ * did not complete and nothing was applied — because the frontend cannot know
+ * more. It deliberately does not promise a retry: the backend marks this cause
+ * `retryable: false` (`src-tauri/src/ipc/failure.rs`), so no surface offers one.
+ * The display-unit store's local, device-specific failure gets its own key
+ * (`settings.unit.store_failed`) instead of borrowing this one; task 8.3 shows
+ * it at the Settings unit section.
  */
 const FAILURE_MESSAGES = {
   'error.connectivity':
@@ -66,7 +70,7 @@ const FAILURE_MESSAGES = {
     'Too many requests right now. Wait a moment and try again.',
   'error.timeout': 'The service took too long to answer. Try again.',
   'error.validation': 'That change is not valid. Check it and try again.',
-  'error.unknown': 'Something went wrong. Try again.',
+  'error.unknown': 'The change could not be completed. Nothing was changed.',
 } as const satisfies Record<SaveMessageKey, string>;
 
 /**
@@ -141,6 +145,11 @@ export const P0_MESSAGES = {
   'settings.displayUnit.grams': 'Grams',
   'settings.displayUnit.kilograms': 'Kilograms',
   'settings.displayUnit.saving': 'Saving…',
+  // The local unit store failing on this device, not the shared service: the
+  // choice never left the device, so the copy names that and promises no retry
+  // (Q58; shown by task 8.3).
+  'settings.unit.store_failed':
+    'Your choice was not saved on this device. Nothing was changed.',
 
   // Connectivity and previously loaded data (SYNC-3, task 4.4).
   'connectivity.required.title': 'Connect to continue',

@@ -81,7 +81,7 @@ const ACCOUNT_TITLE = 'This device cannot use the shared service right now.';
 const NO_ACCOUNT_BODY =
   'Your account is not available right now. Try again later.';
 const TIMEOUT_BODY = 'The service took too long to answer. Try again.';
-const UNKNOWN_BODY = 'Something went wrong. Try again.';
+const UNKNOWN_BODY = 'The change could not be completed. Nothing was changed.';
 
 /** The previously-loaded-copy notice (`connectivity.localCopy`). */
 const LOCAL_COPY =

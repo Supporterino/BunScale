@@ -3,19 +3,18 @@
  *
  * The backend publishes `household:changed` and `service:status-changed`; both
  * are app-wide facts, not per-screen ones. This hook installs one subscription
- * for each and is meant to be called **once by the app shell** — the component
- * that wraps every route — rather than by each screen that happens to read the
- * affected data. That is what keeps a second mount from duplicating the
- * listeners, and it is why the hook returns nothing and takes no arguments: the
- * shell supplies the cache through context, exactly as the queries do.
+ * for each and is mounted once by the screen that hosts the current session,
+ * rather than by every screen that happens to read the affected data. That is
+ * what keeps a second mount from duplicating the listeners, and it is why the
+ * hook returns nothing and takes no arguments: the cache arrives through
+ * context, exactly as the queries do.
  *
- * **Where it goes:** task 4.2 owns the app shell and has not been built yet.
- * It should call `useAppEvents()` in the shell component that renders the
- * routes once (the component `src/routes/__root.tsx` currently keeps as a
- * pass-through `RootLayout`, or the `_app` layout task 4.2 introduces), above
- * the `Outlet`, so the subscriptions exist for the whole session and are not
- * re-created per navigation. No route is edited here; the export is the
- * documented hand-off.
+ * **Where it goes:** it is mounted once by each screen that hosts a session —
+ * `src/features/households/components/HouseholdDashboardScreen.tsx` and
+ * `src/features/settings/components/SettingsScreen.tsx` — above their content,
+ * so a screen's reads are current while it is shown. The shell has no layout
+ * route of its own in P0, so these two mounts are the app's subscription
+ * points, and the export stays the documented entry.
  *
  * **Ownership of the two layers.** The `listen(...)` calls live in each
  * feature's `api.ts` — the only module per feature allowed to import
@@ -42,7 +41,8 @@ import { applyServiceStatus } from './sync/events';
 /**
  * Observe a subscription's rejection at creation time.
  *
- * `listen` resolves asynchronously, and the app shell has no place to await it.
+ * `listen` resolves asynchronously, and the mounting screen has no place to
+ * await it.
  * Attaching the failure handler here keeps a failed bridge from becoming an
  * unhandled rejection while the effect is alive; the original promise is
  * returned unchanged so cleanup can still release a listener that did register.
@@ -77,10 +77,10 @@ function release(subscription: Promise<UnlistenFn>): void {
 /**
  * Install both backend event subscriptions for the current query cache.
  *
- * Call once in the app shell (task 4.2). One mount per session is the contract:
- * every screen reads the caches these listeners keep current, so a subscriber
- * per screen would multiply listeners and their refetches without changing what
- * is shown.
+ * Call once in the screen that hosts the session — the dashboard and Settings.
+ * One mount per screen is the contract: every read on that screen uses the
+ * caches these listeners keep current, so a second subscriber in the same tree
+ * would multiply listeners and their refetches without changing what is shown.
  */
 export function useAppEvents(): void {
   const queryClient = useQueryClient();
