@@ -1122,6 +1122,13 @@ double); the household event has no equivalent. Consequences: `applyHouseholdCha
 `src/lib/query-client.ts` and `src/features/app-events.ts` describe a mechanism that does not exist.
 **Owner:** task 8.1.
 
+**Resolved (2026-10-22, task 8.1):** `ipc/events.rs` now owns a `HouseholdChangePublisher` seam (trait,
+`AppHandle` implementation via `tauri_specta::Event::emit`, recording double), and the command bodies
+publish `created`/`switched` after success. `removed` stays unemitted because P0 has no reachable
+release/delete command — the book's `release` is domain-test-only and P3 owns deletion; the trait
+accepts the kind, so no contract change is needed when P3 wires it. Tests assert one event per
+successful create/switch, none on a refusal, and none from a load. `applyHouseholdChange` is live.
+
 ### Q57 — the foreground-return refresh is documented and unwired
 
 D0.2 ("a start **or foreground return** with connectivity refreshes it") and D0.23 (the copy is
@@ -1134,6 +1141,14 @@ until the route remounts. **Owner:** task 8.1, which emits `refreshed` from the 
 the existing `household:changed` policy performs the reload (and deliberately not from the load itself,
 which would loop).
 
+**Resolved (2026-10-22, task 8.1):** the lifecycle trigger path now publishes `refreshed` for the
+active household after a re-evaluation reports the service reachable with a valid account — so the
+existing frontend policy invalidates the collection and its query reloads the copy. It is emitted from
+the trigger handler, **not** from `re_evaluate` (so `check_service_reachability` does not invalidate
+household data) and **not** from `load_household` (no refetch loop). Tests cover the refresh, the
+no-active-household case, the invalid-account case, and that a load alone publishes nothing. The
+`query-client.ts` comment now describes a mechanism that exists.
+
 ### Q58 — `error.unknown`'s copy is the bare message NFR-8 forbids, and it promises a retry that does not exist
 
 `src/features/i18n/messages.ts` maps `error.unknown` to "Something went wrong. Try again.". D0.6 says
@@ -1144,6 +1159,14 @@ The key also carries the display-unit store fault, which is a local, device-spec
 never names. **Owner:** task 8.2, within the frozen `SaveCause` set (a surface-specific key, not a new
 cause).
 
+**Resolved (2026-10-22, tasks 8.2 + 8.3):** `error.unknown` now reads "The change could not be
+completed. Nothing was changed." — it states the outcome, names no cause it cannot know, and promises
+no retry; the header comment explains why. The display-unit section keeps the frozen cause but shows
+the new `settings.unit.store_failed` key ("Your choice was not saved on this device. Nothing was
+changed.") when the cause is `unknown`, for both its read and its write; every other cause keeps its
+own copy. `SaveFailureNotice` gained an optional `messageKey` override (typed to the catalog) rather
+than a second cause map. The pinned component and E2E assertions moved in the same commits.
+
 ### Q59 — two review minors
 
 `src/features/app-events.ts`'s header still says task 4.2 has not built the shell and that no route is
@@ -1151,6 +1174,19 @@ edited, but the hook is mounted in the dashboard and Settings (fixed by 8.2's su
 inline create-retry notice does not pass an in-flight state, so its control stays pressable while
 `creation.isPending` — a second tap starts a second call on the same request handle (safe for the data,
 but the busy state the shell surface received in 7.9 is missing here). **Owner:** task 8.3.
+
+**Resolved (2026-10-22, tasks 8.2 + 8.3), with one honest limit.** The stale `app-events.ts` header is
+fixed: it is mounted once by the dashboard and once by Settings, and says so. The inline create notice
+now passes `retrying={creation.isPending}` for parity with the shell mount — but **that state is not
+reachable at that site**, and the code documents it: TanStack Query clears the mutation's `error` in
+the same update that sets `status: 'pending'`, and the form renders the notice only while
+`otherFailure !== null`, so the notice (and its retry) unmounts in the render that starts the retry.
+The double-tap the reviewer described is therefore already prevented by the notice disappearing, not by
+the busy state; the form's own submit control is separately `loading={pending}`. The prop stays because
+it is the component's contract and costs nothing, but no claim is made that it renders here. If a later
+surface keeps a failure record alive across an attempt (as the shell's store does), the same prop is
+the visible state there. This follows the 7.5/Q46 precedent: implement, measure, and record when the
+state is unreachable rather than claiming it.
 
 Not a finding: hand-written command-name literals in `src/test/mock-ipc.ts` are test-only and fail
 loudly on a rename; recorded as residual risk, not an action. The reviewer also confirmed the positive

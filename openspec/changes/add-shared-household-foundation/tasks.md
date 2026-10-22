@@ -1049,7 +1049,7 @@ task was reviewed against its own diff rather than against the seam between prod
 product owner's instruction for this session ("do the rest") authorises these fixes before the change is
 archived. Each is one owner and one commit, and names the finding it closes.
 
-- [ ] 8.1 [rust-backend] Give `household:changed` the producer the frozen contract promises, and wire
+- [x] 8.1 [rust-backend] Give `household:changed` the producer the frozen contract promises, and wire
   the foreground refresh D0.2/D0.23 describe. Publish `created` after a successful create, `switched`
   after a successful active-household change, `removed` when a release is reachable, and `refreshed` for
   the active household when a **foreground/resume** trigger re-evaluates connectivity — **never** from
@@ -1058,7 +1058,7 @@ archived. Each is one owner and one commit, and names the finding it closes.
   `AppHandle` implementation using the frozen event name, and a recording double. Prove with tests:
   create emits `created`, switch emits `switched`, a foreground trigger with an active household emits
   `refreshed`, and a load alone emits nothing. Closes Q56/Q57; SYNC-1/HS-3/D0.2/D0.23.
-- [ ] 8.2 [frontend-logic] Replace the bare `error.unknown` copy ("Something went wrong. Try again.")
+- [x] 8.2 [frontend-logic] Replace the bare `error.unknown` copy ("Something went wrong. Try again.")
   with outcome-stating copy that neither reads as the message D0.6 forbids nor promises a retry the
   cause does not offer. The cause is non-retryable and also carries the display-unit store failure, so
   give the Settings unit section its own device-specific key (e.g. `settings.unit.store_failed`:
@@ -1068,7 +1068,7 @@ archived. Each is one owner and one commit, and names the finding it closes.
   (the hook is mounted). The pinned assertions in `src/test/*` move in the same commit via a
   `test-engineer` sub-step; the commit lands only when typecheck, lint and the suite are green. Closes
   Q58 and Q59's comment finding; NFR-8/D0.6.
-- [ ] 8.3 [frontend-ui] Give the Settings inline create-retry notice the same in-flight state the shell
+- [x] 8.3 [frontend-ui] Give the Settings inline create-retry notice the same in-flight state the shell
   surface already has: pass the `Button`'s loading form while `creation.isPending` so a second tap
   cannot start a second call on the same request handle. Screenshots at 390×844 and 1280×800 only if
   the rendered result changes. Closes Q59's retry finding; SYNC-2's retry offer.
