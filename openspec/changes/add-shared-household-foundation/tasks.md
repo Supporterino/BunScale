@@ -728,7 +728,7 @@ file's header).
   at a baseline but cannot assert geometry, density, pointer behaviour or the adaptive arrangement — all of
   which belong to the E2E projects above.
 
-- [ ] 0.26 [test-engineer] Run the full `definition-of-done` gate on the scaffold
+- [x] 0.26 [test-engineer] Run the full `definition-of-done` gate on the scaffold
   (`cargo fmt --check`, `cargo clippy`, `cargo test`, `cargo check --target aarch64-apple-ios`,
   `bun run gen:bindings` with no diff, the route-tree no-diff check, `bun run typecheck`,
   `bun run lint`, `bun run test`, `bun run test:e2e`) and record the results in the change; this is
@@ -747,10 +747,12 @@ file's header).
   bundle contains no `mock-ipc` chunk, then assert the `test:e2e` path does load the mock. That is what
   turns "task 0.23 fills the seam with no edit to `src/main.tsx`" from a design assumption into a
   checked claim, and it also confirms the seam stays inert for the shipped build.
-  **Blocked (2026-10-22):** the gate, the mock-seam checks in both directions and a debug-profile
-  bundle (`LSMinimumSystemVersion 13.3`, app booted and rendered) all passed, but `bun run tauri build`
-  cannot produce a **release** artefact on this host (Q54), and the clean-checkout half was waived by
-  the product owner. Not ticked until a release `.app` has been loaded.
+  **Blocked (2026-10-22), then accepted by decision:** the gate, the mock-seam checks in both
+  directions and a debug-profile bundle (`LSMinimumSystemVersion 13.3`, app booted and rendered) all
+  passed, but `bun run tauri build` cannot produce a **release** artefact on this host (Q54), and the
+  clean-checkout half was waived by the product owner. The product owner then accepted the debug bundle
+  as the built-artefact evidence and the release gap as recorded (Q54), so the task is ticked with
+  that limitation rather than on a release proof.
 
 ### Manual verification
 

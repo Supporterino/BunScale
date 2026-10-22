@@ -1026,6 +1026,15 @@ releases on a host with a different Xcode. Whichever is chosen, re-run `bun run 
 release `Info.plist` (`LSMinimumSystemVersion` must be `13.3`) and load the release `.app` before 0.26
 is ticked.
 
+**Accepted (2026-10-22, product owner): the debug-profile bundle is accepted as 0.26's built-artefact
+evidence, and the change archives with the release artefact knowingly unverified.** The basis, recorded
+so it is not mistaken for a release proof: the bundled app embeds `dist` (not the dev server), its
+`Info.plist` reports exactly the shipped floor `LSMinimumSystemVersion 13.3`, and it was launched and
+rendered the first screen under the compiled CSP. What remains unproven is a **release-optimised**
+bundle; no such file exists on this host. `release-ci` still owns producing one on a toolchain without
+the defect (or in CI, which TOOL-7 currently evidences only as configuration), and the re-run steps
+above stay the acceptance check. Q54 stays open as the toolchain item even though 0.26 is now ticked.
+
 ## Verification record — task 0.27 (2026-10-22, orchestrator)
 
 Manual verification on both platforms, with the app mark task 0.22 generated.
