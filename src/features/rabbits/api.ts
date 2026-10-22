@@ -28,20 +28,22 @@
  * holds it, and the UI withholds the controls as a second line rather than the
  * only one. No wrapper pre-checks it.
  *
- * The `rabbit:changed` subscription is not here yet: no P1 task has asked for
- * it, and it belongs beside these commands when the task that needs it lands
- * (the invalidation policy of task 3.6/3.7), the way `household:changed` sits
- * in the household module.
+ * The `rabbit:changed` subscription lives beside these commands (task 3.9;
+ * RAB-5, RAB-6, RAB-7, RAB-10): the generated event descriptor is part of the
+ * same bindings seam, so this module remains the feature's one importer of
+ * `src/bindings.ts`, the way `household:changed` sits in the household module.
  */
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import type {
   CommandError,
   HouseholdId,
   Rabbit,
+  RabbitChanged,
   RabbitId,
   RabbitProfile,
   RabbitSummary,
 } from '../../bindings';
-import { commands } from '../../bindings';
+import { commands, events } from '../../bindings';
 import type { CommandResult, RequestOperation } from '../../lib/request-id';
 import { requestOperation } from '../../lib/request-id';
 
@@ -50,6 +52,9 @@ type Outcome<T> = Promise<CommandResult<T, CommandError>>;
 
 /** A state-changing command's handle; `run()` again re-uses the request id. */
 type Operation<T> = RequestOperation<T, CommandError>;
+
+/** The `rabbit:changed` payload, as the contract defines it (task 3.9). */
+export type RabbitChange = RabbitChanged;
 
 /**
  * Add a rabbit to a household (RAB-1, RAB-2, RAB-3).
@@ -168,4 +173,25 @@ export function deleteRabbit(rabbitId: RabbitId): Operation<null> {
   return requestOperation<null, CommandError>((requestId) =>
     commands.deleteRabbit(rabbitId, requestId),
   );
+}
+
+/**
+ * Subscribe to `rabbit:changed` (task 3.9; RAB-5, RAB-6, RAB-7, RAB-10).
+ *
+ * The generated event descriptor is imported here, beside the commands, because
+ * project hard rule 2 names this module — and only this module per feature — as
+ * the one that may touch `src/bindings.ts`. The handler receives the contract's
+ * payload, not Tauri's event envelope, so the cache policy cannot depend on the
+ * bridge's shape.
+ *
+ * The returned promise is the Tauri `listen` promise: the caller keeps it and
+ * calls the resolved unlisten on cleanup (convention 4). No payload is buffered
+ * here — an event is a change report, and the queries own the data.
+ */
+export function subscribeToRabbitChanges(
+  handler: (change: RabbitChange) => void,
+): Promise<UnlistenFn> {
+  return events.rabbitChanged.listen((event) => {
+    handler(event.payload);
+  });
 }

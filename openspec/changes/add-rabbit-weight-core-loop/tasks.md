@@ -130,7 +130,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   confirmation, and `error.household_content_unloaded` (the unknown-content refusal of D1.16, which
   keeps P0's cause `unknown` and its operation-neutral `error.unknown` copy untouched) — so no P1
   string is hard-coded (DASH-2, RAB-10, WT-4, NFR-9, NFR-8).
-- [ ] 3.9 [frontend-logic] **Added mid-change (Q5).** Subscribe to `rabbit:changed` and
+- [x] 3.9 [frontend-logic] **Added mid-change (Q5).** Subscribe to `rabbit:changed` and
   `weight:changed` and refresh the device's copy through the read commands, as `design.md`'s event
   section already specifies. Until this exists a confirmed write is invisible: the local copy is only
   written by the read path, so a mutation's invalidation re-reads stale data and RAB-6's "archiving

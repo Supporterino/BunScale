@@ -45,15 +45,17 @@
  * the constant below and the command decides what is stored — the bound is
  * never a value this module writes.
  *
- * The `weight:changed` subscription is not here yet: no P1 task has asked for
- * it, and it belongs beside these commands when the task that needs it lands
- * (the invalidation policy of task 3.7), the way `household:changed` sits in the
- * household module.
+ * The `weight:changed` subscription lives beside these commands (task 3.9;
+ * WT-5, DASH-4): the generated event descriptor is part of the same bindings
+ * seam, so this module remains the feature's one importer of `src/bindings.ts`,
+ * the way `household:changed` sits in the household module.
  */
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import type {
   CommandError,
   Grams,
   RabbitId,
+  WeightChanged,
   WeightEntry,
   WeightEntryDraft,
   WeightEntryId,
@@ -61,7 +63,7 @@ import type {
   WeightTrend,
   WeightUnit,
 } from '../../bindings';
-import { commands } from '../../bindings';
+import { commands, events } from '../../bindings';
 import type { CommandResult, RequestOperation } from '../../lib/request-id';
 import { requestOperation } from '../../lib/request-id';
 
@@ -70,6 +72,9 @@ type Outcome<T> = Promise<CommandResult<T, CommandError>>;
 
 /** A state-changing command's handle; `run()` again re-uses the request id. */
 type Operation<T> = RequestOperation<T, CommandError>;
+
+/** The `weight:changed` payload, as the contract defines it (task 3.9). */
+export type WeightChange = WeightChanged;
 
 /**
  * The confirmation threshold for an implausible weight, in grams (WT-4, D1.9).
@@ -274,4 +279,24 @@ export function deleteWeightEntry(entryId: WeightEntryId): Operation<null> {
   return requestOperation<null, CommandError>((requestId) =>
     commands.deleteWeightEntry(entryId, requestId),
   );
+}
+
+/**
+ * Subscribe to `weight:changed` (task 3.9; WT-5, DASH-4).
+ *
+ * The generated event descriptor is imported here, beside the commands, because
+ * project hard rule 2 names this module — and only this module per feature — as
+ * the one that may touch `src/bindings.ts`. The handler receives the contract's
+ * payload, not Tauri's event envelope, so the cache policy cannot depend on the
+ * bridge's shape.
+ *
+ * The returned promise is the Tauri `listen` promise: the caller keeps it and
+ * calls the resolved unlisten on cleanup (convention 4).
+ */
+export function subscribeToWeightChanges(
+  handler: (change: WeightChange) => void,
+): Promise<UnlistenFn> {
+  return events.weightChanged.listen((event) => {
+    handler(event.payload);
+  });
 }
