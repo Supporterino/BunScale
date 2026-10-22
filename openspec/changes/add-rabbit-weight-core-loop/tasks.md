@@ -30,7 +30,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   the alert as a pure derivation over the current entry set that an edit or a deletion re-evaluates
   (D1.13), and the fixed `Sex` and `NeuterStatus` value sets (`male | female | unknown`;
   `intact | neutered | spayed | unknown`, D1.14). (RAB-1, WT-6, WT-7, DM-4)
-- [ ] 1.3 [architect] Confirm in `design.md` that P1 opens no new capability, CSP, scope or
+- [x] 1.3 [architect] Confirm in `design.md` that P1 opens no new capability, CSP, scope or
   entitlement — the rabbit photo reference is carried and rendered but selecting a photo is PHOTO-2
   in P2 — and state that no shared-service dependency is added beyond P0's selected mechanism.
   (RAB-1, DASH-1)
