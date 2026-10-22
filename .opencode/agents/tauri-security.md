@@ -36,8 +36,12 @@ permissions:
   - action: edit
     resource: "src-tauri/*.entitlements"
     effect: allow
+  # Its own procedure step 4 requires a one-line justification in the change's
+  # design.md; without this rule that instruction was unexecutable (found by task
+  # 1.3 of add-rabbit-weight-core-loop, which had to report a blocker instead of
+  # recording its verdict). Documentation only — no code, config or capability.
   - action: edit
-    resource: "src-tauri/*.entitlements"
+    resource: "openspec/changes/*/design.md"
     effect: allow
   - action: edit
     resource: "docs/adr/*"

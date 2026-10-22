@@ -181,6 +181,41 @@ unknown date of birth: a person is not forced to invent a value they do not have
 with the contract in task 1.1 and carried in the shared-types table below; the creation and edit forms
 offer exactly these options (task 4.3).
 
+### D1.15 — P1 opens no capability, CSP entry, scope or entitlement (RAB-1, DASH-1)
+
+Confirmed surface by surface against the shipped configuration, not restated from D1.11.
+
+- **Capability — none.** `src-tauri/capabilities/default.json` is the only capability file, and grants
+  the `main` window only `core:event:allow-listen` / `allow-unlisten` on iOS and macOS; no plugin
+  directory has content. The thirteen P1 commands are **application** commands mounted through P0's one
+  `ipc::builder()`, which the ACL does not gate, and the two events are consumed through the same
+  `listen` call as `household:changed`, already covered by that grant. No P1 argument or return is a
+  path, URL, picker handle, notification or shell string — only P0's ids and instants, P1's value types,
+  and the opaque `photo_ref` / `thumbnail_ref` / `photo_refs` strings — so there is no plugin surface to
+  grant.
+- **CSP — no entry.** P1's reads and writes all travel the IPC channel the CSP already allows
+  (`connect-src: ipc:, http://ipc.localhost`) and the webview opens no connection of its own — which is
+  why P0's service origin appears nowhere in `connect-src`; `img-src` stays `'self'`.
+- **Scope — none.** No P1 command takes or returns a filesystem path, none opens a picker, and the asset
+  protocol is not enabled in `tauri.conf.json`.
+- **Entitlement and usage string — none.** The iOS entitlements dictionary is empty and no macOS
+  entitlements file exists (`bundle.macOS` sets only `minimumSystemVersion`); P1 touches no sandboxed
+  resource, and the iOS `Info.plist`, which carries no usage string today, needs none for a protected
+  API P1 does not use.
+
+The photo reference needs nothing of its own: it is carried as data, never resolved by the backend, and
+no P1 flow can populate one — selecting a photo is PHOTO-2 in P2 (D1.11) and `WeightEntryDraft` has no
+photo field at all — so P1 renders the placeholder. Two limits are recorded so the claim cannot be
+widened by accident: a ref populated with any scheme but `'self'` (`asset:`, `data:`, `blob:`, a remote
+origin) would need an `img-src` entry, and that scheme belongs to PHOTO-2's capability and scope change
+in P2; and the placeholder must be inline or bundled, because a `data:` placeholder is blocked by
+`img-src 'self'` and the fix for that is the placeholder, never a CSP widening.
+
+**No shared-service dependency beyond P0's mechanism.** P1 adds no client, transport, endpoint or
+dependency: every command is a local collection read or a reachability-gated write through P0's
+`storage/` and `sync/`, every failure is one of P0's own cause sets (D1.1, write-path/local), and both
+events reuse P0's one subscription and invalidation pattern.
+
 ## State and boundaries
 
 ```
