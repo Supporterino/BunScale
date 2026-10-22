@@ -123,9 +123,9 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 3.6 [frontend-logic] Implement weight form validation state: non-positive values rejected with a
   prompt, values above the plausibility bound held behind a confirmation, and programmed save failing
   visibly through P0's cause-specific surface (WT-4).
-- [ ] 3.7 [frontend-logic] Implement the derived alert and dashboard-flag state from the contract
+- [x] 3.7 [frontend-logic] Implement the derived alert and dashboard-flag state from the contract
   payload so a threshold edit re-derives the flags without a full reload (WT-7, DASH-4).
-- [ ] 3.8 [frontend-logic] Add the P1 i18n string keys — including the "never weighed" indication,
+- [x] 3.8 [frontend-logic] Add the P1 i18n string keys — including the "never weighed" indication,
   archive/restore/delete labels, confirmation copy stating consequences, the out-of-range
   confirmation, and `error.household_content_unloaded` (the unknown-content refusal of D1.16, which
   keeps P0's cause `unknown` and its operation-neutral `error.unknown` copy untouched) — so no P1
