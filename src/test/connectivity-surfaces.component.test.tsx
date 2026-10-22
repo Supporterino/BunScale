@@ -81,7 +81,15 @@ const ACCOUNT_TITLE = 'This device cannot use the shared service right now.';
 const NO_ACCOUNT_BODY =
   'Your account is not available right now. Try again later.';
 const TIMEOUT_BODY = 'The service took too long to answer. Try again.';
-const UNKNOWN_BODY = 'The change could not be completed. Nothing was changed.';
+
+/**
+ * The unclassified cause's body (`error.unknown`).
+ *
+ * Its wording is operation-neutral on purpose (Q60): the same key is also the
+ * body of a failed load in `HouseholdEntryScreens`, so it may not describe a
+ * change that no surface here attempted.
+ */
+const UNKNOWN_BODY = 'That did not work. Nothing was changed.';
 
 /** The previously-loaded-copy notice (`connectivity.localCopy`). */
 const LOCAL_COPY =
@@ -429,7 +437,11 @@ describeAtBothBaselines('Connectivity surfaces (SYNC-3)', () => {
         await screen.findByRole('heading', { name: ACCOUNT_TITLE }),
       ).toBeVisible();
 
-      // No cause was classified, so the generic wording is the honest one.
+      /*
+       * No cause was classified, so the neutral wording is the honest one —
+       * honest on a read/status surface too, because nothing was attempted
+       * here that could have changed and the sentence does not claim one.
+       */
       expect(screen.getByText(UNKNOWN_BODY)).toBeVisible();
 
       expect(screen.queryByText(REQUIRED_BODY)).toBeNull();

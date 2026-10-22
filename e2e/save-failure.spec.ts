@@ -105,7 +105,13 @@ const NO_ACCOUNT_COPY =
 const ALLOWANCE_COPY = 'This household has reached its storage limit.';
 const RATE_LIMITED_COPY =
   'Too many requests right now. Wait a moment and try again.';
-const GENERIC_COPY = 'The change could not be completed. Nothing was changed.';
+
+/*
+ * The remainder's sentence is operation-neutral (Q60): the same key is also a
+ * read/status body elsewhere, so it names no operation this surface alone
+ * performed. It still makes no retry promise.
+ */
+const GENERIC_COPY = 'That did not work. Nothing was changed.';
 
 /** A failure as the contract reports it, minus the operation's own identity. */
 type CreateFailure = {

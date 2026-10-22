@@ -52,10 +52,17 @@ import type { SaveMessageKey } from '../sync/failure';
  * renders a key.
  *
  * `error.unknown` is worded for the unclassified failure only (D0.6, NFR-8,
- * Q58). It names neither the service nor connectivity — only that the change
- * did not complete and nothing was applied — because the frontend cannot know
- * more. It deliberately does not promise a retry: the backend marks this cause
- * `retryable: false` (`src-tauri/src/ipc/failure.rs`), so no surface offers one.
+ * Q58, Q60). The wording is operation-neutral on purpose: this key is not only
+ * a refused write, it is also the body of read and status surfaces — the
+ * account-unclassified state in `ConnectivityRequiredScreen` and the load
+ * failure in `HouseholdEntryScreens` — where no change was ever attempted. So
+ * it says "that did not work" and leaves "nothing was changed" as a promise
+ * about the shared data, rather than describing a change that did not complete.
+ * It names neither the service nor connectivity, because the frontend cannot
+ * know more. It deliberately does not promise a retry: the backend marks this
+ * cause `retryable: false` (`src-tauri/src/ipc/failure.rs`), so no surface
+ * offers one.
+ *
  * The display-unit store's local, device-specific failure gets its own key
  * (`settings.unit.store_failed`) instead of borrowing this one; task 8.3 shows
  * it at the Settings unit section.
@@ -70,7 +77,7 @@ const FAILURE_MESSAGES = {
     'Too many requests right now. Wait a moment and try again.',
   'error.timeout': 'The service took too long to answer. Try again.',
   'error.validation': 'That change is not valid. Check it and try again.',
-  'error.unknown': 'The change could not be completed. Nothing was changed.',
+  'error.unknown': 'That did not work. Nothing was changed.',
 } as const satisfies Record<SaveMessageKey, string>;
 
 /**
