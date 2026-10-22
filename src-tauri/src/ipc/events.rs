@@ -37,6 +37,13 @@
 //! publishes from `load_household` or from `re_evaluate`: the frontend's `refreshed` policy
 //! invalidates the collection, whose query calls `load_household`, so an emit from the load would
 //! refetch in a loop.
+//!
+//! The P1 pair mirrors that arrangement exactly: the [`RabbitChangePublisher`] seam below is the
+//! producer side of [`RabbitChanged`], so a rabbit write reports its change through the same one
+//! subscription pattern the household events use (task 3.4 consumes it). The rabbit-creation adapter
+//! publishes `created` after a successful create (task 2.1); the later rabbit and weight writes
+//! publish their own kinds the same way, and `weight:changed` gains its own seam with the task that
+//! first publishes it.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -152,6 +159,30 @@ impl tauri_specta::Event for RabbitChanged {
     const NAME: &'static str = "rabbit:changed";
 }
 
+/// Where one rabbit change is published.
+///
+/// It exists for the same reason as [`HouseholdChangePublisher`]: the production half is the app
+/// handle's event bus, and a unit test can observe the exact sequence without building a Tauri app.
+/// The seam covers *publication only* — the command path that decides a change happened is identical
+/// in both cases.
+pub trait RabbitChangePublisher {
+    /// Publish `change` to whoever is listening.
+    fn publish(&self, change: &RabbitChanged);
+}
+
+/// Publish through Tauri's own event bus (the frozen `rabbit:changed` name).
+///
+/// The event was mounted by `ipc::builder().mount_events(app)` in the app's single `setup`, so
+/// [`tauri_specta::Event::emit`] resolves the frozen name from the registry instead of building one
+/// by hand. A publication failure is deliberately **not** a command failure: the rabbit write has
+/// already happened and is what the caller returns, so a listener that could not be reached does not
+/// make the change less true (the same rule [`HouseholdChangePublisher`] documents).
+impl RabbitChangePublisher for tauri::AppHandle {
+    fn publish(&self, change: &RabbitChanged) {
+        let _published = tauri_specta::Event::emit(change, self);
+    }
+}
+
 /// How a weight entry changed, as `weight:changed` reports it (WT-1, WT-5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
@@ -192,7 +223,7 @@ impl tauri_specta::Event for WeightChanged {
 pub(crate) mod test_support {
     use std::sync::Mutex;
 
-    use super::{HouseholdChangePublisher, HouseholdChanged};
+    use super::{HouseholdChangePublisher, HouseholdChanged, RabbitChangePublisher, RabbitChanged};
 
     /// A publisher that keeps every change it was handed, in order.
     #[derive(Debug, Default)]
@@ -212,6 +243,31 @@ pub(crate) mod test_support {
 
     impl HouseholdChangePublisher for RecordingHouseholdPublisher {
         fn publish(&self, change: &HouseholdChanged) {
+            self.published
+                .lock()
+                .expect("the records are writable")
+                .push(change.clone());
+        }
+    }
+
+    /// A publisher that keeps every rabbit change it was handed, in order.
+    #[derive(Debug, Default)]
+    pub(crate) struct RecordingRabbitPublisher {
+        published: Mutex<Vec<RabbitChanged>>,
+    }
+
+    impl RecordingRabbitPublisher {
+        /// Every recorded change, in publication order.
+        pub(crate) fn published(&self) -> Vec<RabbitChanged> {
+            self.published
+                .lock()
+                .expect("the records are readable")
+                .clone()
+        }
+    }
+
+    impl RabbitChangePublisher for RecordingRabbitPublisher {
+        fn publish(&self, change: &RabbitChanged) {
             self.published
                 .lock()
                 .expect("the records are writable")

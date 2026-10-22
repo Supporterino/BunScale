@@ -27,13 +27,21 @@
 //! unattributable local name is never borrowed, and an unresolved identity is a normal value rather
 //! than a failure that could block the screen.
 //!
+//! [`rabbit`] starts P1's domain: one rabbit's RAB-1 field set, the two rules creation fixes — an
+//! unsupplied field stays absent, and `dob_unknown: true` excludes a date of birth (I8) — and the one
+//! write path a rabbit is created through, P0's reachability-gated save (D1.1). It holds no storage
+//! write: the created rabbit reaches the frontend from the command that created it, and this device's
+//! **copy** of the household's collection is the read path's (SYNC-3).
+//!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.
 
 pub mod create;
 pub mod household;
 pub mod identity;
+pub mod rabbit;
 
 pub use create::{CREATE_HOUSEHOLD_RPC, create_household};
 pub use household::{HouseholdBook, HouseholdName, HouseholdRecord, validate_name};
-pub use identity::{local_member_name, resolve_identity};
+pub use identity::{local_member_id, local_member_name, resolve_identity};
+pub use rabbit::{RabbitRecord, SAVE_ITEM_RPC, save_rabbit};

@@ -69,18 +69,21 @@
 //! [`HttpService`]: crate::sync::HttpService
 //! [`Mutex`]: std::sync::Mutex
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use tauri::Manager;
 
-use crate::domain::{self, HouseholdBook, HouseholdRecord, validate_name};
+use crate::domain::{
+    self, HouseholdBook, HouseholdRecord, RabbitRecord, local_member_id, validate_name,
+};
 use crate::ipc::types::{
     AccountUserId, CollectionSource, CommandError, Household, HouseholdCollection, HouseholdId,
-    HouseholdSummary, Instant, RequestId,
+    HouseholdSummary, Instant, MemberId, Rabbit, RabbitProfile, RequestId,
 };
 use crate::storage::{
-    BoundaryRefusal, CollectionStore, CollectionStoreError, DeviceSnapshot, GuardedStore,
-    PersistedHousehold,
+    AbsoluteInstant, BoundaryRefusal, CollectionStore, CollectionStoreError, DeviceSnapshot,
+    GuardedStore, PersistedHousehold,
 };
 use crate::sync::http::AccessTokenSource;
 use crate::sync::{HttpService, SharedService, StatusTracker};
@@ -102,6 +105,16 @@ pub struct AppState {
     account: Option<AccountUserId>,
     /// The process's household set and operation ledger (tasks 2.1, 2.2).
     households: Mutex<HouseholdBook>,
+    /// The version markers this process minted, keyed by the operation that minted them (D0.14).
+    ///
+    /// A retry re-issues the same [`RequestId`], and the service refuses the same key with a
+    /// *different* payload, so the item write a retry submits has to be byte-identical to the first
+    /// attempt's — including the `updated_at` marker last-write-wins compares (D0.7 criteria 3 and
+    /// 6). The marker is therefore minted once here and handed back on every later attempt rather
+    /// than re-read from the clock. The map is process-lifetime state like the household book's
+    /// operation ledger (also unbounded and also not persisted); an entry is one create this process
+    /// attempted, and the service's own ledger is what bounds the window that matters.
+    markers: Mutex<HashMap<RequestId, Instant>>,
     /// The device's guarded copies of the collections it has loaded (tasks 2.3, 2.5 and 2.7).
     copies: Mutex<GuardedStore>,
     /// The last fresh service/account status (task 2.13).
@@ -131,6 +144,7 @@ impl AppState {
             service,
             account,
             households: Mutex::new(HouseholdBook::new()),
+            markers: Mutex::new(HashMap::new()),
             copies: Mutex::new(GuardedStore::new()),
             status: Mutex::new(StatusTracker::new()),
             #[cfg(test)]
@@ -167,6 +181,7 @@ impl AppState {
             service,
             account,
             households: Mutex::new(households),
+            markers: Mutex::new(HashMap::new()),
             copies: Mutex::new(copies),
             status: Mutex::new(StatusTracker::new()),
             #[cfg(test)]
@@ -450,6 +465,93 @@ impl AppState {
         Ok(stored.to_wire(account, is_active))
     }
 
+    /// Create a rabbit profile in a household (RAB-1, RAB-3; D1.1, I8).
+    ///
+    /// The steps are ordered for the person, as [`AppState::create_household`]'s are:
+    ///
+    /// 1. The profile is recorded first, so the refusals the RAB-1 input itself can produce — a date
+    ///    of birth marked unknown **and** supplied (I8), and a blank operation identity — are reported
+    ///    as `validation` even when no account exists, because that is what the form has to change.
+    /// 2. No account is `no_account` before any probe. P0 always takes this path: it has no sign-in
+    ///    flow (Q25), and pretending otherwise would report a write the service never saw.
+    /// 3. The **writing member** is resolved from the person's own household book: a shared write
+    ///    carries `writer_id`, which the service's last-write-wins tuple compares (ADR 0002 criterion
+    ///    3), and only the book knows which member this account is in that household. A household
+    ///    this device holds no member for is refused rather than attributed to somebody else.
+    /// 4. The version marker is minted once per operation (see [`AppState::operation_marker`]) and
+    ///    the write then goes through [`crate::sync::SaveGate`] — a fresh probe, then the item write —
+    ///    so a rabbit exists once the service has accepted it and never as a local-only value (D1.1,
+    ///    SYNC-2).
+    ///
+    /// The returned rabbit is the recorded one. **This device's copy of the household's collection is
+    /// deliberately not written here**: the copy is the read path's (SYNC-3), so a create cannot
+    /// present a rabbit the service has not accepted, and no second write path is added.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for the contradictory date-of-birth pair, for a blank operation identity, and for
+    /// a household with no member for this account; `no_account` when no account is available; and
+    /// otherwise the gate's mapped causes: `connectivity`, `no_account`, `allowance_exceeded`,
+    /// `rate_limited`, `timeout` and the honest `unknown`. A refusal never creates a rabbit, and one
+    /// that is a property of the input never reaches the shared service at all.
+    pub async fn create_rabbit(
+        &self,
+        household_id: HouseholdId,
+        profile: RabbitProfile,
+        request_id: RequestId,
+    ) -> Result<Rabbit, CommandError> {
+        let record = RabbitRecord::created(household_id.clone(), profile, &request_id)?;
+
+        if self.account.is_none() {
+            return Err(CommandError::no_account(Some(request_id)));
+        }
+
+        let Some(writer) = self.writing_member(&household_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+        let marker = self.operation_marker(&request_id);
+
+        domain::save_rabbit(self.service.as_ref(), &record, &writer, &marker, request_id).await?;
+
+        Ok(record.to_wire())
+    }
+
+    /// The member id this person's account has in `household_id`, when this device holds the
+    /// household and records them as one of its members.
+    ///
+    /// It is the writer a shared write names (ADR 0002 criterion 3). `None` means the book cannot
+    /// attribute the write: the household is not held, or it holds no member for this account — both
+    /// of which mean the person is not writing into their own household's data, so the caller refuses
+    /// instead of naming somebody else's member id.
+    fn writing_member(&self, household_id: &HouseholdId) -> Option<MemberId> {
+        let account = self.account.as_ref()?;
+        let households = lock(&self.households);
+
+        households
+            .get(household_id)
+            .and_then(|record| local_member_id(record.members(), account))
+            .cloned()
+    }
+
+    /// The version marker for `request_id`: the one already minted for that operation, or a fresh one
+    /// recorded now.
+    ///
+    /// The marker is the client-supplied `updated_at` last-write-wins compares (D0.7 criterion 3), and
+    /// it is **minted once per operation** so a retry re-sends a byte-identical body: the service
+    /// deduplicates on `request_id` and refuses the same key with a different payload (D0.7 criterion
+    /// 6, D0.14). Re-reading the clock on every attempt would do exactly that, which is why the value
+    /// is remembered here rather than taken at each call from the storage boundary's clock —
+    /// [`AbsoluteInstant::now`] in `storage::instant`, the version-marker side of P0's task 2.8 (not
+    /// this change's 2.8, which is archived-rabbit immutability).
+    fn operation_marker(&self, request_id: &RequestId) -> Instant {
+        let mut markers = lock(&self.markers);
+
+        markers
+            .entry(request_id.clone())
+            .or_insert_with(|| AbsoluteInstant::now().to_wire())
+            .clone()
+    }
+
     /// Every household the person holds, with the active one marked (HS-3, HS-4, DM-3).
     ///
     /// The read is served from the process's household book and makes no service request, so it has
@@ -698,13 +800,28 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ipc::types::{CollectionItem, ItemId, SaveCause};
+    use crate::ipc::types::{CollectionItem, ItemId, NeuterStatus, RabbitProfile, SaveCause, Sex};
     use crate::sync::double::ScriptedService;
     use crate::sync::double::test_support::block_on_ready;
     use crate::sync::{Answer, ServiceReply};
 
     fn account() -> AccountUserId {
         AccountUserId("account-1".to_owned())
+    }
+
+    /// A RAB-1 profile supplying every field, so a test states its one difference from a full one.
+    fn profile() -> RabbitProfile {
+        RabbitProfile {
+            name: "Pebble".to_owned(),
+            photo_ref: None,
+            breed: Some("Mini Lop".to_owned()),
+            dob: Some(at("2026-03-01T00:00:00Z")),
+            dob_unknown: false,
+            sex: Sex::Female,
+            neuter_status: NeuterStatus::Spayed,
+            adoption_date: None,
+            weight_drop_threshold_percent: 5.0,
+        }
     }
 
     fn request_id(value: &str) -> RequestId {
@@ -791,6 +908,166 @@ mod tests {
 
         assert!(service.calls().is_empty());
         assert!(state.households().is_empty());
+    }
+
+    #[test]
+    fn a_rabbit_create_without_an_account_is_refused_with_no_account_and_nothing_is_sent() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service.clone(), None);
+        let request_id = request_id("operation-1");
+
+        let error = block_on_ready(state.create_rabbit(
+            household("household-1"),
+            profile(),
+            request_id.clone(),
+        ))
+        .expect_err("P0 has no account");
+
+        assert_eq!(error.cause, SaveCause::NoAccount);
+        assert_eq!(error.message_key, "error.no_account");
+        assert!(error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+
+        // The honest outcome is a refusal, not an unauthenticated attempt (Q25, SYNC-2).
+        assert!(service.calls().is_empty());
+        assert_eq!(service.write_count(), 0);
+    }
+
+    #[test]
+    fn a_contradictory_date_of_birth_is_refused_before_the_account_is_checked() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service.clone(), None);
+        let request_id = request_id("operation-1");
+        // The one refusal the RAB-1 field set produces: "unknown" and a date cannot both be true.
+        let contradictory = RabbitProfile {
+            dob: Some(at("2026-03-01T00:00:00Z")),
+            dob_unknown: true,
+            ..profile()
+        };
+
+        let error = block_on_ready(state.create_rabbit(
+            household("household-1"),
+            contradictory,
+            request_id.clone(),
+        ))
+        .expect_err("the pair is refused as invalid input");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+
+        // A property of the input: it is answered before the missing account is reported, and
+        // nothing was probed or sent.
+        assert!(service.calls().is_empty());
+    }
+
+    #[test]
+    fn a_substituted_double_drives_the_real_rabbit_create_path() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        // The writer is the member this account is in the household, so the household is held first —
+        // exactly the order the dashboard's create flow produces (RAB-3, ADR 0002 criterion 3).
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+
+        let rabbit =
+            block_on_ready(state.create_rabbit(one.clone(), profile(), request_id("operation-2")))
+                .expect("the double accepted the write");
+
+        // The recorded profile is what the command returns, and the write was one item write into
+        // the household the caller named (RAB-1, RAB-3).
+        assert_eq!(rabbit.household_id, one);
+        assert_eq!(rabbit.name, "Pebble");
+        assert_eq!(rabbit.breed, Some("Mini Lop".to_owned()));
+        assert_eq!(rabbit.dob, Some(at("2026-03-01T00:00:00Z")));
+        assert_eq!(rabbit.sex, Sex::Female);
+        assert_eq!(rabbit.neuter_status, NeuterStatus::Spayed);
+        assert_eq!(rabbit.adoption_date, None);
+        assert!(!rabbit.is_archived);
+        assert_eq!(rabbit.weight_drop_threshold_percent, 5.0);
+        assert_eq!(
+            service.write_count(),
+            2,
+            "the household create and the rabbit create"
+        );
+    }
+
+    #[test]
+    fn a_rabbit_cannot_be_written_into_a_household_the_book_holds_no_member_for() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service.clone(), Some(account()));
+        let request_id = request_id("operation-1");
+
+        // Nothing was created, so the book cannot name the writer. The write is refused rather than
+        // attributed to some other member: a `writer_id` the person does not own would order the
+        // service's last-write-wins tuple against the wrong writer (ADR 0002 criterion 3).
+        let error = block_on_ready(state.create_rabbit(
+            household("household-1"),
+            profile(),
+            request_id.clone(),
+        ))
+        .expect_err("the write cannot name its writer");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert!(service.calls().is_empty(), "nothing was probed or sent");
+    }
+
+    #[test]
+    fn a_retried_create_resends_the_marker_its_first_attempt_minted() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+        let operation = request_id("operation-2");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        block_on_ready(state.create_rabbit(one.clone(), profile(), operation.clone()))
+            .expect("the first attempt completed");
+        // The retry of that same operation, as the failure surface's retry re-issues it (D0.14).
+        block_on_ready(state.create_rabbit(one, profile(), operation))
+            .expect("the re-issued attempt completed");
+
+        let bodies: Vec<serde_json::Value> = service
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                crate::sync::double::RecordedCall::Save { request, .. } => {
+                    Some(request.body().clone())
+                }
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            bodies.len(),
+            3,
+            "the household create and two rabbit writes"
+        );
+        assert_eq!(
+            bodies[1], bodies[2],
+            "a retry re-sends a byte-identical write, marker included"
+        );
+
+        // The marker is the client-supplied `updated_at` last-write-wins compares: an absolute
+        // instant, minted at the operation's creation rather than supplied by the person.
+        let marker = bodies[1]["updated_at"]
+            .as_str()
+            .expect("the marker is an instant string")
+            .to_owned();
+        let recorded = AbsoluteInstant::parse(&Instant(marker.clone()))
+            .expect("the minted marker is an absolute instant");
+        assert_eq!(recorded.to_wire(), Instant(marker));
+        assert!(
+            recorded <= AbsoluteInstant::now(),
+            "the marker is recorded at creation, never in the future"
+        );
+        assert_eq!(bodies[1]["writer_id"], json!("member-1"));
     }
 
     /// The state offers the read path checked operations and never a replaceable store handle.

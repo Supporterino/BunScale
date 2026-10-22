@@ -24,12 +24,13 @@
 //! `error.not_implemented` — remains the distinct state a future not-yet-implemented command would
 //! return. It is not a second key for `unknown`: one cause owns one key (NFR-8).
 //!
-//! **The thirteen P1 bodies are stubs.** Each returns [`CommandError::not_implemented`] — cause
-//! `unknown`, `retryable: false`, key `error.not_implemented` — carrying the command's [`RequestId`] on
-//! the writing commands and `None` on the reading ones, so a frozen signature can never be mistaken for
-//! implemented behaviour. Section 2 replaces them; the signatures, the argument names the bindings
-//! export and this module split are what task 1.1 froze, so a replacement body need not change
-//! `src/bindings.ts`.
+//! **Twelve of the thirteen P1 bodies are stubs; `create_rabbit`'s is implemented (task 2.1).** Each
+//! remaining stub returns [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
+//! `error.not_implemented` — carrying the command's [`RequestId`] on the writing commands and `None` on
+//! the reading ones, so a frozen signature can never be mistaken for implemented behaviour. Section 2
+//! replaces them; the signatures, the argument names the bindings export and this module split are what
+//! task 1.1 froze, so a replacement body need not change `src/bindings.ts` — the state a command reaches
+//! the app through is a `tauri::State` parameter, which the exporter does not emit.
 //!
 //! **The frontend reaches these commands only through `src/features/*/api.ts`** — wrappers over the
 //! generated `src/bindings.ts` (project hard rule 2). No route, component or hook imports the
@@ -142,8 +143,9 @@ mod tests {
         assert_eq!(error.request_id, expected);
     }
 
-    /// The eight state-changing P1 stubs carry the operation identity, so the retry the failure
-    /// surface offers has something to re-issue (D0.14, design I5).
+    /// The seven remaining state-changing P1 stubs carry the operation identity, so the retry the
+    /// failure surface offers has something to re-issue (D0.14, design I5). `create_rabbit` left this
+    /// list when task 2.1 implemented its body; it is covered by that task's own tests.
     ///
     /// Each body is polled once through the double's helper: a stub has nothing to wait for, so a
     /// future that is not immediately ready is itself the defect.
@@ -152,8 +154,6 @@ mod tests {
         let id = request_id();
 
         let failures = [
-            block_on_ready(rabbit::create_rabbit(household(), profile(), id.clone()))
-                .expect_err("create_rabbit is a stub"),
             block_on_ready(rabbit::update_rabbit(rabbit(), profile(), id.clone()))
                 .expect_err("update_rabbit is a stub"),
             block_on_ready(rabbit::archive_rabbit(rabbit(), id.clone()))
@@ -170,7 +170,7 @@ mod tests {
                 .expect_err("delete_weight_entry is a stub"),
         ];
 
-        assert_eq!(failures.len(), 8, "every P1 write is covered");
+        assert_eq!(failures.len(), 7, "every remaining P1 write is covered");
 
         for failure in &failures {
             assert_not_implemented(failure, Some(id.clone()));

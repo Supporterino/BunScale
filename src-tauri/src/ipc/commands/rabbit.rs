@@ -1,10 +1,19 @@
 //! Rabbit-profile commands: the P1 lifecycle over one household's rabbits (RAB-1 … RAB-10).
 //!
 //! Seven commands, frozen by task 1.1: [`create_rabbit`], [`list_rabbits`], [`get_rabbit`],
-//! [`update_rabbit`], [`archive_rabbit`], [`restore_rabbit`] and [`delete_rabbit`]. Each body is a
-//! typed stub returning [`CommandError::not_implemented`] — section 2 replaces them one task at a
+//! [`update_rabbit`], [`archive_rabbit`], [`restore_rabbit`] and [`delete_rabbit`]. Each body was a
+//! typed stub returning [`CommandError::not_implemented`]; section 2 replaces them one task at a
 //! time, and the signatures are what `src/bindings.ts` is generated from, so a stub is the contract
 //! rather than a placeholder to be reshaped.
+//!
+//! **[`create_rabbit`] is implemented (task 2.1); the other six are still stubs.** The implemented
+//! body takes the app's state and a publication seam — `tauri::State` is how a command reaches the
+//! shared service and the account, and `tauri::AppHandle` is the seam [`RabbitChangePublisher`] is
+//! implemented by — which are parameters Tauri supplies and `src/bindings.ts` does not export, so the
+//! command the frontend calls keeps the three arguments it was frozen with. A successful create
+//! publishes `rabbit:changed` with kind `created`, as the contract's event table requires of every
+//! successful rabbit write; a refusal publishes nothing. The six remaining stubs keep exactly the
+//! arguments they were frozen with, so their bindings do not move either.
 //!
 //! Three things the signatures already encode, because section 2 must not have to renegotiate them:
 //!
@@ -19,11 +28,40 @@
 //!   failure surface. P0's cause list is frozen and has no "immutable target" variant, so the refusal
 //!   is `validation`: the request itself is refused and a retry cannot clear it (D1.5, NFR-10).
 //!
-//! Every body below is a stub, so each one consumes its arguments deliberately: the parameters are
-//! part of the frozen signature and the bindings' argument names, and an unused-parameter warning
-//! under `clippy -D warnings` would otherwise have to be silenced.
+//! Every remaining stub body consumes its arguments deliberately: the parameters are part of the
+//! frozen signature and the bindings' argument names, and an unused-parameter warning under
+//! `clippy -D warnings` would otherwise have to be silenced.
 
+// The shared contract types, including the ones only the doc comments link (see the parent module's
+// docs for why this is a glob).
+use super::super::events::{RabbitChangeKind, RabbitChangePublisher, RabbitChanged};
 use super::super::types::*;
+
+/// The `create_rabbit` body over the state and a publication seam.
+///
+/// It is the outermost layer a unit test can call: `tauri::State` has no public constructor outside a
+/// running app (the same reason `commands::household`'s bodies exist). The change is published only
+/// after the create succeeded, so a refusal leaves the recorder empty and the frontend's policy never
+/// invalidates a household for a rabbit the service did not accept.
+async fn created_rabbit(
+    state: &crate::state::AppState,
+    publisher: &impl RabbitChangePublisher,
+    household_id: HouseholdId,
+    profile: RabbitProfile,
+    request_id: RequestId,
+) -> Result<Rabbit, CommandError> {
+    let rabbit = state
+        .create_rabbit(household_id, profile, request_id)
+        .await?;
+
+    publisher.publish(&RabbitChanged {
+        household_id: rabbit.household_id.clone(),
+        rabbit_id: rabbit.id.clone(),
+        kind: RabbitChangeKind::Created,
+    });
+
+    Ok(rabbit)
+}
 
 /// Create a rabbit profile in a household (RAB-1, RAB-2, RAB-3).
 ///
@@ -44,10 +82,10 @@ pub async fn create_rabbit(
     household_id: HouseholdId,
     profile: RabbitProfile,
     request_id: RequestId,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Rabbit, CommandError> {
-    let _ = (household_id, profile);
-
-    Err(CommandError::not_implemented(Some(request_id)))
+    created_rabbit(state.inner(), &app, household_id, profile, request_id).await
 }
 
 /// The household's rabbits, as either the active list or the archived list (DASH-1, RAB-6).
@@ -183,4 +221,121 @@ pub async fn delete_rabbit(rabbit_id: RabbitId, request_id: RequestId) -> Result
     let _ = rabbit_id;
 
     Err(CommandError::not_implemented(Some(request_id)))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::ipc::events::test_support::RecordingRabbitPublisher;
+    use crate::ipc::types::{AccountUserId, NeuterStatus, Sex};
+    use crate::state::AppState;
+    use crate::sync::double::test_support::block_on_ready;
+    use crate::sync::{Answer, ScriptedService, ServiceReply};
+
+    fn account() -> AccountUserId {
+        AccountUserId("account-1".to_owned())
+    }
+
+    fn request_id(value: &str) -> RequestId {
+        RequestId(value.to_owned())
+    }
+
+    fn household(value: &str) -> HouseholdId {
+        HouseholdId(value.to_owned())
+    }
+
+    /// A RAB-1 profile with every field supplied.
+    fn profile() -> RabbitProfile {
+        RabbitProfile {
+            name: "Pebble".to_owned(),
+            photo_ref: None,
+            breed: Some("Mini Lop".to_owned()),
+            dob: Some(Instant("2026-03-01T00:00:00Z".to_owned())),
+            dob_unknown: false,
+            sex: Sex::Female,
+            neuter_status: NeuterStatus::Spayed,
+            adoption_date: None,
+            weight_drop_threshold_percent: 5.0,
+        }
+    }
+
+    /// One accepted create answer the domain can read, so the book can hold a household to create in.
+    fn accepted_household() -> ServiceReply {
+        ServiceReply::Answered(Answer::with_body(
+            200,
+            json!({
+                "outcome": "applied",
+                "household": {
+                    "id": "household-1",
+                    "owner_member_id": "member-1",
+                    "created_at": "2026-10-19T10:00:00Z",
+                },
+            }),
+        ))
+    }
+
+    /// A state whose book holds `household-1` with this account as its member, so a rabbit create can
+    /// name its writer. The double's last write answer is repeated, so the rabbit write is accepted
+    /// by the same script.
+    fn state_with_a_held_household(service: Arc<ScriptedService>) -> AppState {
+        let state = AppState::new(service, Some(account()));
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+
+        state
+    }
+
+    #[test]
+    fn a_successful_create_publishes_exactly_one_created_for_the_new_rabbit() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let state = state_with_a_held_household(service);
+        let publisher = RecordingRabbitPublisher::default();
+
+        let created = block_on_ready(created_rabbit(
+            &state,
+            &publisher,
+            household("household-1"),
+            profile(),
+            request_id("operation-2"),
+        ))
+        .expect("the double accepted the write");
+
+        assert_eq!(created.name, "Pebble");
+        assert_eq!(
+            publisher.published(),
+            vec![RabbitChanged {
+                household_id: household("household-1"),
+                rabbit_id: created.id,
+                kind: RabbitChangeKind::Created,
+            }],
+            "one report for the rabbit the command returned"
+        );
+    }
+
+    #[test]
+    fn a_refused_create_publishes_nothing() {
+        // P0 has no account, so the create is refused before anything is sent (Q25).
+        let state = AppState::new(Arc::new(ScriptedService::new()), None);
+        let publisher = RecordingRabbitPublisher::default();
+
+        let error = block_on_ready(created_rabbit(
+            &state,
+            &publisher,
+            household("household-1"),
+            profile(),
+            request_id("operation-1"),
+        ))
+        .expect_err("P0 has no account");
+
+        assert_eq!(error.cause, SaveCause::NoAccount);
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
 }

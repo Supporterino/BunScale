@@ -45,7 +45,7 @@
 //! process's account and household book; this module is the chain itself and is testable without an
 //! app, a service or a clock.
 
-use crate::ipc::types::{AccountUserId, Identity, Member};
+use crate::ipc::types::{AccountUserId, Identity, Member, MemberId};
 
 /// Resolve SET-2's chain into the frozen [`Identity`].
 ///
@@ -108,6 +108,29 @@ pub fn local_member_name<'a>(
 /// wrote — but a value that is entirely whitespace is not a name at all.
 fn non_blank(value: Option<&str>) -> Option<&str> {
     value.filter(|candidate| !candidate.trim().is_empty())
+}
+
+/// The id of the member `account` belongs to, among the members it is handed, if any.
+///
+/// It is [`local_member_name`]'s counterpart for the one place the *identity* of the writer is
+/// needed rather than their name: a shared-collection write carries the writing member's id, because
+/// the service's last-write-wins tuple compares `(updated_at, writer_id, request_id)` and a
+/// writer-less write cannot be ordered (ADR 0002 criterion 3).
+///
+/// Only members whose `account_user_id` is `account` are considered, so the id of a member of
+/// another account is never handed out as this person's — the same attribution rule the name
+/// resolution follows. `None` means this book knows no member for that account, which the caller
+/// reports as its own refusal rather than filling in another member's id. A member id is non-blank
+/// by construction ([`HouseholdRecord::restore`](crate::domain::HouseholdRecord::restore) refuses a
+/// blank one), so nothing here filters on the id's text.
+pub fn local_member_id<'a>(
+    members: impl IntoIterator<Item = &'a Member>,
+    account: &AccountUserId,
+) -> Option<&'a MemberId> {
+    members
+        .into_iter()
+        .find(|member| &member.account_user_id == account)
+        .map(|member| &member.id)
 }
 
 #[cfg(test)]
