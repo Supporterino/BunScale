@@ -6,13 +6,13 @@
 //! can clear it, and the operation identity the failure carries — so that no command assembles a
 //! failure field by field and no cause can be reported through a shared generic message.
 //!
-//! # One key per cause
+//! # One key per cause, with two documented exceptions
 //!
 //! [`policy`] is a total function over the frozen, exhaustive cause list: every cause has its own
 //! non-empty message key, no two causes share one, and a new variant cannot be added without making
 //! the function non-exhaustive. That is what makes NFR-8's "no bare failure messages" a property of
 //! the code rather than a review checklist: a failure cannot reach the frontend without naming a
-//! specific cause, and the cause selects exactly one key.
+//! specific cause, and the cause selects exactly one key — except the two keys documented below.
 //!
 //! The keys are owned here; the copy behind them is the i18n scaffold's (task 3.7), and the UI
 //! renders the key rather than a message, because the backend must not author user-facing text — and
@@ -28,13 +28,23 @@
 //! | `validation` | `error.validation` | no |
 //! | `unknown` | `error.unknown` | no |
 //!
-//! The one key that belongs to **no cause** is the placeholder key `error.not_implemented`
-//! ([`NOT_IMPLEMENTED_MESSAGE_KEY`]), which a not-yet-implemented command returns through
-//! [`CommandError::not_implemented`]. It is a placeholder, not a cause — the frozen list admits no
-//! "not implemented" variant (D0.6) — and it is *not* a second key for `unknown`: a genuine
-//! unclassifiable failure is [`CommandError::unknown`] and names `error.unknown`. The two are
-//! asserted to differ, so a later edit cannot "tidy" one key into the other and lose the
-//! distinction.
+//! **Two keys belong to no cause, and both keep the frozen cause list intact.** One cause naming
+//! more than one key is deliberate and narrowly bounded; neither key replaces a cause's own, and a
+//! later edit must not "tidy" either into `error.unknown`:
+//!
+//! * `error.not_implemented` ([`NOT_IMPLEMENTED_MESSAGE_KEY`]) — the placeholder a not-yet-
+//!   implemented command returns through [`CommandError::not_implemented`]. It is a state of the
+//!   surface, not a cause: the frozen list admits no "not implemented" variant (D0.6).
+//! * `error.household_content_unloaded` ([`HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY`]) — the
+//!   unknown-content refusal D1.16 defines for a collection row whose content this device cannot
+//!   describe, returned through [`CommandError::household_content_unloaded`]. It keeps the cause
+//!   `unknown` and `retryable: false` — nothing is known about the failure and nothing can be
+//!   promised about a retry — but it names *this* condition rather than borrowing `error.unknown`'s
+//!   operation-neutral copy: rows were loaded and one content was not, which is a fact the next
+//!   successful refresh repairs, not a generic failure.
+//!
+//! The three keys are asserted to differ, so a placeholder, a genuine unclassifiable failure and
+//! the unknown-content refusal stay distinguishable on the surface.
 //!
 //! # The retryable policy
 //!
@@ -104,6 +114,15 @@ use super::types::{CommandError, RequestId, SaveCause};
 /// surface rather than a cause, and `error.unknown` stays what a genuine unclassifiable failure
 /// names.
 pub const NOT_IMPLEMENTED_MESSAGE_KEY: &str = "error.not_implemented";
+
+/// The message key of the **unknown-content** refusal a read or a write answers when a row of this
+/// device's collection has no content it can describe (D1.16; task 2.5).
+///
+/// It keeps the cause `unknown` and the retryable `false` that cause carries — the state is answered,
+/// never guessed — but it names the condition itself rather than reusing `error.unknown`'s
+/// operation-neutral copy (see the module documentation for why one cause may own two keys).
+/// `src/features/i18n` owns the copy behind it (task 3.8).
+pub const HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY: &str = "error.household_content_unloaded";
 
 /// One cause's own copy key and retry policy: the whole content of the mapping in [`policy`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,7 +232,9 @@ impl CommandError {
     /// bare "something went wrong".
     ///
     /// A command that simply has no implementation yet does not come through here: it returns
-    /// [`CommandError::not_implemented`], the same cause and flag with the placeholder key.
+    /// [`CommandError::not_implemented`], the same cause and flag with the placeholder key, and the
+    /// unknown-content refusal has its own key through [`CommandError::household_content_unloaded`]
+    /// while keeping this cause and flag (D1.16).
     pub fn unknown(request_id: Option<RequestId>) -> Self {
         Self::for_cause(SaveCause::Unknown, request_id)
     }
@@ -234,6 +255,26 @@ impl CommandError {
             cause: SaveCause::Unknown,
             retryable: classified_unknown.retryable,
             message_key: NOT_IMPLEMENTED_MESSAGE_KEY.to_owned(),
+            request_id,
+        }
+    }
+
+    /// A collection row this command needs has no content this version can describe (D1.16).
+    ///
+    /// The cause is `unknown` and the retry flag is that cause's: the state is answered, never
+    /// guessed, and re-issuing the same command cannot repair it because the refusal is a property of
+    /// the local copy, not of the request. The key is **not** `error.unknown`: P0's copy there is
+    /// deliberately operation-neutral ("That did not work. Nothing was changed."), and this refusal
+    /// has its own explanation — the device holds the item but could not read its details, which the
+    /// next refresh fills (D1.16, task 3.8). A read passes `None`, a state-changing command passes its
+    /// [`RequestId`] like every other failure of that command.
+    pub fn household_content_unloaded(request_id: Option<RequestId>) -> Self {
+        let classified_unknown = policy(SaveCause::Unknown);
+
+        Self {
+            cause: SaveCause::Unknown,
+            retryable: classified_unknown.retryable,
+            message_key: HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY.to_owned(),
             request_id,
         }
     }
@@ -365,9 +406,33 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_content_refusal_keeps_its_cause_and_names_its_own_key() {
+        let request_id = RequestId("operation-1".to_owned());
+
+        let refusal = CommandError::household_content_unloaded(Some(request_id.clone()));
+
+        // The state is answered as `unknown`, with the retry the cause withholds (D1.16).
+        assert_eq!(refusal.cause, SaveCause::Unknown);
+        assert!(!refusal.retryable);
+        assert_eq!(refusal.request_id.as_ref(), Some(&request_id));
+
+        // The key is the condition's own: not `error.unknown`'s operation-neutral copy, and not the
+        // placeholder a command with no implementation names.
+        assert_eq!(refusal.message_key, HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY);
+        assert_ne!(refusal.message_key, "error.unknown");
+        assert_ne!(refusal.message_key, NOT_IMPLEMENTED_MESSAGE_KEY);
+        assert_ne!(refusal, CommandError::unknown(Some(request_id.clone())));
+        assert_ne!(refusal, CommandError::not_implemented(Some(request_id)));
+    }
+
+    #[test]
     fn a_reads_or_probes_failure_carries_no_operation_identity() {
         assert_eq!(CommandError::unknown(None).request_id, None);
         assert_eq!(CommandError::not_implemented(None).request_id, None);
+        assert_eq!(
+            CommandError::household_content_unloaded(None).request_id,
+            None
+        );
         assert_eq!(CommandError::timeout(None).request_id, None);
     }
 }

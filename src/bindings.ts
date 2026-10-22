@@ -292,10 +292,16 @@ export const commands = {
 	 *  and cannot reach the service answers the same way (SYNC-3), so the empty state is a conclusion to
 	 *  draw only from a fresh reachable [`ServiceStatus`](crate::ipc::types::ServiceStatus).
 	 * 
+	 *  A weight entry of the same household collection is not a rabbit and appears in neither list, and a
+	 *  tombstoned rabbit appears in neither (RAB-10).
+	 * 
 	 *  # Errors
 	 * 
-	 *  None is expected: the read resolves against the locally kept copy, so unreachability is a status
-	 *  fact rather than a read failure (SYNC-3). A local store that cannot answer is `unknown`.
+	 *  `validation` for a blank household id, which names no collection. `unknown` when a live row of the
+	 *  collection has content this device cannot describe: omitting the row would present a partial list
+	 *  as the household's own, so the read refuses instead (D1.16). Unreachability is not an error: the
+	 *  read resolves against the locally kept copy, so it is a status fact rather than a read failure
+	 *  (SYNC-3).
 	 */
 	listRabbits: (householdId: HouseholdId, includeArchived: boolean) => typedError<RabbitSummary[], CommandError>(__TAURI_INVOKE("list_rabbits", { householdId, includeArchived })),
 	/**
@@ -338,10 +344,17 @@ export const commands = {
 	 *  NFR-9, so it carries no consequence confirmation (D1.8); the confirmation belongs to
 	 *  [`delete_rabbit`].
 	 * 
+	 *  The write submits the **whole item**: the rabbit's content is read from this device's copy and
+	 *  written back unchanged except for `is_archived`, because a partial payload would replace the
+	 *  stored version and discard the profile (RAB-9, D1.16).
+	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an unknown rabbit, for one that is already archived, and for a blank operation
-	 *  identity. The write path's service conditions are reachable as for [`create_rabbit`].
+	 *  `validation` for an unknown rabbit, for one that is already archived, for a rabbit this device
+	 *  holds only as a tombstone, and for a blank operation identity. `unknown` when the row's content is
+	 *  not on this device: the archive refuses rather than submitting a partial payload, and a refresh
+	 *  fills the content (D1.16). The write path's service conditions are reachable as for
+	 *  [`create_rabbit`].
 	 */
 	archiveRabbit: (rabbitId: RabbitId, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("archive_rabbit", { rabbitId, requestId })),
 	/**

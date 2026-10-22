@@ -38,6 +38,13 @@
 //! reaches the frontend from the command that wrote it, and this device's **copy** of the
 //! household's collection is the read path's (SYNC-3).
 //!
+//! [`rabbit`] also owns the two P1 lifecycle/read rules that pair with that content: archiving
+//! changes only the archived flag of a rabbit read from this device's copy and submits the whole
+//! item, so nothing the profile holds is replaced by a partial payload (RAB-6, RAB-9); and a rabbit
+//! list is either the active set or the archived set — never a union — whose rows must all be
+//! describable, so a row whose content this device does not hold refuses as `unknown` instead of
+//! being omitted (D1.16).
+//!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.
 

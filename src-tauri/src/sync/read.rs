@@ -167,9 +167,10 @@ impl ReadPath {
     /// data. No copy is created by this read: the value is produced by the storage type that owns
     /// the never-loaded representation.
     ///
-    /// The method is `pub(crate)`: the command path reaches the read through [`ReadPath::load`], and
-    /// an internal caller (P6's progressive render) does not bypass the blank-id validation `load`
-    /// performs.
+    /// The method is `pub(crate)` for the one local-set caller, `list_rabbits`, which answers from the
+    /// copy without attempting a refresh; it performs its own blank-id validation, exactly as
+    /// [`ReadPath::load`] does, so reaching the copy directly does not bypass that refusal. P6's
+    /// progressive render will be the next such caller.
     pub(crate) fn serve_local(
         &self,
         state: &AppState,

@@ -41,18 +41,26 @@
 //!   its book; the marker is minted **once per operation** and re-sent unchanged by a retry, so a
 //!   re-issued write is byte-identical and the service's request ledger recognises it as the same
 //!   operation rather than refusing it as a changed payload.
+//! * **A lifecycle write submits the whole item.** Archiving reads the rabbit's content from this
+//!   device's copy, changes `is_archived` and nothing else, and writes that version — a partial
+//!   payload would replace the stored item and discard the profile (RAB-6, RAB-9; D1.16).
+//! * **A rabbit list is one selection, never a union, and never partial.** [`summaries`] answers the
+//!   active list or the archived list from the rows this device holds, and refuses as `unknown`
+//!   rather than omitting a row whose content it cannot describe (D1.16, RAB-6).
 //!
-//! **Nothing here touches Tauri, and nothing here writes storage.** [`save_rabbit`] is the one write
-//! path — a create and an edit are the same item write — and it goes through P0's
-//! reachability-gated [`SaveGate`]: a rabbit exists once the shared service has accepted the write,
-//! so no local-only rabbit and no second write path can be produced here (D1.1, D0.1, RAB-5). What this device holds afterwards is its **copy of the shared collection**,
-//! filled by the read path (SYNC-3) — never by this module writing it.
+//! **Nothing here touches Tauri, and nothing here writes storage.** [`save_rabbit_version`] is the
+//! one item write — a create and an edit reach it through [`save_rabbit`], and a lifecycle command
+//! through the content it already holds — and it goes through P0's reachability-gated [`SaveGate`]: a
+//! rabbit exists once the shared service has accepted the write, so no local-only rabbit and no
+//! second write path can be produced here (D1.1, D0.1, RAB-5). What this device holds afterwards is
+//! its **copy of the shared collection**, filled by the read path (SYNC-3) — never by this module
+//! writing it.
 
 use serde_json::{Value, json};
 
 use crate::ipc::types::{
-    CommandError, HouseholdId, Instant, ItemId, MemberId, NeuterStatus, Rabbit, RabbitId,
-    RabbitProfile, RequestId, Sex,
+    CommandError, HouseholdCollection, HouseholdId, Instant, ItemId, ItemPayload, MemberId,
+    NeuterStatus, Rabbit, RabbitId, RabbitProfile, RabbitSummary, RequestId, Sex,
 };
 use crate::sync::{SaveGate, SaveRequest, SharedService};
 
@@ -346,12 +354,97 @@ pub async fn save_rabbit(
     marker: &Instant,
     request_id: RequestId,
 ) -> Result<(), CommandError> {
-    let body = save_body(record, writer, marker, &request_id);
+    save_rabbit_version(service, &record.to_wire(), writer, marker, request_id).await
+}
+
+/// The content one lifecycle write submits: `rabbit` with only its archived flag set (RAB-6).
+///
+/// Everything else is carried exactly as this device's copy held it — the name, the optional
+/// profile fields, the dates and the threshold — because a lifecycle command submits a **whole**
+/// item and a partial payload would replace the stored version and discard the rest (RAB-9; D1.16).
+pub fn mark_archived(rabbit: Rabbit) -> Rabbit {
+    Rabbit {
+        is_archived: true,
+        ..rabbit
+    }
+}
+
+/// Write one rabbit's whole item as it stands (RAB-6, RAB-9; D1.16).
+///
+/// A create and an edit build the content from a submitted profile through [`save_rabbit`]; a
+/// lifecycle command ([`mark_archived`] now, restore and permanent deletion in later tasks) already
+/// has the content read from this device's copy and submits it unchanged except for the field it
+/// changes. Both are the same one item write through P0's reachability gate, so no second write path
+/// is added and a refusal is never reported as a saved rabbit (D1.1, SYNC-2).
+///
+/// `writer` and `marker` are the two per-operation facts the caller resolves, exactly as
+/// [`save_rabbit`] takes them. The body is a function of its inputs alone, so a retried operation
+/// submits byte-identical bytes (D0.7 criterion 6, D0.14).
+///
+/// # Errors
+///
+/// The gate's own causes for the attempt, and `validation` for a blank operation identity, which
+/// [`SaveRequest::new`] refuses because a blank key would break the service's deduplication (D0.14).
+pub async fn save_rabbit_version(
+    service: &dyn SharedService,
+    rabbit: &Rabbit,
+    writer: &MemberId,
+    marker: &Instant,
+    request_id: RequestId,
+) -> Result<(), CommandError> {
+    let body = save_body(rabbit, writer, marker, &request_id);
     let request = SaveRequest::new(request_id, SAVE_ITEM_RPC, body)?;
 
     let _accepted = SaveGate::new(service).save(request).await?;
 
     Ok(())
+}
+
+/// The rabbit summaries of one list: the active rabbits, or the archived ones (RAB-6, D1.16).
+///
+/// The two values select **one** list each, never a union: `false` is the active list and `true` is
+/// the archived list, exactly as `list_rabbits`'s contract states. A row is described only when its
+/// content is a rabbit, so weight-entry rows of the same household collection are not rows of either
+/// list, and a tombstone is in neither — a permanently deleted rabbit is absent from every rabbit
+/// list (RAB-10).
+///
+/// # Errors
+///
+/// `unknown` (with no operation identity, because this is a read) when a live row carries no content
+/// this version can describe. The row could be a rabbit this device cannot read, and omitting it
+/// would present a partial list as the household's own — SYNC-1's "every item exactly once" rules
+/// that out, so the read refuses rather than answering incompletely (D1.16).
+pub fn summaries(
+    collection: &HouseholdCollection,
+    include_archived: bool,
+) -> Result<Vec<RabbitSummary>, CommandError> {
+    let mut summaries = Vec::new();
+
+    for item in &collection.items {
+        // A tombstone names a removed item, so no rabbit list describes it. Its retained content is
+        // never read as a rabbit (D1.16, RAB-10).
+        if item.deleted {
+            continue;
+        }
+
+        match &item.payload {
+            Some(ItemPayload::Rabbit { rabbit }) => {
+                if rabbit.is_archived == include_archived {
+                    summaries.push(RabbitSummary {
+                        id: rabbit.id.clone(),
+                        name: rabbit.name.clone(),
+                        thumbnail_ref: rabbit.photo_ref.clone(),
+                        is_archived: rabbit.is_archived,
+                    });
+                }
+            }
+            // A weight entry is a row this version models, but it is not a rabbit.
+            Some(ItemPayload::WeightEntry { .. }) => {}
+            None => return Err(CommandError::household_content_unloaded(None)),
+        }
+    }
+
+    Ok(summaries)
 }
 
 /// The body the shared service's `save_item` receives for one rabbit item (ADR 0002 criterion 3).
@@ -365,24 +458,24 @@ pub async fn save_rabbit(
 /// string or a default.
 ///
 /// **The body is a function of its inputs alone.** It reads no clock and derives nothing from the
-/// environment, so a retry that supplies the same record, writer, marker and identity submits the
+/// environment, so a retry that supplies the same rabbit, writer, marker and identity submits the
 /// same bytes — which is what the service's request ledger requires of a re-issued operation (D0.7
 /// criterion 6, D0.14).
 fn save_body(
-    record: &RabbitRecord,
+    rabbit: &Rabbit,
     writer: &MemberId,
     marker: &Instant,
     request_id: &RequestId,
 ) -> Value {
     json!({
         "request_id": request_id.0,
-        "household_id": record.household_id.0,
-        "item_id": item_id(&record.id).0,
+        "household_id": rabbit.household_id.0,
+        "item_id": item_id(&rabbit.id).0,
         "updated_at": marker.0,
         "writer_id": writer.0,
         "payload": {
             "kind": "rabbit",
-            "rabbit": record.to_wire(),
+            "rabbit": rabbit,
         },
     })
 }
@@ -390,7 +483,9 @@ fn save_body(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ipc::types::SaveCause;
+    use crate::ipc::types::{
+        CollectionItem, CollectionSource, Grams, SaveCause, WeightEntry, WeightEntryId,
+    };
     use crate::sync::ServiceReply;
     use crate::sync::double::test_support::block_on_ready;
     use crate::sync::double::{RecordedCall, ScriptedService};
@@ -1125,5 +1220,170 @@ mod tests {
         assert_eq!(error.cause, SaveCause::Validation);
         assert_eq!(error.request_id, Some(request_id("   ")));
         assert!(service.calls().is_empty());
+    }
+
+    /// A rabbit content, as this device's copy holds it: built through the create constructor so
+    /// every RAB-1 field is present, then marked archived when the test needs an archived one.
+    fn stored_rabbit(id: &str, name: &str, archived: bool) -> Rabbit {
+        let mut rabbit = RabbitRecord::created(
+            household("household-1"),
+            RabbitProfile {
+                name: name.to_owned(),
+                ..full_profile()
+            },
+            &request_id(id),
+        )
+        .expect("the profile is valid")
+        .to_wire();
+        rabbit.is_archived = archived;
+
+        rabbit
+    }
+
+    fn rabbit_row(rabbit: &Rabbit, updated_at: &str) -> CollectionItem {
+        CollectionItem {
+            item_id: crate::ipc::types::ItemId(rabbit.id.0.clone()),
+            updated_at: at(updated_at),
+            deleted: false,
+            payload: Some(ItemPayload::Rabbit {
+                rabbit: rabbit.clone(),
+            }),
+        }
+    }
+
+    fn weight_entry_row(rabbit_id: &RabbitId) -> CollectionItem {
+        CollectionItem {
+            item_id: crate::ipc::types::ItemId("entry-1".to_owned()),
+            updated_at: at("2026-10-20T09:00:00Z"),
+            deleted: false,
+            payload: Some(ItemPayload::WeightEntry {
+                weight_entry: WeightEntry {
+                    id: WeightEntryId("entry-1".to_owned()),
+                    rabbit_id: rabbit_id.clone(),
+                    value_grams: Grams(1_800),
+                    timestamp: at("2026-10-20T09:00:00Z"),
+                    note: None,
+                    photo_refs: Vec::new(),
+                    has_weight_drop_alert: false,
+                },
+            }),
+        }
+    }
+
+    fn collection(items: Vec<CollectionItem>) -> HouseholdCollection {
+        HouseholdCollection {
+            household_id: household("household-1"),
+            items,
+            source: CollectionSource::Local,
+            loaded_at: None,
+        }
+    }
+
+    /// RAB-6, RAB-9: the archive changes the archived flag and nothing else — the rest of the
+    /// profile is carried unchanged into the write.
+    #[test]
+    fn marking_a_rabbit_archived_changes_nothing_but_the_flag() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", false);
+
+        let archived = mark_archived(rabbit.clone());
+
+        assert!(archived.is_archived);
+        assert_eq!(
+            archived,
+            Rabbit {
+                is_archived: true,
+                ..rabbit
+            },
+            "every other field is the content the copy held"
+        );
+    }
+
+    /// RAB-6: the two values select one list each — the active rabbits, or the archived ones — and
+    /// never a union. A weight entry of the same collection is not a rabbit and belongs to neither.
+    #[test]
+    fn the_active_list_and_the_archived_list_are_disjoint_selections() {
+        let active = stored_rabbit("rabbit-1", "Pebble", false);
+        let archived = stored_rabbit("rabbit-2", "Clover", true);
+        let collection = collection(vec![
+            rabbit_row(&active, "2026-10-22T09:30:00Z"),
+            rabbit_row(&archived, "2026-10-22T09:31:00Z"),
+            weight_entry_row(&active.id),
+        ]);
+
+        let active_list = summaries(&collection, false).expect("every content is known");
+        assert_eq!(
+            active_list,
+            vec![RabbitSummary {
+                id: active.id.clone(),
+                name: "Pebble".to_owned(),
+                thumbnail_ref: Some("photo-1".to_owned()),
+                is_archived: false,
+            }]
+        );
+
+        let archived_list = summaries(&collection, true).expect("every content is known");
+        assert_eq!(
+            archived_list,
+            vec![RabbitSummary {
+                id: archived.id.clone(),
+                name: "Clover".to_owned(),
+                thumbnail_ref: Some("photo-1".to_owned()),
+                is_archived: true,
+            }]
+        );
+    }
+
+    /// D1.16: a live row whose content this version cannot describe could be a rabbit, so a list
+    /// refuses rather than omitting it and presenting a partial list as complete.
+    #[test]
+    fn a_list_refuses_when_a_row_it_cannot_describe_is_present() {
+        let known = stored_rabbit("rabbit-1", "Pebble", false);
+        let collection = collection(vec![
+            rabbit_row(&known, "2026-10-22T09:30:00Z"),
+            CollectionItem {
+                item_id: crate::ipc::types::ItemId("item-2".to_owned()),
+                updated_at: at("2026-10-22T09:31:00Z"),
+                deleted: false,
+                payload: None,
+            },
+        ]);
+
+        for include_archived in [false, true] {
+            let error = summaries(&collection, include_archived)
+                .expect_err("a row whose content is unknown makes the set read refuse");
+
+            assert_eq!(error.cause, SaveCause::Unknown, "{include_archived}");
+            assert!(!error.retryable, "{include_archived}");
+            assert_eq!(
+                error.message_key,
+                crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY,
+                "{include_archived}"
+            );
+            assert_ne!(error.message_key, "error.unknown", "{include_archived}");
+            assert_eq!(error.request_id, None, "{include_archived}");
+        }
+    }
+
+    /// RAB-10, D1.16: a tombstone names a permanently removed rabbit, so neither list describes it —
+    /// even when its retained content is absent.
+    #[test]
+    fn a_tombstoned_row_is_in_neither_list() {
+        let collection = collection(vec![CollectionItem {
+            item_id: crate::ipc::types::ItemId("rabbit-1".to_owned()),
+            updated_at: at("2026-10-22T10:00:00Z"),
+            deleted: true,
+            payload: None,
+        }]);
+
+        assert!(
+            summaries(&collection, false)
+                .expect("a tombstone is skipped")
+                .is_empty()
+        );
+        assert!(
+            summaries(&collection, true)
+                .expect("a tombstone is skipped")
+                .is_empty()
+        );
     }
 }

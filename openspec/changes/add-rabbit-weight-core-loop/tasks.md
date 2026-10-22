@@ -67,7 +67,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 2.4 [rust-backend] Implement editing every field of an active rabbit's profile, including the
   weight-drop threshold, and share the change with all members through P0's collection write path;
   refuse an edit to an archived rabbit (RAB-5, HS-8).
-- [ ] 2.5 [rust-backend] Implement archiving a rabbit: excluded from the active list, included in the
+- [x] 2.5 [rust-backend] Implement archiving a rabbit: excluded from the active list, included in the
   archived list, no data discarded (RAB-6, RAB-9).
 - [ ] 2.6 [rust-backend] Implement restoring an archived rabbit to the active list with its history
   intact (RAB-7).
@@ -130,6 +130,13 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   confirmation, and `error.household_content_unloaded` (the unknown-content refusal of D1.16, which
   keeps P0's cause `unknown` and its operation-neutral `error.unknown` copy untouched) — so no P1
   string is hard-coded (DASH-2, RAB-10, WT-4, NFR-9, NFR-8).
+- [ ] 3.9 [frontend-logic] **Added mid-change (Q5).** Subscribe to `rabbit:changed` and
+  `weight:changed` and refresh the device's copy through the read commands, as `design.md`'s event
+  section already specifies. Until this exists a confirmed write is invisible: the local copy is only
+  written by the read path, so a mutation's invalidation re-reads stale data and RAB-6's "archiving
+  removes the rabbit from the active list" is false as the person sees it until the next foreground
+  refresh. P0's `household:changed` subscriber is the pattern. (RAB-5, RAB-6, RAB-7, RAB-10, WT-5,
+  DASH-4)
 
 ## 4. Frontend UI
 

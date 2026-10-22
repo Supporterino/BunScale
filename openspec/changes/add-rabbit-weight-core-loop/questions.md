@@ -56,4 +56,20 @@ Because the type and its storage fallout cannot be split without leaving the cra
 1.4 records the decision and 2.0 makes the change — `architect` owns `src-tauri/src/ipc/*` only, and
 `rust-backend` owns the `storage/`/`sync/` plumbing.
 
+## Q5 — Nothing refreshes the local copy after a confirmed write (found in task 2.5)
+
+**Status: settled by adding a task.** Raised and resolved 2026-10-22.
+
+`design.md`'s event section says a listener invalidates and refetches through the read commands, and
+P0 shipped exactly that for `household:changed` (closing the same class of gap in its task 8.1). But the
+device's copy is written **only** by the read path — the write gate holds a transport and nothing else —
+and no task in this change owns a `rabbit:changed`/`weight:changed` subscriber. A mutation's own
+invalidation therefore re-reads a stale copy: an archived rabbit stays in the active list, and a saved
+threshold edit leaves the old flags, until the next foreground refresh.
+
+**Resolution:** task 3.9 added (frontend-logic), subscribing to both P1 events and refreshing through
+the read commands, following P0's `household:changed` pattern. No design change was needed — the
+design already required it; the plan was missing the task.
+
+
 
