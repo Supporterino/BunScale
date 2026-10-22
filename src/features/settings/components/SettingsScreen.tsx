@@ -25,7 +25,11 @@
  *     selected segment is the backend's *effective* unit, never the requested
  *     one; while the write runs the control is disabled and "Saving…" is shown,
  *     and a refused write leaves the confirmed unit in place with its cause
- *     below. A retry re-runs the handle (same `request_id`).
+ *     below. A retry re-runs the handle (same `request_id`). Because both
+ *     operations are the **local device store**, an `unknown` cause is the
+ *     device failing rather than the shared service: it is shown as
+ *     `settings.unit.store_failed`, while every other cause keeps its own copy
+ *     (Q58, task 8.3).
  *   - `useServiceStatusView()` is read for one thing only: an offline `Notice`,
  *     so a failing write's cause has context. The connectivity-required and
  *     local-copy surfaces are task 4.4's, not duplicated here.
@@ -65,7 +69,12 @@
  * only the caller knows which input the operation carries (D0.14). When the held
  * set is empty the section renders an `EmptyState` with the create action; when
  * the set failed to load the create action stays available, so the failure does
- * not remove the only way forward.
+ * not remove the only way forward. The inline retry notice is handed
+ * `creation.isPending` as its busy state, matching the shell mount (task 8.3).
+ * It is parity rather than a visible long-running state here: TanStack Query
+ * clears the mutation's error when the attempt starts, so the notice — and its
+ * retry — leave in the same render that makes the mutation pending; the shell's
+ * store record outlives its attempt, so the loading form stays visible there.
  *
  * **Copy.** Every string comes from `t()`. The dashboard destination is labelled
  * `dashboard.title` ("Your household") in both screens, so one navigation item
@@ -103,9 +112,12 @@ import {
   useHouseholdList,
   useSwitchActiveHousehold,
 } from '../../households/queries';
-import { t } from '../../i18n';
+import { type MessageKey, t } from '../../i18n';
 import { SaveFailureNotice } from '../../sync/components/SaveFailureNotice';
-import { describeSaveFailure } from '../../sync/failure';
+import {
+  describeSaveFailure,
+  type SaveFailureDescription,
+} from '../../sync/failure';
 import { useServiceStatusView } from '../../sync/status';
 import { setDisplayWeightUnit } from '../api';
 import {
@@ -520,6 +532,7 @@ function CreateHouseholdForm({ onClose }: { onClose: () => void }) {
         <SaveFailureNotice
           error={creation.error}
           onRetry={otherFailure.retryable ? submit : undefined}
+          retrying={pending}
         />
       )}
 
@@ -533,6 +546,19 @@ function CreateHouseholdForm({ onClose }: { onClose: () => void }) {
       </div>
     </form>
   );
+}
+
+/*
+ * The display-unit section's failure copy (Q58, task 8.3). Both its read and its
+ * write are the local device store, so `unknown` here is that store failing
+ * rather than the shared service; it is named as such. Every other cause keeps
+ * its own key, because a real connectivity or timeout failure must not be
+ * relabelled as local.
+ */
+function unitFailureMessageKey(failure: SaveFailureDescription): MessageKey {
+  return failure.cause === 'unknown'
+    ? 'settings.unit.store_failed'
+    : failure.messageKey;
 }
 
 function DisplayUnitSection() {
@@ -574,7 +600,7 @@ function DisplayUnitSection() {
             }
             tone="danger"
           >
-            {t(readFailure.messageKey)}
+            {t(unitFailureMessageKey(readFailure))}
           </Notice>
         )}
       </ListSection>
@@ -629,6 +655,7 @@ function DisplayUnitSection() {
         {failure === null ? null : (
           <SaveFailureNotice
             error={setUnit.error}
+            messageKey={unitFailureMessageKey(failure)}
             onRetry={
               failure.retryable && lastChange !== undefined
                 ? () => {

@@ -35,13 +35,17 @@
  * screen is shown to *say* it is working, not only to expose a region.
  *
  * The display-unit section's failure is asserted here too (task 7.3; SET-4,
- * Q44). The unit pair reports only `cause: unknown`, which the backend marks
- * `retryable: false`, so the section offers **no retry control at all** — and
- * that absence is the requirement's outcome rather than an omission. The
+ * Q44; its copy moved to the device-specific key by Q58/task 8.3). The unit pair
+ * reports only `cause: unknown`, which the backend marks `retryable: false`, so
+ * the section offers **no retry control at all** — and that absence is the
+ * requirement's outcome rather than an omission. Because the unit pair is the
+ * local device store, that `unknown` is the store failing on this device and is
+ * named as such (`settings.unit.store_failed`: the choice was not saved on this
+ * device and nothing changed), not the shared service's `error.unknown`. The
  * recovery Q44 names is re-selecting the segment (or remounting the screen), so
- * these specs assert the `unknown` copy, the absence of any control named the
- * retry label, and the segments still operable afterwards. Both platforms share
- * this component layer: nothing in this file is per-OS.
+ * these specs assert that device-specific copy, the absence of any control named
+ * the retry label, and the segments still operable afterwards. Both platforms
+ * share this component layer: nothing in this file is per-OS.
  *
  * What is NOT assertable at this layer, and who owns it:
  *   - switching the active household is HS-3 and already covered at the
@@ -73,7 +77,6 @@ import type {
 } from '../features/households/queries';
 import { t } from '../features/i18n';
 import type { ServiceStatus } from '../features/sync/entry-status';
-import { SAVE_CAUSE_MESSAGE_KEYS } from '../features/sync/failure';
 import {
   createTestQueryClient,
   createTestRouter,
@@ -135,11 +138,17 @@ const RETRY = t('error.retry');
 const SAVING = t('settings.displayUnit.saving');
 
 /**
- * The copy the unit pair's only cause produces, read from the map that defines
- * the taxonomy rather than restated here, so a renamed key fails this spec
- * instead of leaving a stale string that happens to match the screen.
+ * The copy the unit pair's only cause produces (Q58, task 8.3).
+ *
+ * The unit pair talks to the local device store, so its `unknown` cause is
+ * shown under the device-specific key rather than the shared service's
+ * `error.unknown`. Spelling the key here (instead of reading it back from the
+ * taxonomy) is what the spec measures: `t` takes the catalog's own key union, so
+ * a renamed or removed key fails typecheck, and `t` answers the catalogued
+ * generic message for a key that slipped through a cast — either way this
+ * constant cannot silently equal a different string than the screen renders.
  */
-const UNIT_FAILURE_COPY = t(SAVE_CAUSE_MESSAGE_KEYS.unknown);
+const UNIT_FAILURE_COPY = t('settings.unit.store_failed');
 
 /** One `invoke` call the app made, as the backend would have received it. */
 type MockCall = {
@@ -708,16 +717,17 @@ describeAtBothBaselines('Settings: held households (HS-4)', () => {
 });
 
 /*
- * Task 7.3 (SET-4, Q44). The unit pair's failure has no retry to offer, so the
- * recovery is the segment itself. These tests assert the outcome as a person
- * meets it: the cause's copy, no control named the retry label, and the
- * segments still there to be chosen again — the last one being what "the
- * recovery is not a retry button" means in the UI.
+ * Task 7.3 (SET-4, Q44), with the copy task 8.3/Q58 settled. The unit pair's
+ * failure has no retry to offer, so the recovery is the segment itself. These
+ * tests assert the outcome as a person meets it: the local store failure's
+ * device-specific copy, no control named the retry label, and the segments still
+ * there to be chosen again — the last one being what "the recovery is not a
+ * retry button" means in the UI.
  */
 describeAtBothBaselines('Settings: display unit (SET-4, Q44)', () => {
   // SET-4: "Display weight unit is per-device and applied at the boundary".
   describe('Display unit is per-device (SET-4)', () => {
-    it('shows the unknown copy and never looks saved', async () => {
+    it('names the local store failure and never looks saved', async () => {
       seedSettings();
       handlers.set('set_display_weight_unit', (args) => {
         throw unitFailure(args.requestId);
@@ -741,8 +751,9 @@ describeAtBothBaselines('Settings: display unit (SET-4, Q44)', () => {
 
       const notice = await screen.findByRole('alert');
 
-      // The cause's own copy under the "not saved" header: the backend's raw
-      // key is not what the surface renders (task 3.4's rule).
+      // The local store failure under the "not saved" header: the copy names
+      // this device, not the shared service, and the backend's raw key is not
+      // what the surface renders (task 3.4's rule; Q58/task 8.3).
       expect(
         within(notice).getByRole('heading', { name: t('error.notSaved') }),
       ).toBeVisible();
@@ -888,7 +899,7 @@ describeAtBothBaselines('Settings: display unit (SET-4, Q44)', () => {
       expect(writes[1].args.requestId).not.toBe(writes[0].args.requestId);
     });
 
-    it('shows the unknown copy and no retry on a failed read', async () => {
+    it('names the local store failure and offers no retry on a failed read', async () => {
       seedSettings();
       handlers.set('get_display_weight_unit', () => {
         throw unitFailure(null);
@@ -906,9 +917,11 @@ describeAtBothBaselines('Settings: display unit (SET-4, Q44)', () => {
 
       /*
        * No "Not saved" header here: nothing was written. The read-failure
-       * branch renders `Notice` without a title and names the read's cause in
-       * its body. A read that never wrote must not claim a save outcome, so
-       * the header is asserted absent rather than merely unmentioned.
+       * branch renders `Notice` without a title and names the local store's
+       * failure in its body — the device-specific copy, not the shared
+       * service's `error.unknown`. A read that never wrote must not claim a
+       * save outcome, so the header is asserted absent rather than merely
+       * unmentioned.
        */
       expect(notice).toHaveTextContent(UNIT_FAILURE_COPY);
       expect(within(notice).queryByRole('heading')).toBeNull();
