@@ -13,7 +13,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 
 ## 1. Contract
 
-- [ ] 1.1 [architect] Extend the P0 IPC contract in `src-tauri/src/ipc/` with the P1 commands, events
+- [x] 1.1 [architect] Extend the P0 IPC contract in `src-tauri/src/ipc/` with the P1 commands, events
   and shared types listed in `design.md` ("IPC contract"): rabbit create/list/get/update/archive/
   restore/delete, weight entry create/list/get/update/delete, the dashboard read, `Rabbit`,
   `RabbitSummary`, `DashboardRow`, `WeightEntry`, `WeightEntrySummary`, `WeightRange`,
