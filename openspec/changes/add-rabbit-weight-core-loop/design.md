@@ -216,6 +216,161 @@ dependency: every command is a local collection read or a reachability-gated wri
 `storage/` and `sync/`, every failure is one of P0's own cause sets (D1.1, write-path/local), and both
 events reuse P0's one subscription and invalidation pattern.
 
+### D1.16 — A collection row carries its item's payload; "content unknown" is an explicit state (RAB-6, RAB-9, WT-5, DM-4; Q4)
+
+P0's `save_item` stores the submitted `payload` **as the item's version**, and the device's row has
+carried only identity, marker and tombstone flag (`StoredItem { item_id, updated_at, deleted }`),
+converted from the equally payload-free `CollectionItem`. P1 cannot work through that shape. Archiving,
+restoring and deleting a rabbit and correcting a weight entry each submit a whole item, and a write
+that carried only the changed field (`{ "is_archived": true }`) would replace the stored version with
+that much — the profile and history would be gone, which is exactly the loss RAB-9 forbids (WT-5 on
+the entry side, DM-4 on retention). The P1 reads need the content too: `RabbitSummary.name`,
+`Rabbit.breed`, an entry's note and photos all live only in the item. P0 anticipated this as an
+**additive** step (`src-tauri/src/storage/collection.rs`: the item's content "is an additive change to
+this type"); Q4 records that the plan had no task for it.
+
+**The envelope is the write's own envelope, not a second shape.** The payload is one `ItemPayload`,
+internally tagged on `kind`:
+
+- `{ "kind": "rabbit", "rabbit": <Rabbit> }` — exactly what `domain::rabbit::save_body` already sends
+  for a rabbit item (tasks 2.1/2.4).
+- `{ "kind": "weight_entry", "weight_entry": <WeightEntry> }` — what task 2.9's save body sends beside
+  it. Both field names are frozen here so an item's write body and its row cannot drift into two
+  representations of one value.
+
+The row becomes `CollectionItem { item_id, updated_at, deleted, payload }`, with `payload` typed
+`Option<ItemPayload>`, and `StoredItem` carries the same fields. The option is deliberate: a payload is
+either one of the two kinds or `None` — an absence, not a third kind of content (it has two
+provenances, below).
+
+**One field of a weight entry's payload is not content: `has_weight_drop_alert`.** `WeightEntry`
+carries the **derived** flag (I2), so storing the write envelope verbatim would persist a derived value
+and let it disagree with the threshold it came from — the snapshot D1.3 and D1.13 forbid, and the
+state rule that no derived value is persisted. The field is therefore normalised at the write
+boundary: a payload's `has_weight_drop_alert` is always written `false` and **ignored on every read**,
+where the flag is re-derived from the current entry set (D1.12, D1.13). The normalised value is a
+constant, so a re-issued write stays byte-identical (D0.14), and no stored payload can ever state an
+alert the derivation would not.
+
+**Two ways a row can carry no payload, and they are different cases.** They are told apart where the
+feed is decoded, and neither is a state of the frozen wire type:
+
+- **Foreign** — the answer carried a payload whose `kind` this version does not know (P2's health
+  items will live in this same household collection, so this is expected, not hypothetical). It is
+  not content this device failed to read; it is an item of a kind this version does not model. The
+  feed **drops** such a row: it never enters the local copy, so no P1 read describes it and no P1
+  write can reach it, and a loaded rabbit list is never withheld because a health item shares the
+  household. The copy is therefore the items *this version models*, not every item the service holds
+  — the shared collection stays the record — and the guarded load's per-id ownership check covers
+  those same kinds (the phase that owns a kind applies it to that kind from its first store). The
+  phase that models the kind starts storing it from the service when its own type lands.
+- **Unknown content** — the row carried no payload, or a payload of a **known** kind that did not
+  decode. The item is one this version models and its content is simply not on this device. Every
+  rule below is about this case, and only this one.
+
+Neither absence is **archived**: an archived row is a payload that is *present* and carries
+`is_archived: true`. Treating an absent payload as archived would make an unread profile look
+deliberately archived, and treating it as "live with no content" would let a write erase the profile.
+
+The distinction is therefore the decode's, not the contract's: `payload` stays
+`Option<ItemPayload>`, `payload: null` on the wire means "this version cannot describe this row", and
+any row that reaches the local copy with no payload is unknown content — a foreign row was dropped
+before it could be stored. No contract change.
+
+**What unknown content means to each consumer.** The state is answered, never guessed, and no command
+signature changes — `unknown` (the contract's local set) is already in every affected command's error
+set:
+
+- **Set reads** — `list_rabbits`, `get_dashboard`, `get_weight_entries` — answer the local-set
+  `unknown` cause when any row they would have to describe has unknown content. A partial answer is
+  not an answer: SYNC-1 says the collection is every item exactly once, so omitting a row the device
+  cannot read would present an incomplete collection as the household's own — the rule SYNC-3 already
+  applies to the never-loaded state (omission is indistinguishable from a complete list, and an empty
+  state would be a false fact). Concretely, a `None` row leaves `list_rabbits` unable to state
+  `name`/`thumbnail_ref`, `get_dashboard` unable to state `is_archived`, `last_weighed_at` or
+  `never_weighed`, and `get_weight_entries` unable to derive the points *and* the drop alerts of
+  their neighbours (D1.12/D1.13 need the whole entry set).
+- **Address-by-id reads** — `get_rabbit`, `get_weight_entry` — answer the same local-set `unknown`
+  cause for a row that exists but whose content is unknown; a blank or absent id stays `validation`.
+- **Derived values need rows they do not address.** A read that derives an alert or a last-weighed
+  value needs the **rabbit row and the whole entry set**, not only the row it names: `get_weight_entry`
+  answers `unknown` when the entry is known but its rabbit's payload is not (the flag comes from the
+  rabbit's threshold and the entry set, I2/D1.13), `get_weight_entries` answers `unknown` when the
+  rabbit row is unknown even though every entry is known — the returned threshold and every derived
+  alert come from it — and `get_dashboard`'s `last_weighed_at`/`never_weighed` need the same pair
+  (DASH-2, DASH-3). An unknown row among them is a refusal, never a derived value computed from a
+  subset.
+- **Writes** — every write that submits a whole item (archive, restore, edit, delete and the cascade a
+  delete performs) **reads the row's content first** and submits it unchanged except for the field it
+  changes. A write that cannot read it **refuses** with the local-set `unknown` cause rather than
+  submitting a partial payload: a partial `save_item` replaces the version, which is the data loss
+  RAB-9 forbids. So 2.5's archive, 2.6's restore and 2.11's entry edits cannot proceed without the
+  content; 2.7's delete needs the rabbit's `is_archived` precondition *and* every cascaded entry's
+  content, and refuses rather than deleting a subset or letting a version lose its payload; 2.8's
+  immutability check treats "cannot establish that the rabbit is not archived" as a refusal, never as
+  "not archived".
+
+**How the refusal reaches the person.** Cause `unknown` and `retryable: false` stay as they are, and
+the refusal carries its own **surface key** in the frozen `CommandError.message_key` —
+`error.household_content_unloaded`, owned by task 3.8, reading that this device could not read details
+of the household data it holds and that they arrive with the next sync — so `error.unknown` keeps its
+operation-neutral copy ("That did not work. Nothing was changed.") untouched and no P0 surface or
+pinned test changes; a distinct key on a frozen cause is the pattern P0 already ships for the
+display-unit store fault (`settings.unit.store_failed`, P0 Q58/Q60) and for the stub placeholder
+(`error.not_implemented`, P0 design 1868–1873). It renders on the affected screen's failure state,
+which offers a **refresh** (a fresh read through P0's collection read) rather than a retry of the same
+command. SYNC-3's connectivity-required state is deliberately **not** reused: that state means
+nothing was ever loaded, which is not this condition (rows were loaded, one content was not), and its
+copy would name the wrong cause.
+
+**The unknown-content state is transient.** P1's read path asks for the whole collection on every
+refresh (`since_change_seq: 0`), so the next successful refresh fills every payload (D0.2, SYNC-3) and
+the refusal disappears; until then it is the honest answer. A foreign row is not part of this promise
+at all — it is not held, nothing is waiting to be filled, and its own phase reads it when it ships.
+
+**Why the payload travels with the row rather than being fetched per item.** P0's read design answers
+every read from the device's own copy while the service is unreachable (D0.2, SYNC-3): a start with no
+connectivity shows what was loaded before. A per-item content fetch would make the archived list, a
+profile, the dashboard and the weight reads depend on the service, which is the opposite, and would
+turn one collection read into N+1 calls. The whole-collection feed already carries every row in one
+answer, so carrying the content costs no extra round trip, and the local row is what makes the
+archive/restore/delete writes composable at all — they submit the item as it stands.
+
+**The version marker and the tombstone are unchanged.** `updated_at` stays the last-write-wins marker
+(the service's tuple stays `(updated_at, writer_id, request_id)`, and the client still orders by its
+first element only); `deleted` stays a tombstone that keeps identity and version, and a removal is not
+required to blank the payload, so DM-4's retained content is the content of the version that removed
+it. The merge's equal-instant tie rule keeps comparing `deleted` — the payload is not a second
+ordering input. A tombstoned row's payload is never read *as content*; a delete may only re-submit it,
+to retain it on the version it writes.
+
+**Consequences for the implementation** (the types are task 1.4's, the plumbing task 2.0's; this task
+writes no behaviour):
+
+- `StoredItem` gains `payload`, and both conversion directions carry it unchanged; the two named
+  constructors keep producing a row with unknown content, and 2.0 decides whether a tombstone
+  constructor takes content. The feed decode classifies the payload by provenance before the rows
+  reach the store — a private row shape, because the frozen `CollectionItem` cannot say "foreign" —
+  so the drop is a decode step, not a field on any stored or exported type.
+- `CollectionItem`, `HouseholdCollection`, `StoredItem`, `StoredCollection`, `LocalCopy`, `LocalCopies`,
+  `GuardedStore` and `DeviceSnapshot` keep `PartialEq` and **lose `Eq`**: a rabbit's payload carries an
+  `f64` threshold percentage, so the row cannot be `Eq` without lying. `Eq` is used nowhere these types
+  cross (they are not map keys), so only the derives change.
+- The field tolerates an omitted value (`#[serde(default)]`), so a feed or a file that omits it reads
+  as unknown content rather than as an unreadable answer — a leaner feed must not cost the whole
+  refresh (SYNC-3). The decode is lenient **by provenance, not by flattening**: a payload whose `kind`
+  this version does not know drops its row (the foreign case above — P2's health items share this
+  collection, so that is expected, not hypothetical), while a payload of a known kind that fails to
+  decode, like a missing payload, is kept as unknown content. Neither is an error, so one item of a
+  later phase can never take a whole collection read down, and a rabbit list is never withheld
+  because another kind shares the household. The device never writes a row it could not read (the
+  write rule above refuses), so it cannot replace a foreign payload; the shared collection stays the
+  record. The field is always present on the wire, as `null`, so "this version cannot describe this
+  row" is a visible value rather than an omission, and the generated binding is
+  `payload: ItemPayload | null`.
+- Nothing else changes: the thirteen commands, both events, `CommandError`, `SaveCause`, `Instant`,
+  `Grams`, `Rabbit` and `WeightEntry` keep their frozen names and shapes; no dependency is added.
+
 ## State and boundaries
 
 ```
@@ -257,6 +412,11 @@ both events and every P1 type. Task 3.1 therefore **consumes** those names rathe
 re-running the generator there is a drift check that must leave no diff, and no frontend work waits on
 it. `src/bindings.ts` is never hand-edited — the names in this section are what it contains, and
 renaming one afterwards is a deliberate bindings diff, not a tidy-up.
+
+**Task 1.4 extends this section additively** (Q4, D1.16): `CollectionItem` gains
+`payload: ItemPayload | null` and `ItemPayload` is new, so the regenerated bindings gain one field and
+one union. No command signature, event name or existing type name changes — the additive step P0's
+storage layer named when it froze the row without content.
 
 Naming style extends P0's contract: snake_case commands, `noun:changed` events, shared types in
 PascalCase, and P0's `CommandError`, `SaveCause`, `Instant`, `WeightUnit`, `HouseholdId` reused
@@ -356,6 +516,8 @@ later).
 | `WeightRange` | `days_7 \| days_30 \| days_90 \| all` | WT-6; one enum serves both independent ranges; spelled per variant so serde cannot produce `days7` |
 | `WeightTrend` | `{ range: WeightRange, points: WeightEntrySummary[], drop_threshold_percent }` | oldest first; threshold travels with the series (D1.3, R2) |
 | `PLAUSIBILITY_BOUND_GRAMS` | `Grams(10_000)` (Rust const) | WT-4's bound, D1.9; a constant, so it is in no binding |
+| `ItemPayload` | `{ kind: "rabbit", rabbit: Rabbit } \| { kind: "weight_entry", weight_entry: WeightEntry }` | an item's content, in the envelope `save_item` submits (D1.16); internally tagged on `kind`, member names frozen; an unrecognised `kind` is **foreign** and its row is dropped at decode, and a weight entry's `has_weight_drop_alert` is not content — written `false`, ignored on read |
+| `CollectionItem` | `{ item_id: ItemId, updated_at: Instant, deleted: bool, payload: ItemPayload \| null }` | one row of `HouseholdCollection`; `payload: null` means this version cannot describe the row — **unknown content**, not archived, not empty; a read or write that needs it (including an alert or last-weighed value derived from the rabbit row and the entry set) answers the local-set `unknown` cause under its own key `error.household_content_unloaded` (task 3.8), never a partial answer (D1.16) |
 | reuse | `CommandError`, `SaveCause`, `Instant`, `WeightUnit`, `HouseholdId` | from P0, unchanged |
 
 `Sex` and `neuter_status` are always present on `Rabbit` and `RabbitProfile` rather than optional:

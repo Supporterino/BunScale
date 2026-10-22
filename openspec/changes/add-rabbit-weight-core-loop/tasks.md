@@ -34,6 +34,25 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   entitlement — the rabbit photo reference is carried and rendered but selecting a photo is PHOTO-2
   in P2 — and state that no shared-service dependency is added beyond P0's selected mechanism.
   (RAB-1, DASH-1)
+- [x] 1.4 [architect] **Added mid-change (Q4).** Record the item-payload decision in `design.md`: give
+  `CollectionItem`/`StoredItem` the item's content as an additive field (one internally tagged
+  `ItemPayload`, `kind: rabbit | weight_entry`, reusing the envelope P1's writes already send), state
+  that `payload: None` on a live row means **content unknown** and is distinct from archived, keep
+  `updated_at` as the LWW marker and `deleted` as the identity-keeping tombstone, and note the `Eq`
+  drops the payload forces. Needed because P1's writes replace an item's version with the submitted
+  payload, so archiving without reading the content would discard the profile (RAB-9); P0's
+  `storage/collection.rs` already names this as the intended additive step. **The type and plumbing
+  changes are task 2.0** — they cannot be split from the crate without leaving it uncompilable.
+  (RAB-6, RAB-9, WT-5, DM-4)
+- [ ] 2.0 [rust-backend] **Added mid-change (Q4).** Implement D1.16: `ItemPayload` and the `payload`
+  field on `CollectionItem`/`StoredItem`, carried unchanged through the collection snapshot, the
+  change feed, the merge and persistence; every conversion site and test literal updated; the `Eq`
+  drops applied where `f64` now appears. Version marker, tombstone and the LWW tuple stay unchanged —
+  the payload is not an ordering input. The feed decodes the payload **leniently** (D1.16): a payload
+  of an unrecognised `kind` is **foreign** — dropped at decode, so it never enters the local copy, no
+  P1 read describes it and no P1 write can reach it — while a row with no payload, or a known-kind
+  payload that fails to decode, is **unknown content** and refuses. Keep that distinction through
+  every conversion. Regenerate `src/bindings.ts`. Blocks 2.5–2.8 and 2.11–2.15.
 
 ## 2. Backend (Rust)
 
@@ -61,14 +80,16 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   refusal is reported through P0's failure surface (DM-4, RAB-8).
 - [ ] 2.9 [rust-backend] Implement weight entry creation: canonical grams storage with no per-entry
   unit, timestamp defaulting to now or taken from the supplied instant unchanged, optional note
-  (WT-1, DM-1, WT-3).
+  (WT-1, DM-1, WT-3). The stored payload's `has_weight_drop_alert` is **not content**: write it
+  `false` at the boundary and never persist a derived value (D1.16, D1.3).
 - [ ] 2.10 [rust-backend] Implement weight value validation: reject zero and negative values through
   P0's failure surface, and mark a value above the plausibility bound as requiring confirmation
   (WT-4).
 - [ ] 2.11 [rust-backend] Implement editing and deleting a past weight entry, shared with all
   members; both re-derive the alerts of the entries around the change, so after a deletion the
   following entry is compared against the entry that now precedes it (D1.13); refuse both for an
-  archived rabbit (WT-5, WT-7, DM-4).
+  archived rabbit (WT-5, WT-7, DM-4). An edit writes the stored payload's `has_weight_drop_alert` as
+  `false` — it is re-derived on read, never carried in (D1.16).
 - [ ] 2.12 [rust-backend] Implement the weight trend and history read: a `WeightRange` window of
   7/30/90/all returning the entries inside it, the rabbit's threshold alongside, and the two ranges
   served independently so one query cannot influence the other (WT-6).
@@ -105,8 +126,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 3.7 [frontend-logic] Implement the derived alert and dashboard-flag state from the contract
   payload so a threshold edit re-derives the flags without a full reload (WT-7, DASH-4).
 - [ ] 3.8 [frontend-logic] Add the P1 i18n string keys — including the "never weighed" indication,
-  archive/restore/delete labels, confirmation copy stating consequences, and the out-of-range
-  confirmation — so no P1 string is hard-coded (DASH-2, RAB-10, WT-4, NFR-9).
+  archive/restore/delete labels, confirmation copy stating consequences, the out-of-range
+  confirmation, and `error.household_content_unloaded` (the unknown-content refusal of D1.16, which
+  keeps P0's cause `unknown` and its operation-neutral `error.unknown` copy untouched) — so no P1
+  string is hard-coded (DASH-2, RAB-10, WT-4, NFR-9, NFR-8).
 
 ## 4. Frontend UI
 
@@ -175,7 +198,8 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   current time", "An entry records an edited timestamp", "The note is optional" (WT-1), "Every stored
   weight is in grams", "A weight entry carries no unit of its own", "A value entered in kilograms is
   stored as grams" (DM-1), "A zero value is rejected", "A negative value is rejected", "A confirmed
-  outlier is saved" (WT-4) and the WT-5 edit and delete sharing.
+  outlier is saved" (WT-4) and the WT-5 edit and delete sharing. Also asserts the stored payload's
+  `has_weight_drop_alert` is written `false` and that a read re-derives it (D1.16, D1.3).
 - [ ] 5.5 [test-engineer] Rust tests for the drop alert — covers "A drop exceeding the threshold is
   flagged", "A drop within the threshold is not flagged", "Raising the threshold clears an existing
   flag", "Lowering the threshold raises a flag", "Entries sharing a timestamp are ordered by creation",
