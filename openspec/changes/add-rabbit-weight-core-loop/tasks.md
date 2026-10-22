@@ -120,7 +120,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 3.5 [frontend-logic] Add the weight mutations (create, update, delete) with the display-unit
   parse/format at the entry boundary and invalidation of only the affected trend, history, detail and
   dashboard queries (WT-1, WT-3, WT-5, DM-1).
-- [ ] 3.6 [frontend-logic] Implement weight form validation state: non-positive values rejected with a
+- [x] 3.6 [frontend-logic] Implement weight form validation state: non-positive values rejected with a
   prompt, values above the plausibility bound held behind a confirmation, and programmed save failing
   visibly through P0's cause-specific surface (WT-4).
 - [ ] 3.7 [frontend-logic] Implement the derived alert and dashboard-flag state from the contract

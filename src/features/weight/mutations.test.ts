@@ -247,6 +247,54 @@ describe('the weight mutations', () => {
     expect(invalidated(client)).toEqual(AFFECTED);
   });
 
+  it('create carries a confirmed outlier to the draft as outlier_confirmed', async () => {
+    const client = createTestQueryClient();
+    seed(client);
+    answers.push(() => entry({ value_grams: 30_000 }));
+
+    const wrapper = wrapperFor(client);
+    const { result } = renderHook(() => useCreateWeightEntry(), { wrapper });
+
+    await act(async () => {
+      result.current.mutate({
+        householdId: HOUSEHOLD,
+        rabbitId: RABBIT_ID,
+        input: {
+          text: '30',
+          unit: 'kilograms',
+          timestamp: null,
+          note: null,
+          outlierConfirmed: true,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+
+    /*
+     * WT-4's "A confirmed outlier is saved", end to end: the form's flag is
+     * copied to the wire field and the whole payload is asserted, so a dropped
+     * or inverted flag cannot pass on the strength of the other fields.
+     */
+    expect(calls).toEqual([
+      {
+        command: 'create_weight_entry',
+        args: {
+          rabbitId: RABBIT_ID,
+          entry: {
+            value_grams: 30_000,
+            timestamp: null,
+            note: null,
+            outlier_confirmed: true,
+          },
+          requestId: expect.any(String),
+        },
+      },
+    ]);
+  });
+
   it('create records the instant the person chose, not the moment of the save', async () => {
     const client = createTestQueryClient();
     seed(client);
