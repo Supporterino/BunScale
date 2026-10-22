@@ -43,7 +43,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 2.2 [rust-backend] Enforce non-blank rabbit names on create and update, treating
   whitespace-only input as blank and refusing it through P0's failure surface with a validation cause
   (RAB-2).
-- [ ] 2.3 [rust-backend] Implement multiple rabbits per household with no fixed upper limit, each
+- [x] 2.3 [rust-backend] Implement multiple rabbits per household with no fixed upper limit, each
   belonging to exactly one household (RAB-3).
 - [ ] 2.4 [rust-backend] Implement editing every field of an active rabbit's profile, including the
   weight-drop threshold, and share the change with all members through P0's collection write path;
