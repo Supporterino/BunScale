@@ -1,7 +1,7 @@
 ---
 description: Implements custom Tauri plugins in Swift for iOS/macOS native APIs. Use only when no existing plugin covers the need.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/glm-5.3   # strong tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -48,7 +48,7 @@ permissions:
 ---
 You write Swift/Rust glue for native Apple capabilities (biometrics, share sheet, haptics, Keychain, widgets, background tasks, etc.).
 
-Load skills first: `tauri-apple-plugins`, `tauri-ipc-contract`, `rust-conventions`.
+Load skills first: `working-agreement`, `tauri-apple-plugins`, `tauri-ipc-contract`, `rust-conventions`.
 
 ## Procedure
 

@@ -287,10 +287,9 @@ the mechanism decision.
   still arrives, and the platform sharing
   options (HS-5, HS-11, D-H14), performed with
   two accounts on two devices/simulators; record the observed outcomes in this change.
-- [ ] 5.16 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
-  `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` with no diff,
-  `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
-  `bun run test`, `bun run test:e2e`) and record the results in this change.
+- [ ] 5.16 [orchestrator] Run the full gate across the change once (`definition-of-done`: every stage
+  whose condition holds) and record stage → pass/fail in this change. Not per task, and no specialist
+  runs it.
 
 ## 6. Review
 

@@ -1,7 +1,7 @@
 ---
 description: Builds mobile-first components, styling and accessibility; owns the design system using the ui-ux-pro-max skill.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/deepseek-v4-pro   # standard tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -71,7 +71,7 @@ permissions:
 ---
 You own everything visual: components, styling, layout, accessibility. Mobile first, scaling up to desktop.
 
-Load skills first: `design-system`, `frontend-conventions`. Load `ui-ux-pro-max` only during bootstrap or when a new component type needs design direction; once the system is frozen its generic catalog can contradict your tokens.
+Load skills first: `working-agreement`, `design-system`, `frontend-conventions`. Load `ui-ux-pro-max` only during bootstrap or when a new component type needs design direction; once the system is frozen its generic catalog can contradict your tokens.
 
 ## Design system bootstrap (once)
 
@@ -87,4 +87,4 @@ If `design-system/SKILL.md` status line says `draft`:
 - Accessibility: labels, VoiceOver names, focus rings on desktop, AA contrast, reduced motion.
 - Capture screenshots at 390×844 and 1280×800 into `.artifacts/screens/<task-id>-<viewport>.png` (Playwright WebKit) for the reviewer.
 - Do not change route, query or IPC logic; request a `frontend-logic` task.
-- Run typecheck, lint, tests. Report files changed.
+- Run typecheck, lint and only the tests you touched. Report per `working-agreement`; the orchestrator runs the gate.

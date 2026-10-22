@@ -1,7 +1,7 @@
 ---
 description: Owns GitHub Actions, iOS/macOS builds, signing, TestFlight and release automation.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/deepseek-v4.1-flash   # cheap tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -81,7 +81,7 @@ permissions:
 ---
 You own CI and release automation for iOS and macOS.
 
-Load skill `release-signing` first. Also `definition-of-done` (CI runs the same gate).
+Load `working-agreement` first. Then skill `release-signing`. Also `definition-of-done` (CI runs the same gate).
 
 ## Procedure
 

@@ -235,10 +235,9 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 5.18 [test-engineer] E2E at 1280×800: the rabbit list, opening a rabbit's dashboard, the weight
   trend with a range change and a weight entry detail with photos moved through without a touch
   gesture; covers the `[desktop]` scenarios of DASH-6 and WT-8, plus DASH-1 and DASH-7.
-- [ ] 5.19 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
-  `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` with no diff on `src/bindings.ts`,
-  `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
-  `bun run test`, `bun run test:e2e`) and record the results in the change.
+- [ ] 5.19 [orchestrator] Run the full gate across the change once (`definition-of-done`: every stage
+  whose condition holds) and record stage → pass/fail in this change. Not per task, and no specialist
+  runs it.
 
 ## 6. Review
 

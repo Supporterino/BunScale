@@ -32,6 +32,12 @@ Refresh after archiving a change and after large moves. Not mid-task; a slightly
 
 Include graph findings (paths, symbols) in delegation messages so specialists do not rediscover them.
 
+## Context cost
+
+- Refresh at change boundaries: after an archive, or after a large move. Not per task, not per commit.
+- The commit hook rewrites `graph.json` whole, so a large diff to it on every commit is expected. Nobody diffs or opens `graphify-out/` in review; pass findings as `file:symbol` lines instead.
+- Query narrow. Read `GRAPH_REPORT.md` only when query/path/explain came back empty.
+
 ## Limits
 
 The graph is a map, not truth. If it contradicts the code, trust the code and flag a refresh.

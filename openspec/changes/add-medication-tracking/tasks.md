@@ -293,10 +293,9 @@ other attributes stay read-only (MED-12, design D5.15). An **archived rabbit** g
   deleted", "Correcting a course never rewrites a recorded dose" and "A finished course's end date is
   correctable while its other details and doses stay read-only", asserting the mistyped-end-date case is
   recoverable from the product and that no path removes a medication (MED-13).
-- [ ] 5.18 [test-engineer] Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`,
-  `cargo check --target aarch64-apple-ios`, `bun run gen:bindings` with no diff,
-  `git diff --exit-code src/routeTree.gen.ts` after a build, `bun run typecheck`, `bun run lint`,
-  `bun run test`, `bun run test:e2e`) and record the results in the change.
+- [ ] 5.18 [orchestrator] Run the full gate across the change once (`definition-of-done`: every stage
+  whose condition holds) and record stage → pass/fail in this change. Not per task, and no specialist
+  runs it.
 
 ## 6. Review
 

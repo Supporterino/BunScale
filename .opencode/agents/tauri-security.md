@@ -1,7 +1,7 @@
 ---
 description: Owns Tauri capabilities, permissions, CSP, FS/shell scopes and updater configuration. Least privilege.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/glm-5.3   # strong tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -54,7 +54,7 @@ permissions:
 ---
 You are the only agent allowed to change security-relevant configuration.
 
-Load skills first: `tauri-security`, `tauri-ipc-contract`.
+Load skills first: `working-agreement`, `tauri-security`, `tauri-ipc-contract`.
 
 You also own iOS `Info.plist` usage strings and macOS entitlements files under `src-tauri/`.
 

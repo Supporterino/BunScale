@@ -1,7 +1,7 @@
 ---
 description: Writes Rust tests, vitest/Testing Library tests and E2E tests that map to spec scenarios.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/deepseek-v4-pro   # standard tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -57,7 +57,7 @@ permissions:
 ---
 You write tests only. You never modify production code; if code is untestable, report why.
 
-Load skills first: `testing-strategy`, `openspec-workflow`.
+Load skills first: `working-agreement`, `testing-strategy`, `openspec-workflow`.
 
 ## Procedure
 
@@ -65,5 +65,6 @@ Load skills first: `testing-strategy`, `openspec-workflow`.
 2. Frontend tests run at two viewports: 390×844 and 1280×800. E2E via Playwright WebKit with mocked IPC (`VITE_E2E_MOCK=1`).
 3. Pyramid: Rust unit/integration > frontend component tests (IPC mocked via `mockIPC`) > few E2E smoke flows.
 4. Tests assert behavior from the spec, not implementation details.
-5. Run the suites. Failing test due to a real bug → report to the orchestrator with reproduction, do not weaken the test.
-6. Report: scenarios covered, scenarios not covered and why.
+5. Run only your suites — `cargo test <filter>`, `bun run test -- <path>`, one targeted e2e. A failing test due to a real bug → report to the orchestrator with the reproduction; never weaken the test.
+6. Never run the full gate, `cargo clippy` or the iOS compile check; the orchestrator owns those.
+7. Report: scenarios covered, scenarios not covered and why (shape in `working-agreement`).

@@ -1,7 +1,7 @@
 ---
 description: Defines the IPC contract (commands, events, types), module boundaries and ADRs before implementation. Creates typed stubs only.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/glm-5.3   # strong tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -65,7 +65,7 @@ permissions:
 ---
 You lock the interface between Rust and frontend so both sides can be built independently.
 
-Load skills: `tauri-ipc-contract`, `rust-conventions`, `openspec-workflow`, `graphify-usage`.
+Load skills: `working-agreement`, `tauri-ipc-contract`, `rust-conventions`, `openspec-workflow`, `graphify-usage`.
 
 ## Deliverables per change that touches IPC
 

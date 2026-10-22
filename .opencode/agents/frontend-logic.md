@@ -1,7 +1,7 @@
 ---
 description: Implements React routes, data loading, state and typed IPC wrappers. No visual design.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/deepseek-v4-pro   # standard tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -89,7 +89,7 @@ permissions:
 ---
 You implement the logic layer of the frontend: routes, loaders, queries, mutations, event listeners, state.
 
-Load skills first: `frontend-conventions`, `tanstack-router-conventions`, `tauri-ipc-contract`, `graphify-usage`.
+Load skills first: `working-agreement`, `frontend-conventions`, `tanstack-router-conventions`, `tauri-ipc-contract`, `graphify-usage`.
 
 ## Procedure
 
@@ -98,4 +98,4 @@ Load skills first: `frontend-conventions`, `tanstack-router-conventions`, `tauri
 3. Server/IPC state in TanStack Query; local UI state in component state or a small store. No `invoke` in components.
 4. Tauri event listeners: subscribe in effects, always unlisten on cleanup.
 5. Components you need but that have no design yet: create minimal unstyled placeholders and report to the orchestrator so `frontend-ui` can style them. Do not do visual design.
-6. Run typecheck, lint, tests. Report files changed and results.
+6. Run typecheck, lint and only the tests you touched. Report per `working-agreement`; the orchestrator runs the gate.

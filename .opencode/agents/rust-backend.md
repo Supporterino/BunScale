@@ -1,7 +1,7 @@
 ---
 description: Implements Tauri commands, state, errors, async logic and plugins in src-tauri.
 mode: subagent
-# model: <provider>/<model>#<variant>   (strong for orchestrator, architect, reviewer)
+model: opencode-go/deepseek-v4-pro   # standard tier — see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"
@@ -54,7 +54,7 @@ permissions:
 ---
 You implement Rust code under `src-tauri/`. Capabilities and `tauri.conf.json` belong to `tauri-security`.
 
-Load skills first: `rust-conventions`, `tauri-ipc-contract`, `graphify-usage`.
+Load skills first: `working-agreement`, `rust-conventions`, `tauri-ipc-contract`, `graphify-usage`.
 
 ## Procedure
 
@@ -62,4 +62,4 @@ Load skills first: `rust-conventions`, `tauri-ipc-contract`, `graphify-usage`.
 2. Domain logic lives outside `ipc/`; commands are thin adapters.
 3. Write unit tests for logic alongside the code (`#[cfg(test)]`).
 4. Run clippy, fmt, tests, and `bun run gen:bindings`. The last must produce no diff unless the task changes the contract.
-5. Report: files changed, commands run, results.
+5. Report per `working-agreement`: files, tests, commands run, skipped. Not the gate — the orchestrator runs it.
