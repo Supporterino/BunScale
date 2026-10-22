@@ -86,7 +86,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 
 ## 3. Frontend logic
 
-- [ ] 3.1 [frontend-logic] Run `bun run gen:bindings` against the frozen P1 contract and add
+- [x] 3.1 [frontend-logic] Run `bun run gen:bindings` against the frozen P1 contract and add
   `src/features/rabbits/api.ts`, `src/features/weight/api.ts` and `src/features/dashboard/api.ts`
   wrappers; no `invoke` call anywhere outside these files (project hard rule 2).
 - [ ] 3.2 [frontend-logic] Add the rabbit query keys and hooks: the active list, the archived list,
