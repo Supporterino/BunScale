@@ -354,22 +354,22 @@
     "semantic_hash": "393c4f769b3fd434a0916d125f48b038"
   },
   ".opencode/agents/apple-native.md": {
-    "mtime": 1792086368.6334472,
-    "seen": 1792139607.4099278,
+    "mtime": 1792147076.0656726,
+    "seen": 1792147947.8345659,
     "ast_hash": "42db25dddc859569778d71fb9c9e334d",
     "semantic_hash": "42db25dddc859569778d71fb9c9e334d"
   },
   ".opencode/agents/architect.md": {
-    "mtime": 1792133265.4246962,
-    "seen": 1792139607.409929,
-    "ast_hash": "6f0f1ed4a6e946ebd9a64c1aea6fcd0b",
-    "semantic_hash": "6f0f1ed4a6e946ebd9a64c1aea6fcd0b"
+    "mtime": 1792147941.73154,
+    "seen": 1792147947.8345668,
+    "ast_hash": "74251d35d2be21c96e7b6101793b8228",
+    "semantic_hash": ""
   },
   ".opencode/agents/frontend-logic.md": {
-    "mtime": 1792091814.4058795,
-    "seen": 1792139607.40993,
-    "ast_hash": "6f01cc898865ffc3c21fb692a2d93dc1",
-    "semantic_hash": "6f01cc898865ffc3c21fb692a2d93dc1"
+    "mtime": 1792149407.0600348,
+    "seen": 1792153173.188682,
+    "ast_hash": "b6f19c894eddd1b74cda1adf443be514",
+    "semantic_hash": ""
   },
   ".opencode/agents/frontend-ui.md": {
     "mtime": 1792086368.635198,
@@ -378,10 +378,10 @@
     "semantic_hash": "b84828e47f628345f64947dba78d39c7"
   },
   ".opencode/agents/orchestrator.md": {
-    "mtime": 1792090265.1237447,
-    "seen": 1792139607.409931,
-    "ast_hash": "20bfa96a12dbdeafeb60da43bd86510c",
-    "semantic_hash": "20bfa96a12dbdeafeb60da43bd86510c"
+    "mtime": 1792151817.9688032,
+    "seen": 1792153173.188684,
+    "ast_hash": "4d96d4375304b51ace3dca04286ea2e9",
+    "semantic_hash": ""
   },
   ".opencode/agents/release-ci.md": {
     "mtime": 1792090074.0406847,
@@ -396,8 +396,8 @@
     "semantic_hash": "d79293ee17fe2add2cbfb9a87ca73fbb"
   },
   ".opencode/agents/rust-backend.md": {
-    "mtime": 1792086368.6368113,
-    "seen": 1792139607.409933,
+    "mtime": 1792147076.0656188,
+    "seen": 1792147947.834573,
     "ast_hash": "5195165f6f2b764d11769f5abdbd966b",
     "semantic_hash": "5195165f6f2b764d11769f5abdbd966b"
   },
@@ -876,10 +876,10 @@
     "semantic_hash": "b9bd95372c182c166f677768ec0e287e"
   },
   ".opencode/skills/tauri-ipc-contract/SKILL.md": {
-    "mtime": 1792086402.3438907,
-    "seen": 1792139607.4099898,
-    "ast_hash": "37842a1115d737808b148258987d7164",
-    "semantic_hash": "37842a1115d737808b148258987d7164"
+    "mtime": 1792152076.411211,
+    "seen": 1792153173.188761,
+    "ast_hash": "7a4841317dc7f184c73c5c067e740896",
+    "semantic_hash": ""
   },
   ".opencode/skills/tauri-security/SKILL.md": {
     "mtime": 1792086402.3600798,
@@ -970,12 +970,6 @@
     "seen": 1792139607.4100008,
     "ast_hash": "8c495c2a8788b6ada0beb69bfe52b372",
     "semantic_hash": "8c495c2a8788b6ada0beb69bfe52b372"
-  },
-  "SETUP.md": {
-    "mtime": 1792086243.7308567,
-    "seen": 1792139607.4100008,
-    "ast_hash": "def6ce3ee617c5ffb5cab7e2a1fafc1a",
-    "semantic_hash": "def6ce3ee617c5ffb5cab7e2a1fafc1a"
   },
   "docs/BunScale-Reimplementation-Requirements.md": {
     "mtime": 1792085783.3715827,
@@ -1206,22 +1200,22 @@
     "semantic_hash": "d927a23bcb21ae3c00a0aaa870583380"
   },
   "openspec/changes/add-shared-household-foundation/design.md": {
-    "mtime": 1792134549.7800877,
-    "seen": 1792139607.410031,
-    "ast_hash": "af8b0d84ecf8ddff490e09246b477e73",
-    "semantic_hash": "af8b0d84ecf8ddff490e09246b477e73"
+    "mtime": 1792156522.80334,
+    "seen": 1792156575.651087,
+    "ast_hash": "d75ab9c275f161b90f8ec247f7c21d17",
+    "semantic_hash": ""
   },
   "openspec/changes/add-shared-household-foundation/proposal.md": {
-    "mtime": 1792134439.2139645,
-    "seen": 1792139607.410031,
-    "ast_hash": "ff6ebeed39ceaab893a518847422ac1b",
-    "semantic_hash": "ff6ebeed39ceaab893a518847422ac1b"
+    "mtime": 1792150176.5677915,
+    "seen": 1792153173.1888158,
+    "ast_hash": "06e884d74063ee8bcc69762548f04b45",
+    "semantic_hash": ""
   },
   "openspec/changes/add-shared-household-foundation/questions.md": {
-    "mtime": 1792134514.1674476,
-    "seen": 1792139607.410032,
-    "ast_hash": "e2103132dec96f8c15c9facba0f58424",
-    "semantic_hash": "e2103132dec96f8c15c9facba0f58424"
+    "mtime": 1792152213.193526,
+    "seen": 1792153173.1888168,
+    "ast_hash": "6116893774e1c78cd9cb8b9b565a668b",
+    "semantic_hash": ""
   },
   "openspec/changes/add-shared-household-foundation/specs/data-integrity/spec.md": {
     "mtime": 1792087274.1135478,
@@ -1260,10 +1254,10 @@
     "semantic_hash": "d4ece9b69329ad98db6c7aa36f64c8e6"
   },
   "openspec/changes/add-shared-household-foundation/tasks.md": {
-    "mtime": 1792134504.5404844,
-    "seen": 1792139607.410037,
-    "ast_hash": "49348272b370f44a6e1734d083447930",
-    "semantic_hash": "49348272b370f44a6e1734d083447930"
+    "mtime": 1792156558.3476593,
+    "seen": 1792156575.6510952,
+    "ast_hash": "edde562cafb530baa97ca05f7dbc1c63",
+    "semantic_hash": ""
   },
   "openspec/changes/add-vet-export-and-reminders/design.md": {
     "mtime": 1792138945.200514,
@@ -1324,5 +1318,293 @@
     "seen": 1792139607.410044,
     "ast_hash": "a88f7d80935e1a432dc9b5affe49eb27",
     "semantic_hash": "a88f7d80935e1a432dc9b5affe49eb27"
+  },
+  "openspec/changes/add-household-sharing-hardening/tasks.md": {
+    "mtime": 1792138325.4670475,
+    "seen": 1792145715.7195961,
+    "ast_hash": "44aff14d4c935a34dbaed54ff68821ed",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-medication-tracking/tasks.md": {
+    "mtime": 1792138088.0401645,
+    "seen": 1792145715.719605,
+    "ast_hash": "97675c1f2e1ccb9c0aa7a005b25a974e",
+    "semantic_hash": ""
+  },
+  "openspec/changes/add-read-path-performance/tasks.md": {
+    "mtime": 1792136226.3240323,
+    "seen": 1792145715.71962,
+    "ast_hash": "09c54a4c7504cd66179e62ccb2af071a",
+    "semantic_hash": ""
+  },
+  "SETUP.md": {
+    "mtime": 1792146519.1906228,
+    "seen": 1792146540.109237,
+    "ast_hash": "14d533e543ab8fe3533733a3763cb018",
+    "semantic_hash": ""
+  },
+  "src-tauri/Cargo.toml": {
+    "mtime": 1792149016.8017166,
+    "seen": 1792149156.325175,
+    "ast_hash": "2be648bad2acdad834aa34380629f528",
+    "semantic_hash": ""
+  },
+  "src-tauri/build.rs": {
+    "mtime": 1792147573.0891485,
+    "seen": 1792147947.834559,
+    "ast_hash": "9e949d967099bcc42cfa6f8765a6c938",
+    "semantic_hash": ""
+  },
+  "src-tauri/capabilities/default.json": {
+    "mtime": 1792155545.582159,
+    "seen": 1792156575.650948,
+    "ast_hash": "a4ab9670dd68818858ae9c255f3285c6",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/Contents.json": {
+    "mtime": 1792147590.7637808,
+    "seen": 1792147947.834561,
+    "ast_hash": "30e27fea4ffc717e916e415fc17021ad",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/Contents.json": {
+    "mtime": 1792147590.7620037,
+    "seen": 1792147947.834562,
+    "ast_hash": "31cc68f34934a99c0b0c1bebde56309c",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Sources/app/bindings/bindings.h": {
+    "mtime": 1792147590.7640827,
+    "seen": 1792147947.834562,
+    "ast_hash": "a3a6a87e7d73061a57e9fa8a9989e72a",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Sources/app/main.mm": {
+    "mtime": 1792147590.7639587,
+    "seen": 1792147947.834563,
+    "ast_hash": "b8d7ffffeeaeb4c5dbc60fe2c6ea175c",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/lib.rs": {
+    "mtime": 1792148335.0171425,
+    "seen": 1792149156.325183,
+    "ast_hash": "291a8f7b9f59aa5cece0d9c8858aad2d",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/main.rs": {
+    "mtime": 1792147573.091204,
+    "seen": 1792147947.8345652,
+    "ast_hash": "744d17489cc4e580f67879b318b79029",
+    "semantic_hash": ""
+  },
+  "src-tauri/tauri.conf.json": {
+    "mtime": 1792155545.582182,
+    "seen": 1792156575.650956,
+    "ast_hash": "7d5475e979d8d8026225d884b1381ab0",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/project.yml": {
+    "mtime": 1792147590.7618625,
+    "seen": 1792147947.834717,
+    "ast_hash": "fe5f8e2a109b37d09554bae2ca3c7f1a",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-20x20@1x.png": {
+    "mtime": 1792147590.7621207,
+    "seen": 1792147947.834718,
+    "ast_hash": "83c06a1c8b3f02c892e99f2414aeda5d",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-20x20@2x-1.png": {
+    "mtime": 1792147590.7621896,
+    "seen": 1792147947.834719,
+    "ast_hash": "25bd95e58537e517afa12dd421b9d71b",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-20x20@2x.png": {
+    "mtime": 1792147590.7622547,
+    "seen": 1792147947.834719,
+    "ast_hash": "25bd95e58537e517afa12dd421b9d71b",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-20x20@3x.png": {
+    "mtime": 1792147590.762324,
+    "seen": 1792147947.83472,
+    "ast_hash": "edd45b3f943ea2443a0bd0ee31ad4c6c",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-29x29@1x.png": {
+    "mtime": 1792147590.7623868,
+    "seen": 1792147947.834721,
+    "ast_hash": "028ad66060e3a395bf5f4a1ed6e004dc",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-29x29@2x-1.png": {
+    "mtime": 1792147590.7624457,
+    "seen": 1792147947.834722,
+    "ast_hash": "da193cddc8ec748a259c362f72a3e56e",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-29x29@2x.png": {
+    "mtime": 1792147590.7625012,
+    "seen": 1792147947.834722,
+    "ast_hash": "da193cddc8ec748a259c362f72a3e56e",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-29x29@3x.png": {
+    "mtime": 1792147590.7626154,
+    "seen": 1792147947.834723,
+    "ast_hash": "b0e4ff21f0e48460376e98f883d59adf",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-40x40@1x.png": {
+    "mtime": 1792147590.7626731,
+    "seen": 1792147947.8347242,
+    "ast_hash": "25bd95e58537e517afa12dd421b9d71b",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-40x40@2x-1.png": {
+    "mtime": 1792147590.7627778,
+    "seen": 1792147947.8347251,
+    "ast_hash": "a919a8937b5f71873b61d9648443a783",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-40x40@2x.png": {
+    "mtime": 1792147590.7628841,
+    "seen": 1792147947.8347251,
+    "ast_hash": "a919a8937b5f71873b61d9648443a783",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-40x40@3x.png": {
+    "mtime": 1792147590.7629993,
+    "seen": 1792147947.8347259,
+    "ast_hash": "3f3edb98df30cd3672280cc5d274ad79",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png": {
+    "mtime": 1792147590.7631686,
+    "seen": 1792147947.8347268,
+    "ast_hash": "c8280089487137feecb3aa0662feca7a",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-60x60@2x.png": {
+    "mtime": 1792147590.7632964,
+    "seen": 1792147947.834728,
+    "ast_hash": "3f3edb98df30cd3672280cc5d274ad79",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-60x60@3x.png": {
+    "mtime": 1792147590.76339,
+    "seen": 1792147947.834729,
+    "ast_hash": "089f3995b8c4f909befcee4857db1157",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-76x76@1x.png": {
+    "mtime": 1792147590.7635016,
+    "seen": 1792147947.834729,
+    "ast_hash": "f767e95fc5def29ee60191634c460e38",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-76x76@2x.png": {
+    "mtime": 1792147590.763579,
+    "seen": 1792147947.83473,
+    "ast_hash": "930dc6d6fa5f85e822b48d54cdcaaafe",
+    "semantic_hash": ""
+  },
+  "src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-83.5x83.5@2x.png": {
+    "mtime": 1792147590.7636516,
+    "seen": 1792147947.834731,
+    "ast_hash": "bb1200d12241e65f173a9410b11e4d53",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/128x128.png": {
+    "mtime": 1792147573.0894961,
+    "seen": 1792147947.834732,
+    "ast_hash": "3a0071e4ad670fad0329d3a5e83d0bf9",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/128x128@2x.png": {
+    "mtime": 1792147573.0895832,
+    "seen": 1792147947.834732,
+    "ast_hash": "eab2be12c5f8aeaf104a4695dd9171df",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/32x32.png": {
+    "mtime": 1792147573.0896506,
+    "seen": 1792147947.834733,
+    "ast_hash": "faf8ee6541b945b98db35239b8a75715",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square107x107Logo.png": {
+    "mtime": 1792147573.089737,
+    "seen": 1792147947.834734,
+    "ast_hash": "d4bc38359e2c01daa08354c55fa4df7c",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square142x142Logo.png": {
+    "mtime": 1792147573.0898547,
+    "seen": 1792147947.8347352,
+    "ast_hash": "1e9c0358705085439e5c989fcbd6e988",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square150x150Logo.png": {
+    "mtime": 1792147573.0899818,
+    "seen": 1792147947.834736,
+    "ast_hash": "084d20bce8096367fc694dfdf72c8ac5",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square284x284Logo.png": {
+    "mtime": 1792147573.0900688,
+    "seen": 1792147947.834736,
+    "ast_hash": "6a936fe84398f24b7a63a36bddfd58d7",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square30x30Logo.png": {
+    "mtime": 1792147573.0901303,
+    "seen": 1792147947.8347368,
+    "ast_hash": "011e9cb456309157a9fc78c978248e00",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square310x310Logo.png": {
+    "mtime": 1792147573.090217,
+    "seen": 1792147947.834738,
+    "ast_hash": "832231852e8e683e6aa2b690d194bdd2",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square44x44Logo.png": {
+    "mtime": 1792147573.090279,
+    "seen": 1792147947.834739,
+    "ast_hash": "a06297a35014e770cc33756fafa3b3a8",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square71x71Logo.png": {
+    "mtime": 1792147573.090388,
+    "seen": 1792147947.834739,
+    "ast_hash": "a3c80a0af688359094aa685881570eed",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/Square89x89Logo.png": {
+    "mtime": 1792147573.0905032,
+    "seen": 1792147947.83474,
+    "ast_hash": "9f91ee8e1c1232ebde61c64d7923038f",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/StoreLogo.png": {
+    "mtime": 1792147573.09056,
+    "seen": 1792147947.8347409,
+    "ast_hash": "387b412d411bbd532dd3302d3948bf0e",
+    "semantic_hash": ""
+  },
+  "src-tauri/icons/icon.png": {
+    "mtime": 1792147573.0910108,
+    "seen": 1792147947.834742,
+    "ast_hash": "9fdc4367276aafdd2c05ac214e9553c7",
+    "semantic_hash": ""
+  },
+  "src-tauri/src/ipc/mod.rs": {
+    "mtime": 1792152577.470461,
+    "seen": 1792153173.188676,
+    "ast_hash": "c6224e476933981606de552fd2a658f9",
+    "semantic_hash": ""
   }
 }
