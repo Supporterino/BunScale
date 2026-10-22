@@ -754,7 +754,7 @@ file's header).
 
 ### Manual verification
 
-- [ ] 0.27 [test-engineer] Manual verification (native boot is manual at phase 1 per
+- [x] 0.27 [test-engineer] Manual verification (native boot is manual at phase 1 per
   `testing-strategy`): boot the scaffold on an **iOS simulator** and on **macOS** with the app mark
   task 0.22 generated, confirm the first screen is presented and the app does not crash, and record
   the outcome — the simulator/macOS versions used and what was observed — in the change. Both

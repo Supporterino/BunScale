@@ -1025,3 +1025,60 @@ Xcode/`ld` without the defect, use a toolchain whose LLD understands this SDK (L
 releases on a host with a different Xcode. Whichever is chosen, re-run `bun run tauri build`, read the
 release `Info.plist` (`LSMinimumSystemVersion` must be `13.3`) and load the release `.app` before 0.26
 is ticked.
+
+## Verification record — task 0.27 (2026-10-22, orchestrator)
+
+Manual verification on both platforms, with the app mark task 0.22 generated.
+
+### iOS — iOS 27.0 simulator (24A434), iPhone 18 Pro
+
+The app built, installed, launched and stayed up; the first screen is presented and no crash report was
+produced.
+
+- Environment: Xcode 27.1, iOS 27.0 runtime (24A434), iPhone 18 Pro (`257C7D0D-…`), bundle
+  `com.bunscale.app`, `BunScale.app`.
+- `tauri ios dev` itself could not run (Q55): the CLI's SDK check stalls at `Info Opening Xcode`
+  because the simulator SDK is 27.1 while the installed runtime is 27.0, and this Xcode has no
+  `Simulator.app` (CLI-toolchain-only install). With the stalled CLI's IPC socket alive, the generated
+  project was built directly —
+  `xcodebuild -project src-tauri/gen/apple/app.xcodeproj -scheme app_iOS -configuration debug -sdk iphonesimulator -destination "id=257C7D0D-…" CODE_SIGNING_ALLOWED=NO build`
+  → `** BUILD SUCCEEDED **` — then installed and launched with `simctl`. The Rust crate compiled for
+  the simulator, the dev log shows the CLI connection (`remote_addr=127.0.0.1:…`), and Vite served
+  `http://localhost:1420`.
+- Observation: `.artifacts/screens/ios-simulator-boot.png` — the connectivity-required first screen
+  ("Connect to continue", its explanation sentence and the full-width "Check again" button), with the
+  status bar and safe areas correct. `.artifacts/screens/ios-simulator-home.png` — the home screen with
+  the BunScale bunny mark installed and labelled.
+- Liveness: `launchctl list` showed `UIKitApplication:com.bunscale.app` and `pgrep` showed the app
+  process; it stayed up across the checks. Crash check: no BunScale entry in
+  `~/Library/Logs/DiagnosticReports`; the simulator's `crash|fatal|panic` matches are system daemons,
+  and the one BunScale stderr note (a duplicated `UIAccessibilityLoaderWebShared` class between WebKit
+  and WebCore accessibility bundles) is a known simulator-only warning, not a crash.
+- Cleanup: the dev run and its children were stopped; the simulator was left booted.
+
+The dev run regenerated three generated files as a side effect (PRODUCT_NAME quoting, xcscheme 1.7→1.3,
+Info.plist newline); they were restored to HEAD and are not part of this commit.
+
+The onboarding field/keyboard check Q40 records was **not** reachable from this state: with no service
+the app presents the connectivity surface, which has no text field. Q40 therefore remains open on its own
+terms and is not claimed by this task.
+
+### macOS — macOS 27.0.1 (26A434)
+
+The bundled app from task 0.26 was launched: it stayed up and presented the same connectivity-required
+first screen with the app mark, then quit cleanly. That is the macOS half of this task; the
+release-build limitation is Q54 and affects 0.26's release artefact, not the boot observation.
+
+### Q55 — `tauri ios dev` cannot drive this Xcode/runtime pairing (open; environment)
+
+The installed runtime is iOS 27.0 (24A434) while the simulator SDK is 27.1; `tauri ios dev` blocks with
+`Xcode Simulator SDK 27.1 is not installed, please open Xcode` and never spawns `xcodebuild` (the SDK is
+present and valid; the CLI's version cross-check is what fails). `Simulator.app` is also absent from this
+Xcode (`…/Developer/Applications` missing), so `open -a Simulator` fails. Passing a UDID is rejected
+too — this CLI wants a device **name**.
+
+The workaround above produced valid evidence without touching source or the generated project, and is
+the fallback for the next manual run: keep a `tauri ios dev` process alive for its IPC socket, build the
+generated project with `xcodebuild`, then install/launch with `simctl`. **Owner:** `release-ci`
+(toolchain/CI docs) — align the Xcode SDK and the installed runtime, or record the direct `xcodebuild`
+path as the supported manual-evidence recipe. Not a product defect.
