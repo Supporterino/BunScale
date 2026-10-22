@@ -699,6 +699,97 @@ impl AppState {
         Ok(archived)
     }
 
+    /// Return an archived rabbit to the active list, leaving its history untouched (RAB-7).
+    ///
+    /// The mirror of [`AppState::archive_rabbit`], and the write is the **whole item** for the same
+    /// reason: this device's copy supplies the rabbit's content, which is written back unchanged
+    /// except for `is_archived`, because a payload carrying only the changed field would replace the
+    /// stored version and discard the profile (RAB-9, D1.16). The weight entries are separate items
+    /// this write never names, so a restored rabbit returns with its history unchanged and complete
+    /// (RAB-7).
+    ///
+    /// The steps are the archive's, with the flag reversed:
+    ///
+    /// 1. The row is resolved through the household that claimed it, and must be **live**: a
+    ///    tombstoned rabbit is permanently deleted and is never resurrected by a lifecycle write
+    ///    (RAB-10, NFR-10).
+    /// 2. A live row whose content is **unknown** refuses with `unknown` and sends nothing. Writing
+    ///    now would submit a partial payload; the next successful refresh fills the content and the
+    ///    operation can then be retried (D1.16).
+    /// 3. An already-active rabbit is `validation`: restoring what was never archived is refused
+    ///    rather than absorbed.
+    /// 4. No account is `no_account` before any probe, and the writing member is resolved from the
+    ///    person's household book exactly as an archive resolves it (ADR 0002 criterion 3).
+    /// 5. The version marker is the one minted for the operation and the write goes through
+    ///    [`crate::sync::SaveGate`], so the active state reaches every member as one item write and a
+    ///    refusal is never reported as restored (D1.1, SYNC-2, HS-8).
+    ///
+    /// The returned rabbit is the restored version. **This device's copy is deliberately not written
+    /// here**: it belongs to the read path (SYNC-3), so the restore reaches this device the same way
+    /// it reaches every other member — by the read that follows `rabbit:changed`.
+    ///
+    /// Because the content comes from this device's copy, the write is item-level last-write-wins
+    /// (D0.7 criterion 3), exactly as [`crate::domain::rabbit::save_rabbit_version`] records for
+    /// every whole-item write: a field changed after this copy was last refreshed is replaced by the
+    /// restored whole item, accepted at this boundary rather than repaired with a pre-write refresh.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank operation identity, a blank rabbit id, a rabbit this device holds no
+    /// live row for, one whose row is not a rabbit, and one that is not archived; `unknown` when the
+    /// row's content is not on this device; `no_account` when no account is available; and otherwise
+    /// the gate's mapped causes (`connectivity`, `no_account`, `allowance_exceeded`, `rate_limited`,
+    /// `timeout`, `unknown`). A refusal never restores anything, and one that is a property of the
+    /// local copy never reaches the shared service at all.
+    pub async fn restore_rabbit(
+        &self,
+        rabbit_id: RabbitId,
+        request_id: RequestId,
+    ) -> Result<Rabbit, CommandError> {
+        if request_id.0.trim().is_empty() {
+            return Err(CommandError::validation(Some(request_id)));
+        }
+
+        let Some((household_id, stored)) = self.stored_rabbit(&rabbit_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+
+        let Some(payload) = stored.payload else {
+            // The row exists but its content is not on this device: a whole-item write cannot be
+            // composed, and a partial one would replace the stored version (D1.16, RAB-9).
+            return Err(CommandError::household_content_unloaded(Some(request_id)));
+        };
+        let ItemPayload::Rabbit { rabbit } = payload else {
+            // The identity names an item that is not a rabbit, so there is nothing to restore.
+            return Err(CommandError::validation(Some(request_id)));
+        };
+
+        if !rabbit.is_archived {
+            return Err(CommandError::validation(Some(request_id)));
+        }
+
+        if self.account.is_none() {
+            return Err(CommandError::no_account(Some(request_id)));
+        }
+
+        let Some(writer) = self.writing_member(&household_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+        let marker = self.operation_marker(&request_id);
+        let restored = domain::rabbit::mark_restored(rabbit);
+
+        domain::rabbit::save_rabbit_version(
+            self.service.as_ref(),
+            &restored,
+            &writer,
+            &marker,
+            request_id,
+        )
+        .await?;
+
+        Ok(restored)
+    }
+
     /// The member id this person's account has in `household_id`, when this device holds the
     /// household and records them as one of its members.
     ///
@@ -2327,6 +2418,245 @@ mod tests {
         }
 
         remove_temp_data_dir(&directory);
+    }
+
+    /// A state whose book holds `household-1` and whose copy holds one **archived** rabbit with its
+    /// content — the state a restore starts from, since the restore is addressed by the rabbit alone.
+    fn state_with_an_archived_rabbit() -> (Arc<ScriptedService>, AppState, Rabbit) {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        let mut rabbit = stored_rabbit("rabbit-1", "Pebble");
+        rabbit.is_archived = true;
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![row_with_rabbit("rabbit-1", "2026-10-22T09:30:00Z", &rabbit)],
+                ),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        (service, state, rabbit)
+    }
+
+    /// RAB-7: the restore is one write of the rabbit's **whole** item, with only the archived flag
+    /// cleared, so the profile comes back exactly as it was archived.
+    #[test]
+    fn restoring_writes_the_whole_rabbit_item_with_only_the_flag_cleared() {
+        let (service, state, rabbit) = state_with_an_archived_rabbit();
+
+        let restored =
+            block_on_ready(state.restore_rabbit(rabbit.id.clone(), request_id("operation-2")))
+                .expect("the double accepted the restore");
+
+        // The returned content is the copy's content with the flag cleared: every other field
+        // survives.
+        assert!(!restored.is_archived);
+        assert_eq!(
+            restored,
+            Rabbit {
+                is_archived: false,
+                ..rabbit.clone()
+            },
+            "the restore changes nothing but the flag"
+        );
+
+        // One added write, into the rabbit's existing item in the household's collection, carrying
+        // the whole rabbit as its payload (RAB-7, D1.16).
+        let bodies = write_bodies(&service);
+        assert_eq!(bodies.len(), 2, "the household create and the restore");
+        let body = &bodies[1];
+        assert_eq!(body["household_id"], json!(rabbit.household_id.0));
+        assert_eq!(body["item_id"], json!(rabbit.id.0));
+        assert_eq!(body["request_id"], json!("operation-2"));
+        assert_eq!(body["writer_id"], json!("member-1"));
+
+        assert_eq!(
+            body["payload"]["rabbit"],
+            serde_json::to_value(&restored).expect("the rabbit serialises"),
+            "the payload is the whole stored item, not a partial patch"
+        );
+        assert_eq!(body["payload"]["rabbit"]["is_archived"], json!(false));
+    }
+
+    /// D1.16: a live row whose content is not on this device cannot be restored. A whole-item write
+    /// needs the content; submitting a partial payload would discard the profile.
+    #[test]
+    fn restoring_a_rabbit_whose_content_is_unknown_is_refused_and_nothing_is_sent() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire("rabbit-1", "2026-10-22T09:30:00Z")]),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        let error = block_on_ready(
+            state.restore_rabbit(RabbitId("rabbit-1".to_owned()), request_id.clone()),
+        )
+        .expect_err("the content is not on this device");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_ne!(error.message_key, "error.unknown");
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// RAB-7: restoring a rabbit that is not archived is refused as `validation` — restoring what was
+    /// never archived is not a no-op request this path absorbs — and nothing is sent.
+    #[test]
+    fn restoring_an_already_active_rabbit_is_refused_and_nothing_is_sent() {
+        let (service, state, rabbit) = state_with_a_stored_rabbit();
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        let error = block_on_ready(state.restore_rabbit(rabbit.id.clone(), request_id.clone()))
+            .expect_err("the rabbit is already active");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// RAB-10, D1.16: a tombstone keeps its identity claim but names a permanently deleted rabbit, so
+    /// a lifecycle write must not reach it — and a restore never resurrects one.
+    #[test]
+    fn restoring_a_tombstoned_rabbit_is_refused_and_never_resurrects_it() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![tombstone("rabbit-1", "2026-10-22T10:00:00Z")]),
+                at("2026-10-22T10:01:00Z"),
+            )
+            .expect("the collection is the household's own");
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        let error = block_on_ready(
+            state.restore_rabbit(RabbitId("rabbit-1".to_owned()), request_id.clone()),
+        )
+        .expect_err("a deleted rabbit is not restorable");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// RAB-7's second scenario: an archived rabbit that carries weight entries is restored, and every
+    /// entry is still present, unchanged and readable afterwards — the restore writes the rabbit's
+    /// item alone and never names an entry.
+    #[test]
+    fn restoring_leaves_every_weight_entry_present_unchanged_and_readable() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        let mut rabbit = stored_rabbit("rabbit-1", "Pebble");
+        rabbit.is_archived = true;
+        let first_entry = row_with_weight_entry("entry-1", &rabbit);
+        let second_entry = row_with_weight_entry("entry-2", &rabbit);
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![
+                        row_with_rabbit("rabbit-1", "2026-10-22T09:30:00Z", &rabbit),
+                        first_entry.clone(),
+                        second_entry.clone(),
+                    ],
+                ),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let restored =
+            block_on_ready(state.restore_rabbit(rabbit.id.clone(), request_id("operation-2")))
+                .expect("the double accepted the restore");
+
+        // Nothing the restore wrote names an entry, so both entries are still the rows the copy
+        // holds — byte for byte the ones recorded before archiving.
+        let held = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is held");
+        assert!(
+            held.items.contains(&first_entry) && held.items.contains(&second_entry),
+            "both entries recorded before archiving are still stored and unchanged"
+        );
+
+        // The read path's next refresh stores the restored version beside the same entries; they are
+        // still readable from the restored rabbit.
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![
+                        row_with_rabbit("rabbit-1", "2026-10-22T09:32:00Z", &restored),
+                        first_entry.clone(),
+                        second_entry.clone(),
+                    ],
+                ),
+                at("2026-10-22T09:33:00Z"),
+            )
+            .expect("the refreshed collection is the household's own");
+
+        let refreshed = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is held");
+        let stored = refreshed
+            .items
+            .iter()
+            .find(|item| item.item_id == ItemId(rabbit.id.0.clone()))
+            .expect("the restored rabbit is stored");
+        let Some(ItemPayload::Rabbit {
+            rabbit: restored_rabbit,
+        }) = &stored.payload
+        else {
+            panic!("the restored rabbit carries its content");
+        };
+        assert!(!restored_rabbit.is_archived);
+
+        for entry in [&first_entry, &second_entry] {
+            let readable = refreshed
+                .items
+                .iter()
+                .find(|item| item.item_id == entry.item_id)
+                .expect("the entry is still stored beside the restored rabbit");
+            assert_eq!(
+                readable, entry,
+                "the entry is unchanged and reads back with its content"
+            );
+        }
     }
 
     /// A fresh directory under the process's temporary area, unique per call.

@@ -28,9 +28,9 @@
 //! | `validation` | `error.validation` | no |
 //! | `unknown` | `error.unknown` | no |
 //!
-//! **Two keys belong to no cause, and both keep the frozen cause list intact.** One cause naming
-//! more than one key is deliberate and narrowly bounded; neither key replaces a cause's own, and a
-//! later edit must not "tidy" either into `error.unknown`:
+//! **Two keys sit outside the cause → key mapping, and both keep the frozen cause list intact.** One
+//! cause naming more than one key is deliberate and narrowly bounded; neither key replaces a cause's
+//! own, and a later edit must not "tidy" either into `error.unknown`:
 //!
 //! * `error.not_implemented` ([`NOT_IMPLEMENTED_MESSAGE_KEY`]) — the placeholder a not-yet-
 //!   implemented command returns through [`CommandError::not_implemented`]. It is a state of the
@@ -245,9 +245,9 @@ impl CommandError {
     ///
     /// The cause and the flag are the classified `unknown` failure's — nothing is known and nothing
     /// can be promised — while the key says *why* nothing could be answered, so a placeholder is
-    /// never mistaken for a production failure path. It is the only constructor here that does not
-    /// use its cause's key, and the module documentation records why that is a placeholder and not a
-    /// second key for `unknown`.
+    /// never mistaken for a production failure path. It is one of the two constructors here that do
+    /// not use their cause's key — [`CommandError::household_content_unloaded`] is the other — and the
+    /// module documentation records why that is a placeholder and not a second key for `unknown`.
     pub fn not_implemented(request_id: Option<RequestId>) -> Self {
         let classified_unknown = policy(SaveCause::Unknown);
 

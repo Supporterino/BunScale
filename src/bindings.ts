@@ -361,12 +361,18 @@ export const commands = {
 	 *  Return an archived rabbit to the active list with its history intact (RAB-7).
 	 * 
 	 *  Every weight entry recorded before archiving is still present and unchanged afterwards: restoring
-	 *  moves the rabbit's archived state and nothing else.
+	 *  moves the rabbit's archived state and nothing else. The write submits the **whole item**, the
+	 *  rabbit's content read from this device's copy and written back unchanged except for `is_archived`,
+	 *  because a partial payload would replace the stored version and discard the profile (RAB-7, D1.16).
+	 * 
+	 *  A successful restore publishes `rabbit:changed` with kind `restored`; a refusal publishes nothing.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an unknown rabbit, for one that is not archived, and for a blank operation
-	 *  identity. The write path's service conditions are reachable as for [`create_rabbit`].
+	 *  `validation` for an unknown rabbit, for a rabbit this device holds only as a tombstone, for one
+	 *  that is not archived, and for a blank operation identity. `unknown` when the row's content is not
+	 *  on this device: the restore refuses rather than submitting a partial payload, and a refresh fills
+	 *  the content (D1.16). The write path's service conditions are reachable as for [`create_rabbit`].
 	 */
 	restoreRabbit: (rabbitId: RabbitId, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("restore_rabbit", { rabbitId, requestId })),
 	/**

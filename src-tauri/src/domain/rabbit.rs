@@ -41,9 +41,10 @@
 //!   its book; the marker is minted **once per operation** and re-sent unchanged by a retry, so a
 //!   re-issued write is byte-identical and the service's request ledger recognises it as the same
 //!   operation rather than refusing it as a changed payload.
-//! * **A lifecycle write submits the whole item.** Archiving reads the rabbit's content from this
-//!   device's copy, changes `is_archived` and nothing else, and writes that version — a partial
-//!   payload would replace the stored item and discard the profile (RAB-6, RAB-9; D1.16).
+//! * **A lifecycle write submits the whole item.** Archiving and restoring read the rabbit's content
+//!   from this device's copy, set or clear `is_archived` and change nothing else, and write that
+//!   version — a partial payload would replace the stored item and discard the profile (RAB-6,
+//!   RAB-7, RAB-9; D1.16).
 //! * **A rabbit list is one selection, never a union, and never partial.** [`summaries`] answers the
 //!   active list or the archived list from the rows this device holds, and refuses as `unknown`
 //!   rather than omitting a row whose content it cannot describe (D1.16, RAB-6).
@@ -369,13 +370,31 @@ pub fn mark_archived(rabbit: Rabbit) -> Rabbit {
     }
 }
 
-/// Write one rabbit's whole item as it stands (RAB-6, RAB-9; D1.16).
+/// The content one restore submits: `rabbit` with only its archived flag cleared (RAB-7).
+///
+/// The mirror of [`mark_archived`], and whole for the same reason: every other field is carried as
+/// this device's copy held it, and the weight entries are separate items this write never touches, so
+/// a restored rabbit returns with its history unchanged (RAB-7; D1.16).
+pub fn mark_restored(rabbit: Rabbit) -> Rabbit {
+    Rabbit {
+        is_archived: false,
+        ..rabbit
+    }
+}
+
+/// Write one rabbit's whole item as it stands (RAB-6, RAB-7, RAB-9; D1.16).
 ///
 /// A create and an edit build the content from a submitted profile through [`save_rabbit`]; a
-/// lifecycle command ([`mark_archived`] now, restore and permanent deletion in later tasks) already
-/// has the content read from this device's copy and submits it unchanged except for the field it
-/// changes. Both are the same one item write through P0's reachability gate, so no second write path
-/// is added and a refusal is never reported as a saved rabbit (D1.1, SYNC-2).
+/// lifecycle command ([`mark_archived`] and [`mark_restored`] now, permanent deletion in task 2.7)
+/// already has the content read from this device's copy and submits it unchanged except for the field
+/// it changes. Both are the same one item write through P0's reachability gate, so no second write
+/// path is added and a refusal is never reported as a saved rabbit (D1.1, SYNC-2).
+///
+/// **The write is item-level last-write-wins and that is accepted here** (D0.7 criterion 3): the
+/// version marker is the operation's, so a change made to another field after this device's copy was
+/// last refreshed — or one carrying an older marker — is replaced by this whole item. D1.16 mandates
+/// that model for every whole-item write, so it is not repaired with a pre-write refresh, which is the
+/// read path's and task 2.8's decision.
 ///
 /// `writer` and `marker` are the two per-operation facts the caller resolves, exactly as
 /// [`save_rabbit`] takes them. The body is a function of its inputs alone, so a retried operation
@@ -1296,6 +1315,58 @@ mod tests {
             },
             "every other field is the content the copy held"
         );
+    }
+
+    /// RAB-7: the restore clears the archived flag and nothing else, so the whole item it submits is
+    /// the content this device's copy held.
+    #[test]
+    fn marking_a_rabbit_restored_changes_nothing_but_the_flag() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+
+        let restored = mark_restored(rabbit.clone());
+
+        assert!(!restored.is_archived);
+        assert_eq!(
+            restored,
+            Rabbit {
+                is_archived: false,
+                ..rabbit
+            },
+            "every other field is the content the copy held"
+        );
+    }
+
+    /// RAB-7's first scenario at the selection level: the restored rabbit is the active list's and no
+    /// longer the archived list's, while the entry written beside it is still a row of the collection
+    /// (the write names the rabbit's item alone, so an entry is never touched).
+    #[test]
+    fn a_restored_rabbit_is_in_the_active_selection_and_its_entry_is_untouched() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let entry = weight_entry_row(&rabbit.id);
+        let restored = mark_restored(rabbit);
+        let copy = collection(vec![
+            rabbit_row(&restored, "2026-10-22T09:32:00Z"),
+            entry.clone(),
+        ]);
+
+        let active = summaries(&copy, false).expect("every content is known");
+        assert_eq!(
+            active,
+            vec![RabbitSummary {
+                id: restored.id.clone(),
+                name: "Pebble".to_owned(),
+                thumbnail_ref: Some("photo-1".to_owned()),
+                is_archived: false,
+            }],
+            "the restored rabbit is in the active list"
+        );
+        assert!(
+            summaries(&copy, true)
+                .expect("every content is known")
+                .is_empty(),
+            "and no longer in the archived one"
+        );
+        assert_eq!(copy.items[1], entry, "the entry is exactly what it was");
     }
 
     /// RAB-6: the two values select one list each — the active rabbits, or the archived ones — and

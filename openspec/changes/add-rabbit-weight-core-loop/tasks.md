@@ -69,7 +69,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   refuse an edit to an archived rabbit (RAB-5, HS-8).
 - [x] 2.5 [rust-backend] Implement archiving a rabbit: excluded from the active list, included in the
   archived list, no data discarded (RAB-6, RAB-9).
-- [ ] 2.6 [rust-backend] Implement restoring an archived rabbit to the active list with its history
+- [x] 2.6 [rust-backend] Implement restoring an archived rabbit to the active list with its history
   intact (RAB-7).
 - [ ] 2.7 [rust-backend] Implement permanent deletion of an archived rabbit with all its weight
   entries, cascading within the household collection and shared with all members; refuse permanent

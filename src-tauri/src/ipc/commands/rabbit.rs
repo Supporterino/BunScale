@@ -7,15 +7,16 @@
 //! rather than a placeholder to be reshaped.
 //!
 //! **[`create_rabbit`] (task 2.1), [`update_rabbit`] (task 2.4), [`list_rabbits`] and
-//! [`archive_rabbit`] (task 2.5) are implemented; the other three are still stubs.** Each implemented
-//! body takes the app's state and, for a write, a publication seam — `tauri::State` is how a command
-//! reaches the shared service and the account, and `tauri::AppHandle` is the seam
-//! [`RabbitChangePublisher`] is implemented by — which are parameters Tauri supplies and
-//! `src/bindings.ts` does not export, so the command the frontend calls keeps the arguments it was
-//! frozen with. A successful create publishes `rabbit:changed` with kind `created`, an edit with kind
-//! `updated`, and an archive with kind `archived`, as the contract's event table requires of every
-//! successful rabbit write; a refusal publishes nothing. The three remaining stubs keep exactly the
-//! arguments they were frozen with, so their bindings do not move either.
+//! [`archive_rabbit`] (task 2.5), and [`restore_rabbit`] (task 2.6) are implemented; [`get_rabbit`]
+//! and [`delete_rabbit`] are still stubs.** Each implemented body takes the app's state and, for a
+//! write, a publication seam — `tauri::State` is how a command reaches the shared service and the
+//! account, and `tauri::AppHandle` is the seam [`RabbitChangePublisher`] is implemented by — which
+//! are parameters Tauri supplies and `src/bindings.ts` does not export, so the command the frontend
+//! calls keeps the arguments it was frozen with. A successful create publishes `rabbit:changed` with
+//! kind `created`, an edit with kind `updated`, an archive with kind `archived`, and a restore with
+//! kind `restored`, as the contract's event table requires of every successful rabbit write; a
+//! refusal publishes nothing. The two remaining stubs keep exactly the arguments they were frozen
+//! with, so their bindings do not move either.
 //!
 //! Three things the signatures already encode, because section 2 must not have to renegotiate them:
 //!
@@ -25,13 +26,14 @@
 //! * **`update_rabbit` replaces the whole profile** through [`RabbitProfile`] rather than a partial
 //!   patch: the edit form is pre-filled, and a patch would need a double-optional per field to tell
 //!   "unchanged" from "cleared" (see [`RabbitProfile`]).
-//! * **Archived means immutable at the boundary** (D1.5, RAB-8). Every write here refuses an archived
-//!   target — `update_rabbit` and the two lifecycle commands included — and reports it through the one
-//!   failure surface. P0's cause list is frozen and has no "immutable target" variant, so the refusal
-//!   is `validation`: the request itself is refused and a retry cannot clear it (D1.5, NFR-10).
-//!   Archiving now produces that state (task 2.5), but the refusal on the other write paths — this
-//!   command included — is task 2.8's, so the check is the hook
-//!   [`crate::state::AppState::update_rabbit`] documents.
+//! * **Archived means immutable at the boundary** (D1.5, RAB-8). Every content write refuses an
+//!   archived target — `update_rabbit` and the weight-entry writes included — and reports it through
+//!   the one failure surface; restoring is the one operation that accepts an archived rabbit, because
+//!   it is the transition that returns it to the active list (RAB-7). P0's cause list is frozen and
+//!   has no "immutable target" variant, so the refusal is `validation`: the request itself is refused
+//!   and a retry cannot clear it (D1.5, NFR-10). Archiving now produces that state (task 2.5), but the
+//!   refusal on the remaining write paths — [`update_rabbit`] and the weight-entry writes — is task
+//!   2.8's, so the check is the hook [`crate::state::AppState::update_rabbit`] documents.
 //!
 //! Every remaining stub body consumes its arguments deliberately: the parameters are part of the
 //! frozen signature and the bindings' argument names, and an unused-parameter warning under
@@ -129,6 +131,28 @@ async fn archived_rabbit(
         household_id: rabbit.household_id.clone(),
         rabbit_id: rabbit.id.clone(),
         kind: RabbitChangeKind::Archived,
+    });
+
+    Ok(rabbit)
+}
+
+/// The `restore_rabbit` body over the state and a publication seam.
+///
+/// It is the outermost layer a unit test can call, for the same reason [`created_rabbit`] is. The
+/// change is published only after the restore succeeded, so a refusal leaves the recorder empty and
+/// the frontend's policy never invalidates a rabbit the service did not accept.
+async fn restored_rabbit(
+    state: &crate::state::AppState,
+    publisher: &impl RabbitChangePublisher,
+    rabbit_id: RabbitId,
+    request_id: RequestId,
+) -> Result<Rabbit, CommandError> {
+    let rabbit = state.restore_rabbit(rabbit_id, request_id).await?;
+
+    publisher.publish(&RabbitChanged {
+        household_id: rabbit.household_id.clone(),
+        rabbit_id: rabbit.id.clone(),
+        kind: RabbitChangeKind::Restored,
     });
 
     Ok(rabbit)
@@ -271,21 +295,27 @@ pub async fn archive_rabbit(
 /// Return an archived rabbit to the active list with its history intact (RAB-7).
 ///
 /// Every weight entry recorded before archiving is still present and unchanged afterwards: restoring
-/// moves the rabbit's archived state and nothing else.
+/// moves the rabbit's archived state and nothing else. The write submits the **whole item**, the
+/// rabbit's content read from this device's copy and written back unchanged except for `is_archived`,
+/// because a partial payload would replace the stored version and discard the profile (RAB-7, D1.16).
+///
+/// A successful restore publishes `rabbit:changed` with kind `restored`; a refusal publishes nothing.
 ///
 /// # Errors
 ///
-/// `validation` for an unknown rabbit, for one that is not archived, and for a blank operation
-/// identity. The write path's service conditions are reachable as for [`create_rabbit`].
+/// `validation` for an unknown rabbit, for a rabbit this device holds only as a tombstone, for one
+/// that is not archived, and for a blank operation identity. `unknown` when the row's content is not
+/// on this device: the restore refuses rather than submitting a partial payload, and a refresh fills
+/// the content (D1.16). The write path's service conditions are reachable as for [`create_rabbit`].
 #[tauri::command]
 #[specta::specta]
 pub async fn restore_rabbit(
     rabbit_id: RabbitId,
     request_id: RequestId,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Rabbit, CommandError> {
-    let _ = rabbit_id;
-
-    Err(CommandError::not_implemented(Some(request_id)))
+    restored_rabbit(state.inner(), &app, rabbit_id, request_id).await
 }
 
 /// Permanently delete an **archived** rabbit and every weight entry it holds (RAB-10).
@@ -480,6 +510,18 @@ mod tests {
         }
     }
 
+    /// One row carrying `rabbit`'s content, at `updated_at`.
+    fn rabbit_row(rabbit: &Rabbit, updated_at: &str) -> CollectionItem {
+        CollectionItem {
+            item_id: ItemId(rabbit.id.0.clone()),
+            updated_at: Instant(updated_at.to_owned()),
+            deleted: false,
+            payload: Some(ItemPayload::Rabbit {
+                rabbit: rabbit.clone(),
+            }),
+        }
+    }
+
     /// A state whose book holds `household-1`, whose copy holds one rabbit, and that rabbit itself —
     /// the state an edit starts from, since the edit is addressed by the rabbit alone.
     fn state_with_one_rabbit(service: Arc<ScriptedService>) -> (AppState, Rabbit) {
@@ -498,6 +540,27 @@ mod tests {
             .expect("the collection is the household's own");
 
         (state, rabbit)
+    }
+
+    /// A state whose book holds `household-1` and whose copy holds one **archived** rabbit with its
+    /// content — the state a restore starts from.
+    fn state_with_an_archived_rabbit(service: Arc<ScriptedService>) -> (AppState, Rabbit) {
+        let (state, rabbit) = state_with_one_rabbit(service);
+        let one = household("household-1");
+        let archived = Rabbit {
+            is_archived: true,
+            ..rabbit
+        };
+
+        state
+            .load_collection(
+                &one,
+                collection_with(&one, &archived),
+                Instant("2026-10-22T09:31:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        (state, archived)
     }
 
     #[test]
@@ -625,6 +688,229 @@ mod tests {
             publisher.published().is_empty(),
             "a refusal never reports a rabbit change"
         );
+    }
+
+    /// RAB-7: the restore is one item write that returns the restored rabbit, and only a successful
+    /// restore publishes `rabbit:changed` with kind `restored`.
+    #[test]
+    fn a_successful_restore_publishes_exactly_one_restored_for_the_rabbit() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit(service);
+        let publisher = RecordingRabbitPublisher::default();
+
+        let restored = block_on_ready(restored_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id("operation-3"),
+        ))
+        .expect("the double accepted the restore");
+
+        assert!(!restored.is_archived);
+        assert_eq!(restored.id, rabbit.id);
+        assert_eq!(
+            restored,
+            Rabbit {
+                is_archived: false,
+                ..rabbit.clone()
+            },
+            "the profile is carried, not replaced"
+        );
+        assert_eq!(
+            publisher.published(),
+            vec![RabbitChanged {
+                household_id: household("household-1"),
+                rabbit_id: rabbit.id,
+                kind: RabbitChangeKind::Restored,
+            }],
+            "one report, with the restore's kind, for the rabbit the command returned"
+        );
+    }
+
+    /// RAB-7: restoring a rabbit that is not archived is refused, and the refusal publishes nothing.
+    #[test]
+    fn a_refused_restore_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service);
+        let publisher = RecordingRabbitPublisher::default();
+
+        let error = block_on_ready(restored_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id("operation-3"),
+        ))
+        .expect_err("the rabbit is already active");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
+
+    /// D1.16: a row whose content is unknown cannot be restored — the whole item is written, so a
+    /// partial payload would replace the stored version. The refusal publishes nothing.
+    #[test]
+    fn a_restore_of_a_row_with_unknown_content_is_refused_and_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let state = state_with_a_held_household(service);
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                collection_with_unknown(&one, "rabbit-1"),
+                Instant("2026-10-22T09:31:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+        let publisher = RecordingRabbitPublisher::default();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(restored_rabbit(
+            &state,
+            &publisher,
+            RabbitId("rabbit-1".to_owned()),
+            request_id.clone(),
+        ))
+        .expect_err("content this device cannot read cannot be written back");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_ne!(error.message_key, "error.unknown");
+        assert_eq!(error.request_id, Some(request_id));
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
+
+    /// RAB-10, D1.16: a tombstone names a permanently deleted rabbit, so a restore never reaches it.
+    /// The refusal is `validation` and publishes nothing.
+    #[test]
+    fn a_restore_of_a_tombstoned_rabbit_is_refused_and_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let state = state_with_a_held_household(service);
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![CollectionItem {
+                        item_id: ItemId("rabbit-1".to_owned()),
+                        updated_at: Instant("2026-10-22T10:00:00Z".to_owned()),
+                        deleted: true,
+                        payload: None,
+                    }],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T10:01:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+        let publisher = RecordingRabbitPublisher::default();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(restored_rabbit(
+            &state,
+            &publisher,
+            RabbitId("rabbit-1".to_owned()),
+            request_id.clone(),
+        ))
+        .expect_err("a deleted rabbit is not restorable");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert_eq!(error.request_id, Some(request_id));
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
+
+    /// RAB-7's two scenarios through the real bodies: an archived rabbit carrying weight entries is
+    /// restored, it returns to the active list and leaves the archived one, and the entries recorded
+    /// before archiving are still present, unchanged and readable.
+    #[test]
+    fn the_restored_rabbit_returns_to_the_active_list_and_keeps_its_history() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit(service);
+        let one = household("household-1");
+        let publisher = RecordingRabbitPublisher::default();
+        let entry = weight_entry_row(&rabbit, "entry-1");
+
+        // The archived rabbit carries one entry recorded before archiving.
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![rabbit_row(&rabbit, "2026-10-22T09:32:00Z"), entry.clone()],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T09:33:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        let restored = block_on_ready(restored_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id("operation-3"),
+        ))
+        .expect("the double accepted the restore");
+
+        // The read path's next refresh stores the accepted version beside the entry it already holds;
+        // the write itself never touches this device's copy (SYNC-3).
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![rabbit_row(&restored, "2026-10-22T09:34:00Z"), entry.clone()],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T09:35:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        let active = block_on_ready(listed_rabbits(&state, one.clone(), false))
+            .expect("the active list resolves");
+        assert_eq!(
+            active,
+            vec![RabbitSummary {
+                id: rabbit.id.clone(),
+                name: rabbit.name.clone(),
+                thumbnail_ref: rabbit.photo_ref.clone(),
+                is_archived: false,
+            }],
+            "the rabbit appears again in the active list"
+        );
+
+        let archived_list = block_on_ready(listed_rabbits(&state, one.clone(), true))
+            .expect("the archived list resolves");
+        assert!(
+            archived_list.is_empty(),
+            "it no longer appears in the archived list"
+        );
+
+        // RAB-7's second scenario: the entry recorded before archiving is still present, unchanged,
+        // and reads back with its content.
+        let held = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is held");
+        let readable = held
+            .items
+            .iter()
+            .find(|item| item.item_id == entry.item_id)
+            .expect("the entry is still stored beside the restored rabbit");
+        assert_eq!(readable, &entry, "the entry is unchanged");
     }
 
     /// RAB-6's first scenario through the real bodies: after the archive and the read path's next
