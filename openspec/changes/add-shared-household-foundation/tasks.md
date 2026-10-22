@@ -1072,3 +1072,16 @@ archived. Each is one owner and one commit, and names the finding it closes.
   surface already has: pass the `Button`'s loading form while `creation.isPending` so a second tap
   cannot start a second call on the same request handle. Screenshots at 390×844 and 1280×800 only if
   the rendered result changes. Closes Q59's retry finding; SYNC-2's retry offer.
+- [x] 8.4 [frontend-logic] Make `error.unknown` **operation-neutral**, because it is also the body of
+  read/status surfaces: `ConnectivityRequiredScreen`'s account-unclassified body and
+  `HouseholdEntryScreens`' load failure render it, where 8.2's "The change could not be completed"
+  describes an operation that does not exist (Q60). Use wording true for a read and a write (e.g.
+  "That did not work. Nothing was changed."), still without promising a retry. Update the `messages.ts`
+  header and the two pinned constants (component + E2E) in the same commit via a `test-engineer`
+  sub-step; the gate must be green. Closes Q60; NFR-8/D0.6.
+- [x] 8.5 [rust-backend] Make three honesty fixes from the second 6.1 review (Q60): gate the lifecycle
+  refresh on the **fresh probe outcome** rather than on a retained reachable status below the offline
+  threshold (the probe got no answer, so connectivity is not proven), with a test for that case;
+  make `a_load_or_refresh_publishes_no_household_change` meaningful or remove it and state the
+  structural guarantee (the load path takes no publisher); and correct the stale adapter comment in
+  `src-tauri/tests/failure_surface.rs` after 8.1. No behaviour change beyond the refresh gate.
