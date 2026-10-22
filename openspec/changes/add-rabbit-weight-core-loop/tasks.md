@@ -37,7 +37,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 
 ## 2. Backend (Rust)
 
-- [ ] 2.1 [rust-backend] Implement rabbit profile creation with the full field set: name, optional
+- [x] 2.1 [rust-backend] Implement rabbit profile creation with the full field set: name, optional
   photo reference, optional breed, optional date of birth with an explicit "unknown" marker, sex,
   neuter status and optional adoption date; unsupplied fields recorded as absent (RAB-1).
 - [ ] 2.2 [rust-backend] Enforce non-blank rabbit names on create and update, treating
