@@ -45,6 +45,13 @@
 //! set or the archived set — never a union — whose rows must all be describable, so a row whose
 //! content this device does not hold refuses as `unknown` instead of being omitted (D1.16).
 //!
+//! Permanent deletion is the one irreversible operation, and it too is archived-only: the plan is the
+//! archived rabbit plus every weight-entry row that names it, and each is written as a tombstone —
+//! `deleted` as the write's own argument, with the payload retained (D1.17) — into the household's one
+//! collection, so no member resolves the rabbit or its entries afterwards. An active rabbit is refused,
+//! and a row this device cannot describe refuses the whole deletion rather than removing a subset or a
+//! partial payload (RAB-10; D1.8, D1.16).
+//!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.
 

@@ -71,7 +71,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   archived list, no data discarded (RAB-6, RAB-9).
 - [x] 2.6 [rust-backend] Implement restoring an archived rabbit to the active list with its history
   intact (RAB-7).
-- [ ] 2.7 [rust-backend] Implement permanent deletion of an archived rabbit with all its weight
+- [x] 2.7 [rust-backend] Implement permanent deletion of an archived rabbit with all its weight
   entries, cascading within the household collection and shared with all members; refuse permanent
   deletion of an active rabbit through P0's failure surface, since RAB-10 makes archival the
   precondition (RAB-10).

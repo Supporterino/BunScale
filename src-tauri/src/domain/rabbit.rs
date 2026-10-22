@@ -48,20 +48,30 @@
 //! * **A rabbit list is one selection, never a union, and never partial.** [`summaries`] answers the
 //!   active list or the archived list from the rows this device holds, and refuses as `unknown`
 //!   rather than omitting a row whose content it cannot describe (D1.16, RAB-6).
+//! * **Permanent deletion is archived-only and takes the rabbit's weight entries with it.**
+//!   [`deletion_plan`] is the one rule: the target is a live **archived** rabbit, every live row must
+//!   be describable, and the plan is that rabbit plus every live weight-entry row whose `rabbit_id`
+//!   names it. [`delete_rabbit`] then writes a tombstone per item into the one household collection, so
+//!   no member resolves the rabbit or its entries afterwards — the removal is shared by construction,
+//!   not fanned out. A tombstone keeps the row's identity, the operation's version marker, the writing
+//!   member and its payload, and sets the removal flag as `save_item`'s own top-level `deleted`
+//!   argument; every read excludes a tombstone before the unknown-content check, so a removal never
+//!   becomes an unreadable row (RAB-10; D1.8, D1.16, D1.17). An active rabbit is refused, which is what
+//!   keeps archiving the recoverable step before the irreversible one.
 //!
-//! **Nothing here touches Tauri, and nothing here writes storage.** [`save_rabbit_version`] is the
-//! one item write — a create and an edit reach it through [`save_rabbit`], and a lifecycle command
-//! through the content it already holds — and it goes through P0's reachability-gated [`SaveGate`]: a
-//! rabbit exists once the shared service has accepted the write, so no local-only rabbit and no
-//! second write path can be produced here (D1.1, D0.1, RAB-5). What this device holds afterwards is
-//! its **copy of the shared collection**, filled by the read path (SYNC-3) — never by this module
-//! writing it.
+//! **Nothing here touches Tauri, and nothing here writes storage.** One item write serves every
+//! mutation — [`save_rabbit_version`] for content and lifecycle writes, [`delete_rabbit`]'s
+//! [`save_tombstone`] for removals — and both go through P0's reachability-gated [`SaveGate`]: a
+//! rabbit exists, changes or is removed once the shared service has accepted the write, so no
+//! local-only rabbit and no second write path can be produced here (D1.1, D0.1, RAB-5). What this
+//! device holds afterwards is its **copy of the shared collection**, filled by the read path (SYNC-3)
+//! — never by this module writing it.
 
 use serde_json::{Value, json};
 
 use crate::ipc::types::{
     CommandError, HouseholdCollection, HouseholdId, Instant, ItemId, ItemPayload, MemberId,
-    NeuterStatus, Rabbit, RabbitId, RabbitProfile, RabbitSummary, RequestId, Sex,
+    NeuterStatus, Rabbit, RabbitId, RabbitProfile, RabbitSummary, RequestId, Sex, WeightEntry,
 };
 use crate::sync::{SaveGate, SaveRequest, SharedService};
 
@@ -385,7 +395,7 @@ pub fn mark_restored(rabbit: Rabbit) -> Rabbit {
 /// Write one rabbit's whole item as it stands (RAB-6, RAB-7, RAB-9; D1.16).
 ///
 /// A create and an edit build the content from a submitted profile through [`save_rabbit`]; a
-/// lifecycle command ([`mark_archived`] and [`mark_restored`] now, permanent deletion in task 2.7)
+/// lifecycle command ([`mark_archived`] and [`mark_restored`] now, and [`delete_rabbit`]'s tombstones)
 /// already has the content read from this device's copy and submits it unchanged except for the field
 /// it changes. Both are the same one item write through P0's reachability gate, so no second write
 /// path is added and a refusal is never reported as a saved rabbit (D1.1, SYNC-2).
@@ -417,6 +427,318 @@ pub async fn save_rabbit_version(
     let _accepted = SaveGate::new(service).save(request).await?;
 
     Ok(())
+}
+
+/// The items one permanent deletion removes: the archived rabbit and every weight entry it owns
+/// (RAB-10).
+///
+/// It is a plan rather than a write so the "what does this delete touch" rule is one value a test can
+/// assert without a transport: the rabbit, and one `(item id, content)` per entry that names it. A
+/// tombstone keeps identity and version, so the item id is the row's — a weight entry's item is the
+/// row the collection holds, never an id re-derived from its payload (D1.16, SYNC-1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeletionPlan {
+    /// The archived rabbit, as this device's copy holds it. Its tombstone retains that content, which
+    /// is the version that removes it (D1.16).
+    pub rabbit: Rabbit,
+    /// Every live weight-entry row whose `rabbit_id` is this rabbit's, with the row's item id.
+    pub entries: Vec<(ItemId, WeightEntry)>,
+}
+
+/// What one permanent deletion would remove, or why it is refused (RAB-10; D1.8, D1.16).
+///
+/// This is the **one** rule a delete is accepted under, and it is decided entirely from this device's
+/// copy so a refusal sends nothing:
+///
+/// 1. The target must be a live row carrying a rabbit — a tombstoned or absent item is `validation`,
+///    because there is no rabbit left to delete.
+/// 2. The rabbit must be **archived**: permanent deletion of an active rabbit is refused as
+///    `validation`, the deliberate narrowing of RAB-10 that keeps archiving the recoverable step
+///    (D1.8).
+/// 3. Every live row of the household must be **describable**. A row whose content this device does
+///    not hold could be one of this rabbit's entries, so the delete refuses with the unknown-content
+///    key rather than removing the rabbit and leaving — or blindly overwriting — a row it might own
+///    (D1.16). A tombstone is skipped **before** that check: it is already removed, and a tombstone
+///    whose content was never read is stored as unknown content, so checking content first would
+///    refuse over a row the collection already reports as gone (D1.17).
+///
+/// The cascade is the entries whose `rabbit_id` names the target: the link the entry payload already
+/// carries, so nothing has to be added to the collection for a delete to work. Its ledger keys are
+/// derived by [`cascaded_request_id`] and the derivation is checked there before anything is written
+/// (D1.17).
+///
+/// # Errors
+///
+/// `validation` for a blank or absent rabbit, a tombstoned one, an item that is not a rabbit, and the
+/// active-rabbit refusal; `unknown` with [`HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY`] when the rabbit's
+/// row or another live row has no content this device can describe. Both carry the operation's
+/// identity, and neither sends anything.
+///
+/// [`HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY`]: crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+pub fn deletion_plan(
+    collection: &HouseholdCollection,
+    rabbit_id: &RabbitId,
+    request_id: &RequestId,
+) -> Result<DeletionPlan, CommandError> {
+    let target = item_id(rabbit_id);
+    let mut rabbit = None;
+    let mut entries = Vec::new();
+
+    for item in &collection.items {
+        // A tombstone names an item already removed, so it is neither the target nor a cascade row.
+        if item.deleted {
+            continue;
+        }
+
+        let Some(payload) = &item.payload else {
+            // The row exists but its content is not on this device. It could be one of this rabbit's
+            // entries, and a whole-item write cannot be composed for it (D1.16).
+            return Err(CommandError::household_content_unloaded(Some(
+                request_id.clone(),
+            )));
+        };
+
+        match payload {
+            ItemPayload::Rabbit { rabbit: row } if item.item_id == target => {
+                rabbit = Some(row.clone());
+            }
+            ItemPayload::WeightEntry { weight_entry } if weight_entry.rabbit_id == *rabbit_id => {
+                entries.push((item.item_id.clone(), weight_entry.clone()));
+            }
+            _ => {}
+        }
+    }
+
+    let Some(rabbit) = rabbit else {
+        // No live item under that identity is a rabbit: there is nothing to delete.
+        return Err(CommandError::validation(Some(request_id.clone())));
+    };
+
+    if !rabbit.is_archived {
+        // RAB-10's narrowing: only an archived rabbit can be permanently deleted (D1.8).
+        return Err(CommandError::validation(Some(request_id.clone())));
+    }
+
+    Ok(DeletionPlan { rabbit, entries })
+}
+
+/// Permanently remove one archived rabbit and every weight entry [`deletion_plan`] named (RAB-10).
+///
+/// Each item is written as a **tombstone** through the same one item write and the same reachability
+/// gate as every other rabbit write (D1.1): identity and version are kept, the content is the version
+/// that removes it, and `deleted` is set — so the removal appears in the household's change feed
+/// instead of a row silently vanishing, and every member resolves the household without it (D0.7
+/// criterion 2, SYNC-1, HS-8).
+///
+/// **The entries are written before the rabbit.** If the cascade stops part-way, the person is left
+/// with the archived rabbit they can retry from, never a removed rabbit whose entries are still
+/// readable — RAB-10's "its weight entries are no longer retrievable" is only ever true because all of
+/// them were removed first. A retry re-sends identical bodies and the service's ledger completes the
+/// remainder (D0.14).
+///
+/// **Each item write has its own request identity.** The service deduplicates on the operation's
+/// `request_id` and refuses the same key with a different payload, so a fan-out cannot re-use it: the
+/// rabbit's tombstone carries the operation's id unchanged, and each entry's is derived from the
+/// operation id and that entry's own item id by [`cascaded_request_id`]. The derivation is
+/// deterministic, so a retry submits the same ids, and no value is parsed out of either id.
+///
+/// **The version marker and the writer are the operation's.** Every tombstone carries the marker the
+/// caller minted once for the operation, so a retry is byte-identical, and the writer is the member
+/// the person is in that household ([`crate::state::AppState`] resolves both). The entry content is
+/// normalised on the way out: `has_weight_drop_alert` is written `false`, because it is derived on read
+/// and never content (D1.16).
+///
+/// **One item's tombstone that did not apply stops the cascade, and the rabbit is never tombstoned
+/// behind it.** The service reports a losing last-write-wins write as a completed call carrying
+/// `applied: false` rather than as an error (D0.7 criterion 3), so the receipt is read on every step:
+/// a stale copy or a skewed clock can make an entry's removal lose to a newer version, and tombstoning
+/// the rabbit afterwards would leave a readable entry with no rabbit — the state the entries-first
+/// order exists to prevent. The cascade stops at that write and reports `unknown` against the
+/// operation, never as removed (RAB-10).
+///
+/// **The ledger keys are derived, and the derivation is checked before the first write** (D1.17): the
+/// rabbit's tombstone carries the operation's `request_id` unchanged, and each entry's is
+/// `<operation>/<entry item id>`. That is injective only while no id contains `/`, so a breaking id
+/// refuses the whole operation as `validation` before anything is sent: the operation id once, whatever
+/// the cascade size, and every entry item id before the first write — rather than let one ledger key
+/// claim two payloads and stop the cascade for good.
+///
+/// # What a retry does (D0.14)
+///
+/// A **refused** step (`connectivity`, `no_account`, `allowance_exceeded`, `rate_limited`, `timeout`)
+/// leaves the archived rabbit in place: re-issuing the same `request_id` re-sends byte-identical
+/// tombstones, the entries already removed deduplicate per item, and the remainder completes. A step
+/// that **did not apply** is different: the version marker is memoized for the operation, so the same
+/// `request_id` re-sends the same losing marker and loses again. The failure is therefore `unknown`
+/// and not retryable; a fresh read brings the winning version into this device's copy, and a new
+/// deletion operation then removes it.
+///
+/// # Errors
+///
+/// The gate's own causes for any of the writes (`connectivity`, `no_account`, `allowance_exceeded`,
+/// `rate_limited`, `timeout`, `validation`, `unknown`), and `validation` for an id the ledger-key
+/// derivation cannot keep injective (D1.17), reported against the **operation's** identity so the
+/// surface's retry re-issues the command the person ran rather than one entry's derived key (D0.14).
+/// A refusal leaves the rabbit archived and is never reported as removed; the entries already
+/// tombstoned stay removed.
+pub async fn delete_rabbit(
+    service: &dyn SharedService,
+    household_id: &HouseholdId,
+    plan: &DeletionPlan,
+    writer: &MemberId,
+    marker: &Instant,
+    request_id: RequestId,
+) -> Result<(), CommandError> {
+    // D1.17: the operation id is a component of every derived key, and it is also the rabbit's own raw
+    // ledger key when there is nothing to cascade — so a separator in it refuses the operation whatever
+    // the cascade size, before anything is removed.
+    if request_id.0.contains('/') {
+        return Err(CommandError::validation(Some(request_id)));
+    }
+
+    // Every entry key is derived before the first write: a malformed item id must refuse the operation
+    // while nothing has been removed, not fail half-way through the cascade (D1.17).
+    let mut entry_request_ids = Vec::with_capacity(plan.entries.len());
+    for (entry_item_id, _entry) in &plan.entries {
+        let Some(entry_request_id) = cascaded_request_id(&request_id, entry_item_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+        entry_request_ids.push(entry_request_id);
+    }
+
+    for ((entry_item_id, entry), entry_request_id) in plan.entries.iter().zip(entry_request_ids) {
+        let payload = ItemPayload::WeightEntry {
+            weight_entry: WeightEntry {
+                // Derived on read, never content: the boundary writes it `false` (D1.16).
+                has_weight_drop_alert: false,
+                ..entry.clone()
+            },
+        };
+
+        if let Err(error) = save_tombstone(
+            service,
+            household_id,
+            entry_item_id,
+            &payload,
+            writer,
+            marker,
+            entry_request_id,
+        )
+        .await
+        {
+            // A cascade step's failure is the operation's, not the entry's: the retry the surface
+            // offers re-issues the operation's `request_id` (D0.14). Every cause this can be is the
+            // gate's, so `for_cause` restores that cause's own key without inventing one.
+            return Err(CommandError::for_cause(error.cause, Some(request_id)));
+        }
+    }
+
+    let payload = ItemPayload::Rabbit {
+        rabbit: plan.rabbit.clone(),
+    };
+
+    save_tombstone(
+        service,
+        household_id,
+        &item_id(&plan.rabbit.id),
+        &payload,
+        writer,
+        marker,
+        request_id,
+    )
+    .await
+}
+
+/// The request identity one cascaded item tombstone carries (D0.14, D1.17).
+///
+/// The service's ledger is keyed on the operation's `request_id` and refuses the same key with a
+/// different payload, so the writes a cascade submits cannot share it. D1.17 records the rule:
+/// `<operation>/<entry item id>`, deterministic so a retry resubmits the same keys.
+///
+/// **The rule is injective only because no id contains `/`** (D1.17). With either component free of
+/// the separator, `(operation, item) -> operation + "/" + item` is injective and a derived key can
+/// never equal a raw operation id; a component that contains it can make two distinct pairs produce
+/// one key, which the ledger would refuse as the same key with two payloads. The format is therefore
+/// checked here, where the derivation is built: `None` means the pair cannot be given a distinct key,
+/// and the caller refuses the operation before writing anything rather than trusting the minter.
+fn cascaded_request_id(operation: &RequestId, item_id: &ItemId) -> Option<RequestId> {
+    if operation.0.contains('/') || item_id.0.contains('/') {
+        return None;
+    }
+
+    Some(RequestId(format!("{}/{}", operation.0, item_id.0)))
+}
+
+/// Write one item's tombstone through P0's reachability gate (RAB-10, D1.1).
+///
+/// It is the whole-item write of [`save_rabbit_version`] with two differences: the removal flag is set,
+/// and the payload is any [`ItemPayload`], because a deletion removes entries as well as rabbits. The
+/// content is carried so the removing version retains it (D1.16, D1.17).
+///
+/// A completed call is not automatically a removal: a losing last-write-wins write answers with
+/// `applied: false` and is not an error (D0.7 criterion 3), so [`applied`] reads the receipt and a
+/// tombstone that did not take effect is reported as `unknown` under the key it was written with.
+async fn save_tombstone(
+    service: &dyn SharedService,
+    household_id: &HouseholdId,
+    item_id: &ItemId,
+    payload: &ItemPayload,
+    writer: &MemberId,
+    marker: &Instant,
+    request_id: RequestId,
+) -> Result<(), CommandError> {
+    let body = tombstone_body(household_id, item_id, payload, writer, marker, &request_id);
+    let request = SaveRequest::new(request_id, SAVE_ITEM_RPC, body)?;
+
+    let receipt = SaveGate::new(service).save(request).await?;
+
+    if !applied(receipt.body()) {
+        // The version marker is the operation's and is memoized, so re-issuing it loses again: this is
+        // not a retryable condition (D0.14). A fresh read brings the winning version in; a new
+        // operation removes it.
+        return Err(CommandError::unknown(Some(receipt.request_id().clone())));
+    }
+
+    Ok(())
+}
+
+/// Whether the service's write answer states that the version applied.
+///
+/// A losing last-write-wins write is a completed call: the service returns the winning item with
+/// `applied: false` and treats it as no error (D0.7 criterion 3). The flag is therefore read only when
+/// it is stated: an answer whose envelope reports the write completed (`applied` or `deduplicated`)
+/// without an `applied` field is accepted as a completed write, because P0's recorded loss shape is the
+/// explicit `false`. Only that explicit `false` is a write that did not apply.
+fn applied(body: &Value) -> bool {
+    body.get("applied").and_then(Value::as_bool).unwrap_or(true)
+}
+
+/// The body the shared service's `save_item` receives for one removed item (D1.16, D1.17).
+///
+/// The RPC body is the function's named-argument list, so the removal flag is its own top-level
+/// argument: `deleted` is set here and defaults to `false` on the service for every non-removal write
+/// ([`save_body`] omits it), which is what keeps the six-argument body valid (D1.17). The rest is
+/// [`save_body`]'s argument list: the collection and item it removes, the version marker
+/// last-write-wins compares, the writing member, the operation's identity, and the content the
+/// removing version retains. Every field is a function of the inputs, so a retry submits the same
+/// bytes (D0.7 criterion 6, D0.14).
+fn tombstone_body(
+    household_id: &HouseholdId,
+    item_id: &ItemId,
+    payload: &ItemPayload,
+    writer: &MemberId,
+    marker: &Instant,
+    request_id: &RequestId,
+) -> Value {
+    json!({
+        "request_id": request_id.0,
+        "household_id": household_id.0,
+        "item_id": item_id.0,
+        "updated_at": marker.0,
+        "deleted": true,
+        "writer_id": writer.0,
+        "payload": payload,
+    })
 }
 
 /// The rabbit summaries of one list: the active rabbits, or the archived ones (RAB-6, D1.16).
@@ -480,6 +802,10 @@ pub fn summaries(
 /// environment, so a retry that supplies the same rabbit, writer, marker and identity submits the
 /// same bytes — which is what the service's request ledger requires of a re-issued operation (D0.7
 /// criterion 6, D0.14).
+///
+/// The removal flag is **omitted**, not sent `false`: `save_item`'s `deleted` defaults to `false`
+/// (D1.17), so a non-removal write keeps the six-argument body and the service's default is the only
+/// place that state is stated. [`tombstone_body`] is the body that sets it.
 fn save_body(
     rabbit: &Rabbit,
     writer: &MemberId,
@@ -505,9 +831,9 @@ mod tests {
     use crate::ipc::types::{
         CollectionItem, CollectionSource, Grams, SaveCause, WeightEntry, WeightEntryId,
     };
-    use crate::sync::ServiceReply;
     use crate::sync::double::test_support::block_on_ready;
     use crate::sync::double::{RecordedCall, ScriptedService};
+    use crate::sync::{Answer, ServiceReply};
 
     fn request_id(value: &str) -> RequestId {
         RequestId(value.to_owned())
@@ -1455,6 +1781,541 @@ mod tests {
             summaries(&collection, true)
                 .expect("a tombstone is skipped")
                 .is_empty()
+        );
+    }
+
+    /// One weight-entry row of `rabbit` with its own item id, so the cascade can be told row from row.
+    fn entry_row(item_id: &str, rabbit_id: &RabbitId, alert: bool) -> CollectionItem {
+        CollectionItem {
+            item_id: crate::ipc::types::ItemId(item_id.to_owned()),
+            updated_at: at("2026-10-20T09:00:00Z"),
+            deleted: false,
+            payload: Some(ItemPayload::WeightEntry {
+                weight_entry: WeightEntry {
+                    id: WeightEntryId(item_id.to_owned()),
+                    rabbit_id: rabbit_id.clone(),
+                    value_grams: Grams(1_800),
+                    timestamp: at("2026-10-20T09:00:00Z"),
+                    note: None,
+                    photo_refs: Vec::new(),
+                    has_weight_drop_alert: alert,
+                },
+            }),
+        }
+    }
+
+    /// RAB-10: the plan is the archived rabbit plus exactly the weight entries that name it — never
+    /// another rabbit, and never another rabbit's entry.
+    #[test]
+    fn a_deletion_plan_names_the_archived_rabbit_and_only_its_own_entries() {
+        let target = stored_rabbit("rabbit-1", "Pebble", true);
+        let other = stored_rabbit("rabbit-2", "Clover", false);
+        let copy = collection(vec![
+            rabbit_row(&target, "2026-10-22T09:30:00Z"),
+            rabbit_row(&other, "2026-10-22T09:31:00Z"),
+            entry_row("entry-1", &target.id, false),
+            entry_row("entry-2", &target.id, false),
+            entry_row("entry-3", &other.id, false),
+        ]);
+
+        let plan = deletion_plan(&copy, &target.id, &request_id("operation-9"))
+            .expect("the archived rabbit is deletable");
+
+        assert_eq!(plan.rabbit, target);
+        let items: Vec<&str> = plan
+            .entries
+            .iter()
+            .map(|(item_id, _entry)| item_id.0.as_str())
+            .collect();
+        assert_eq!(items, ["entry-1", "entry-2"]);
+        assert!(
+            plan.entries
+                .iter()
+                .all(|(_item_id, entry)| entry.rabbit_id == target.id),
+            "the cascade is the entries that name this rabbit, not every entry"
+        );
+    }
+
+    /// RAB-10's second scenario: permanent deletion is offered for an archived rabbit only.
+    #[test]
+    fn a_deletion_plan_refuses_an_active_rabbit() {
+        let active = stored_rabbit("rabbit-1", "Pebble", false);
+        let copy = collection(vec![rabbit_row(&active, "2026-10-22T09:30:00Z")]);
+        let operation = request_id("operation-9");
+
+        let error = deletion_plan(&copy, &active.id, &operation)
+            .expect_err("an active rabbit cannot be permanently deleted");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(operation));
+    }
+
+    /// A tombstoned rabbit is already removed, and an item that is not a rabbit is nothing to delete:
+    /// both are refused rather than absorbed (RAB-10, D1.16).
+    #[test]
+    fn a_deletion_plan_refuses_a_rabbit_that_is_already_removed_or_not_a_rabbit() {
+        let operation = request_id("operation-9");
+        let gone = collection(vec![CollectionItem {
+            item_id: crate::ipc::types::ItemId("rabbit-1".to_owned()),
+            updated_at: at("2026-10-22T10:00:00Z"),
+            deleted: true,
+            payload: None,
+        }]);
+        let not_a_rabbit = collection(vec![entry_row(
+            "rabbit-1",
+            &RabbitId("rabbit-1".to_owned()),
+            false,
+        )]);
+
+        for copy in [gone, not_a_rabbit] {
+            let error = deletion_plan(&copy, &RabbitId("rabbit-1".to_owned()), &operation)
+                .expect_err("there is no live rabbit to delete");
+
+            assert_eq!(error.cause, SaveCause::Validation);
+            assert_eq!(error.request_id, Some(operation.clone()));
+        }
+    }
+
+    /// D1.16: a live row this device cannot describe could be one of the rabbit's entries, so the
+    /// delete refuses with its own key instead of removing a subset — or overwriting a row it cannot
+    /// read.
+    #[test]
+    fn a_deletion_plan_refuses_when_a_live_row_cannot_be_described() {
+        let target = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![
+            rabbit_row(&target, "2026-10-22T09:30:00Z"),
+            CollectionItem {
+                item_id: crate::ipc::types::ItemId("entry-1".to_owned()),
+                updated_at: at("2026-10-22T09:31:00Z"),
+                deleted: false,
+                payload: None,
+            },
+        ]);
+        let operation = request_id("operation-9");
+
+        let error = deletion_plan(&copy, &target.id, &operation)
+            .expect_err("a row that might be this rabbit's entry cannot be removed blind");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_ne!(error.message_key, "error.unknown");
+        assert_eq!(error.request_id, Some(operation));
+    }
+
+    /// RAB-10, D1.16: the deletion is one tombstone per item into the household's shared collection —
+    /// the entries first, the rabbit last — each keeping identity and content, naming the writing
+    /// member and the operation's version marker, with the derived alert flag written `false`.
+    #[test]
+    fn deleting_a_rabbit_writes_a_tombstone_for_it_and_every_entry() {
+        let service = ScriptedService::new();
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry-1", &rabbit.id, true),
+            entry_row("entry-2", &rabbit.id, false),
+        ]);
+        let plan = deletion_plan(&copy, &rabbit.id, &request_id("operation-9"))
+            .expect("the archived rabbit is deletable");
+
+        block_on_ready(delete_rabbit(
+            &service,
+            &one,
+            &plan,
+            &writer(),
+            &marker(),
+            request_id("operation-9"),
+        ))
+        .expect("the double accepted every tombstone");
+
+        let bodies = written_bodies(&service);
+        assert_eq!(bodies.len(), 3, "one tombstone per item");
+
+        // The entries are removed before the rabbit, so a stopped cascade never leaves a removed
+        // rabbit with readable history (RAB-10).
+        assert_eq!(bodies[0]["item_id"], json!("entry-1"));
+        assert_eq!(bodies[1]["item_id"], json!("entry-2"));
+        assert_eq!(bodies[2]["item_id"], json!("rabbit-1"));
+
+        for body in &bodies {
+            assert_eq!(body["deleted"], json!(true), "each write is a tombstone");
+            assert_eq!(body["household_id"], json!(one.0));
+            assert_eq!(body["writer_id"], json!(writer().0));
+            assert_eq!(body["updated_at"], json!(marker().0));
+        }
+
+        // The content is retained on the removing version, and the derived flag is never content.
+        assert_eq!(bodies[0]["payload"]["kind"], json!("weight_entry"));
+        assert_eq!(
+            bodies[0]["payload"]["weight_entry"]["has_weight_drop_alert"],
+            json!(false)
+        );
+        assert_eq!(
+            bodies[0]["payload"]["weight_entry"]["value_grams"],
+            json!(1_800)
+        );
+        assert_eq!(bodies[2]["payload"]["kind"], json!("rabbit"));
+        assert_eq!(bodies[2]["payload"]["rabbit"]["name"], json!("Pebble"));
+
+        // The rabbit carries the operation's identity; each entry carries its own derived key, because
+        // the service's ledger refuses one key with several payloads (D0.14).
+        assert_eq!(bodies[0]["request_id"], json!("operation-9/entry-1"));
+        assert_eq!(bodies[1]["request_id"], json!("operation-9/entry-2"));
+        assert_eq!(bodies[2]["request_id"], json!("operation-9"));
+    }
+
+    /// D0.14: a retried deletion re-sends byte-identical tombstones, derived keys included.
+    #[test]
+    fn a_retried_deletion_resends_the_same_tombstones() {
+        let service = ScriptedService::new();
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry-1", &rabbit.id, false),
+        ]);
+        let operation = request_id("operation-9");
+        let plan = deletion_plan(&copy, &rabbit.id, &operation).expect("deletable");
+
+        for _attempt in 0..2 {
+            block_on_ready(delete_rabbit(
+                &service,
+                &one,
+                &plan,
+                &writer(),
+                &marker(),
+                operation.clone(),
+            ))
+            .expect("the double accepted the cascade");
+        }
+
+        let bodies = written_bodies(&service);
+        assert_eq!(bodies.len(), 4);
+        assert_eq!(&bodies[..2], &bodies[2..]);
+    }
+
+    /// A cascade step's failure is the operation's failure: the surface's retry re-issues the
+    /// command's identity, and the rabbit is never removed behind a stopped cascade (D0.14, RAB-10).
+    #[test]
+    fn a_refused_cascade_step_is_reported_against_the_operations_identity() {
+        let service = ScriptedService::new().on_write([ServiceReply::NoResponse]);
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry-1", &rabbit.id, false),
+        ]);
+        let operation = request_id("operation-9");
+        let plan = deletion_plan(&copy, &rabbit.id, &operation).expect("deletable");
+
+        let error = block_on_ready(delete_rabbit(
+            &service,
+            &one,
+            &plan,
+            &writer(),
+            &marker(),
+            operation.clone(),
+        ))
+        .expect_err("the entry's tombstone was not accepted");
+
+        assert_eq!(error.cause, SaveCause::Connectivity);
+        assert_eq!(error.message_key, "error.connectivity");
+        assert!(error.retryable);
+        assert_eq!(error.request_id, Some(operation));
+        assert_eq!(
+            service.write_count(),
+            1,
+            "the cascade stopped before the rabbit's tombstone"
+        );
+    }
+
+    /// One write answer carrying the service's own envelope and `applied` flag (D0.7 criterion 3).
+    fn answered(applied: bool) -> ServiceReply {
+        ServiceReply::Answered(Answer::with_body(
+            200,
+            json!({ "outcome": "applied", "applied": applied }),
+        ))
+    }
+
+    /// D1.17: the derived ledger keys are injective only while no id contains `/`, so an id that
+    /// breaks the rule refuses the operation before anything is written rather than let one key claim
+    /// two payloads.
+    #[test]
+    fn a_deletion_refuses_an_id_the_ledger_key_derivation_cannot_keep_injective() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+
+        // The operation id is a component of every derived key.
+        let copy = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry-1", &rabbit.id, false),
+        ]);
+        let slash_operation = request_id("operation/9");
+        let plan = deletion_plan(&copy, &rabbit.id, &slash_operation).expect("deletable");
+        let service = ScriptedService::new();
+
+        let error = block_on_ready(delete_rabbit(
+            &service,
+            &household("household-1"),
+            &plan,
+            &writer(),
+            &marker(),
+            slash_operation.clone(),
+        ))
+        .expect_err("the operation id cannot be a component of a derived key");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(slash_operation));
+        assert_eq!(
+            service.write_count(),
+            0,
+            "nothing is written under an ambiguous key"
+        );
+
+        // An entry's item id is the other component.
+        let slash_entry = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry/1", &rabbit.id, false),
+        ]);
+        let operation = request_id("operation-9");
+        let plan = deletion_plan(&slash_entry, &rabbit.id, &operation).expect("deletable");
+
+        let error = block_on_ready(delete_rabbit(
+            &service,
+            &household("household-1"),
+            &plan,
+            &writer(),
+            &marker(),
+            operation.clone(),
+        ))
+        .expect_err("the entry's item id cannot be a component of a derived key");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.request_id, Some(operation));
+        assert_eq!(service.write_count(), 0, "the refusal precedes every write");
+    }
+
+    /// RAB-10, D0.7 criterion 3: a losing last-write-wins write is a completed call, not an error, so
+    /// the cascade must read the receipt — a tombstone that did not apply stops it before the rabbit,
+    /// never after.
+    #[test]
+    fn a_cascade_stops_before_the_rabbit_when_a_tombstone_does_not_apply() {
+        // The first entry's removal applies; the second's loses to a newer version.
+        let service = ScriptedService::new().on_write([answered(true), answered(false)]);
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry-1", &rabbit.id, false),
+            entry_row("entry-2", &rabbit.id, false),
+        ]);
+        let operation = request_id("operation-9");
+        let plan = deletion_plan(&copy, &rabbit.id, &operation).expect("deletable");
+
+        let error = block_on_ready(delete_rabbit(
+            &service,
+            &one,
+            &plan,
+            &writer(),
+            &marker(),
+            operation.clone(),
+        ))
+        .expect_err("the second entry's tombstone did not apply");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert_eq!(error.message_key, "error.unknown");
+        assert!(
+            !error.retryable,
+            "the memoized marker would lose again on the same operation"
+        );
+        assert_eq!(error.request_id, Some(operation));
+
+        let bodies = written_bodies(&service);
+        assert_eq!(bodies.len(), 2, "the cascade stopped at the losing write");
+        assert!(
+            bodies
+                .iter()
+                .all(|body| body["item_id"] != json!(rabbit.id.0)),
+            "the rabbit was never tombstoned behind a removal that did not apply"
+        );
+    }
+
+    /// RAB-10, D0.7 criterion 3: the rabbit's own tombstone is checked too — a completed call whose
+    /// answer says the version did not apply is never reported as a removal.
+    #[test]
+    fn a_deletion_is_never_reported_as_removed_when_its_rabbit_tombstone_does_not_apply() {
+        let service = ScriptedService::new().on_write([answered(false)]);
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![rabbit_row(&rabbit, "2026-10-22T09:30:00Z")]);
+        let operation = request_id("operation-9");
+        let plan = deletion_plan(&copy, &rabbit.id, &operation).expect("deletable");
+
+        let error = block_on_ready(delete_rabbit(
+            &service,
+            &one,
+            &plan,
+            &writer(),
+            &marker(),
+            operation.clone(),
+        ))
+        .expect_err("the rabbit's tombstone did not apply");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert_eq!(error.message_key, "error.unknown");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(operation));
+        assert_eq!(service.write_count(), 1);
+    }
+
+    /// D0.14, RAB-10: a stopped cascade is completed by the retry — the entry already removed is
+    /// re-sent byte-identically and deduplicated, and the **second** attempt ends with the rabbit's
+    /// tombstone.
+    #[test]
+    fn a_stopped_cascade_is_completed_by_the_retry() {
+        // Attempt 1: entry-1 applies, entry-2 is refused. Attempt 2 and later: every write applies.
+        let service = ScriptedService::new().on_write([
+            answered(true),
+            ServiceReply::NoResponse,
+            answered(true),
+        ]);
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry-1", &rabbit.id, false),
+            entry_row("entry-2", &rabbit.id, false),
+        ]);
+        let operation = request_id("operation-9");
+        let plan = deletion_plan(&copy, &rabbit.id, &operation).expect("deletable");
+
+        let error = block_on_ready(delete_rabbit(
+            &service,
+            &one,
+            &plan,
+            &writer(),
+            &marker(),
+            operation.clone(),
+        ))
+        .expect_err("the first attempt stopped at the refused entry");
+
+        assert_eq!(error.cause, SaveCause::Connectivity);
+        let first_attempt = written_bodies(&service);
+        assert_eq!(first_attempt.len(), 2);
+        assert!(
+            first_attempt
+                .iter()
+                .all(|body| body["item_id"] != json!(rabbit.id.0)),
+            "the first attempt stopped before the rabbit"
+        );
+
+        block_on_ready(delete_rabbit(
+            &service,
+            &one,
+            &plan,
+            &writer(),
+            &marker(),
+            operation,
+        ))
+        .expect("the retry completed the cascade");
+
+        let bodies = written_bodies(&service);
+        assert_eq!(bodies.len(), 5, "two writes, then the retry's three");
+        assert_eq!(
+            bodies[0], bodies[2],
+            "the removed entry re-sends the same body"
+        );
+        assert_eq!(
+            bodies.last().expect("the rabbit's tombstone")["item_id"],
+            json!(rabbit.id.0),
+            "the retry ends with the rabbit's tombstone"
+        );
+        assert_eq!(
+            bodies.last().expect("the rabbit's tombstone")["deleted"],
+            json!(true)
+        );
+    }
+
+    /// One write answer whose envelope reports `outcome` and states no `applied` flag — P0's shape for
+    /// a completed write, including the replay's `deduplicated` (D0.7 criterion 5, D0.14).
+    fn answered_outcome(outcome: &str) -> ServiceReply {
+        ServiceReply::Answered(Answer::with_body(200, json!({ "outcome": outcome })))
+    }
+
+    /// D1.17: the operation id is the rabbit's own raw ledger key even when there is nothing to
+    /// cascade, so it is checked whatever the cascade size — a later operation's `<op>/<item>` must
+    /// never be able to claim it.
+    #[test]
+    fn a_deletion_refuses_a_slash_bearing_operation_id_even_with_no_entries() {
+        let service = ScriptedService::new();
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![rabbit_row(&rabbit, "2026-10-22T09:30:00Z")]);
+        let operation = request_id("operation/9");
+        let plan = deletion_plan(&copy, &rabbit.id, &operation).expect("deletable");
+
+        let error = block_on_ready(delete_rabbit(
+            &service,
+            &household("household-1"),
+            &plan,
+            &writer(),
+            &marker(),
+            operation.clone(),
+        ))
+        .expect_err("the operation id cannot be a raw ledger key that contains the separator");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(operation));
+        assert_eq!(
+            service.write_count(),
+            0,
+            "nothing is written under that key"
+        );
+    }
+
+    /// D0.7 criterion 5, D0.14: a replay's `deduplicated` answer is a completed write. It carries no
+    /// `applied` field, so the stop rule must not read it as a loss: the cascade continues and ends
+    /// with the rabbit's tombstone.
+    #[test]
+    fn a_deduplicated_tombstone_is_a_completed_write_and_the_cascade_continues() {
+        let service = ScriptedService::new().on_write([answered_outcome("deduplicated")]);
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble", true);
+        let copy = collection(vec![
+            rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+            entry_row("entry-1", &rabbit.id, false),
+            entry_row("entry-2", &rabbit.id, false),
+        ]);
+        let operation = request_id("operation-9");
+        let plan = deletion_plan(&copy, &rabbit.id, &operation).expect("deletable");
+
+        block_on_ready(delete_rabbit(
+            &service,
+            &one,
+            &plan,
+            &writer(),
+            &marker(),
+            operation,
+        ))
+        .expect("a deduplicated write is a completed write");
+
+        let bodies = written_bodies(&service);
+        assert_eq!(
+            bodies.len(),
+            3,
+            "every step was accepted, so the cascade reached the rabbit"
+        );
+        assert_eq!(
+            bodies.last().expect("the rabbit's tombstone")["item_id"],
+            json!(rabbit.id.0)
         );
     }
 }

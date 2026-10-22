@@ -7,16 +7,16 @@
 //! rather than a placeholder to be reshaped.
 //!
 //! **[`create_rabbit`] (task 2.1), [`update_rabbit`] (task 2.4), [`list_rabbits`] and
-//! [`archive_rabbit`] (task 2.5), and [`restore_rabbit`] (task 2.6) are implemented; [`get_rabbit`]
-//! and [`delete_rabbit`] are still stubs.** Each implemented body takes the app's state and, for a
+//! [`archive_rabbit`] (task 2.5), [`restore_rabbit`] (task 2.6) and [`delete_rabbit`] (task 2.7) are
+//! implemented; [`get_rabbit`] is still a stub.** Each implemented body takes the app's state and, for a
 //! write, a publication seam — `tauri::State` is how a command reaches the shared service and the
 //! account, and `tauri::AppHandle` is the seam [`RabbitChangePublisher`] is implemented by — which
 //! are parameters Tauri supplies and `src/bindings.ts` does not export, so the command the frontend
 //! calls keeps the arguments it was frozen with. A successful create publishes `rabbit:changed` with
-//! kind `created`, an edit with kind `updated`, an archive with kind `archived`, and a restore with
-//! kind `restored`, as the contract's event table requires of every successful rabbit write; a
-//! refusal publishes nothing. The two remaining stubs keep exactly the arguments they were frozen
-//! with, so their bindings do not move either.
+//! kind `created`, an edit with kind `updated`, an archive with kind `archived`, a restore with kind
+//! `restored`, and a deletion with kind `deleted`, as the contract's event table requires of every
+//! successful rabbit write; a refusal publishes nothing. The remaining stub keeps exactly the
+//! arguments it was frozen with, so its bindings do not move either.
 //!
 //! Three things the signatures already encode, because section 2 must not have to renegotiate them:
 //!
@@ -156,6 +156,30 @@ async fn restored_rabbit(
     });
 
     Ok(rabbit)
+}
+
+/// The `delete_rabbit` body over the state and a publication seam.
+///
+/// It is the outermost layer a unit test can call, for the same reason [`created_rabbit`] is. The
+/// change is published only after the deletion succeeded, so a refusal leaves the recorder empty and
+/// the frontend's policy never invalidates anything for a removal the service did not accept. The
+/// payload names the rabbit that no longer exists, which is what a listener needs to drop its cached
+/// rows (the event contract).
+async fn deleted_rabbit(
+    state: &crate::state::AppState,
+    publisher: &impl RabbitChangePublisher,
+    rabbit_id: RabbitId,
+    request_id: RequestId,
+) -> Result<(), CommandError> {
+    let household_id = state.delete_rabbit(rabbit_id.clone(), request_id).await?;
+
+    publisher.publish(&RabbitChanged {
+        household_id,
+        rabbit_id,
+        kind: RabbitChangeKind::Deleted,
+    });
+
+    Ok(())
 }
 
 /// Create a rabbit profile in a household (RAB-1, RAB-2, RAB-3).
@@ -325,18 +349,36 @@ pub async fn restore_rabbit(
 /// keeps archiving the recoverable step before the point of no return (D1.8, R7). The confirmation
 /// that states the consequence is the frontend's (NFR-9); this command is called only after it.
 ///
+/// The removal is written as a **tombstone per item** — the rabbit and each weight entry that names it
+/// — into the household's shared collection, so the change feed reports it and every member resolves
+/// the household without it (D1.16, D1.17, HS-8). Each tombstone keeps the identity, the operation's
+/// version marker, the writing member and the content of the version that removed it, and carries the
+/// removal as `save_item`'s own `deleted` argument. Every read excludes a tombstone before its
+/// unknown-content check, so a removed item is never answered as unreadable (D1.17). The cascade stops
+/// before the rabbit's tombstone if any entry's removal does not apply, so the removal is never
+/// reported while a readable entry would survive it (RAB-10).
+///
+/// A successful deletion publishes `rabbit:changed` with kind `deleted`; a refusal publishes nothing.
+/// No `weight:changed` is published per cascaded entry: the rabbit's removal names the whole subtree a
+/// listener drops, and this change has no weight write that owns those entries yet (tasks 2.9–2.11).
+///
 /// # Errors
 ///
 /// `validation` for an **active** rabbit — the deliberate narrowing of RAB-10 (D1.8) — for an unknown
-/// rabbit, and for a blank operation identity. The write path's service conditions are reachable as for
-/// [`create_rabbit`]; a deletion the service did not accept leaves the rabbit in place and is never
-/// reported as removed.
+/// rabbit, for one this device holds only as a tombstone, for a blank operation identity, and for an
+/// id the derived ledger keys cannot keep distinct (D1.17). `unknown` with the unknown-content key when
+/// the rabbit's row or another live row cannot be described (D1.16), and `unknown` when a tombstone did
+/// not apply. The write path's service conditions are reachable as for [`create_rabbit`]; a deletion the
+/// service did not accept leaves the rabbit in place and is never reported as removed.
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_rabbit(rabbit_id: RabbitId, request_id: RequestId) -> Result<(), CommandError> {
-    let _ = rabbit_id;
-
-    Err(CommandError::not_implemented(Some(request_id)))
+pub async fn delete_rabbit(
+    rabbit_id: RabbitId,
+    request_id: RequestId,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<(), CommandError> {
+    deleted_rabbit(state.inner(), &app, rabbit_id, request_id).await
 }
 
 #[cfg(test)]
@@ -1033,5 +1075,296 @@ mod tests {
                 assert_eq!(error.request_id, None, "{blank:?}");
             }
         }
+    }
+
+    /// A state whose book holds `household-1`, whose copy holds one archived rabbit and one entry it
+    /// owns — the state a permanent deletion starts from (RAB-10).
+    fn state_with_an_archived_rabbit_and_an_entry(
+        service: Arc<ScriptedService>,
+    ) -> (AppState, Rabbit) {
+        let (state, rabbit) = state_with_an_archived_rabbit(service);
+        let one = household("household-1");
+
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![
+                        rabbit_row(&rabbit, "2026-10-22T09:31:00Z"),
+                        weight_entry_row(&rabbit, "entry-1"),
+                    ],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T09:32:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        (state, rabbit)
+    }
+
+    /// RAB-10's first scenario through the real bodies: a confirmed deletion of an archived rabbit
+    /// writes a tombstone for the rabbit and for its entry, publishes exactly one `deleted`, and — once
+    /// the read path delivers those tombstones — the rabbit is in neither rabbit list and the entry is
+    /// no longer a live row.
+    #[test]
+    fn a_confirmed_deletion_removes_the_rabbit_and_its_data() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit_and_an_entry(service.clone());
+        let one = household("household-1");
+        let publisher = RecordingRabbitPublisher::default();
+
+        block_on_ready(deleted_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id("operation-3"),
+        ))
+        .expect("the double accepted the deletion");
+
+        assert_eq!(
+            publisher.published(),
+            vec![RabbitChanged {
+                household_id: one.clone(),
+                rabbit_id: rabbit.id.clone(),
+                kind: RabbitChangeKind::Deleted,
+            }],
+            "one report, with the deletion's kind, for the rabbit that no longer exists"
+        );
+
+        // The entry is tombstoned before the rabbit, and both keep their identity and content.
+        let writes: Vec<serde_json::Value> = service
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                crate::sync::double::RecordedCall::Save { request, .. } => {
+                    Some(request.body().clone())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            writes.len(),
+            4,
+            "the household, the create and the two-item deletion set"
+        );
+        assert_eq!(writes[2]["item_id"], json!("entry-1"));
+        assert_eq!(writes[3]["item_id"], json!(rabbit.id.0));
+        assert_eq!(writes[2]["deleted"], json!(true));
+        assert_eq!(writes[3]["deleted"], json!(true));
+
+        // The read path's next refresh stores the tombstones the service accepted. That device copy is
+        // the one every member resolves, so the same rows are the proof of RAB-10's first scenario.
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![
+                        CollectionItem {
+                            item_id: ItemId(rabbit.id.0.clone()),
+                            updated_at: Instant("2026-10-22T09:33:00Z".to_owned()),
+                            deleted: true,
+                            payload: Some(ItemPayload::Rabbit {
+                                rabbit: rabbit.clone(),
+                            }),
+                        },
+                        CollectionItem {
+                            item_id: ItemId("entry-1".to_owned()),
+                            updated_at: Instant("2026-10-22T09:33:00Z".to_owned()),
+                            deleted: true,
+                            payload: Some(ItemPayload::WeightEntry {
+                                weight_entry: WeightEntry {
+                                    id: WeightEntryId("entry-1".to_owned()),
+                                    rabbit_id: rabbit.id.clone(),
+                                    value_grams: Grams(1_800),
+                                    timestamp: Instant("2026-10-21T09:00:00Z".to_owned()),
+                                    note: None,
+                                    photo_refs: Vec::new(),
+                                    has_weight_drop_alert: false,
+                                },
+                            }),
+                        },
+                    ],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T09:34:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        for include_archived in [false, true] {
+            assert!(
+                block_on_ready(listed_rabbits(&state, one.clone(), include_archived))
+                    .expect("the list resolves")
+                    .is_empty(),
+                "the rabbit is in neither list ({include_archived})"
+            );
+        }
+
+        let held = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is held");
+        let entry = held
+            .items
+            .iter()
+            .find(|item| item.item_id == ItemId("entry-1".to_owned()))
+            .expect("the entry's row is still held");
+        assert!(
+            entry.deleted,
+            "the entry is a tombstone, so no read describes it as retrievable"
+        );
+    }
+
+    /// RAB-10's second scenario: an active rabbit is refused, and the refusal writes nothing, probes
+    /// nothing and publishes nothing.
+    #[test]
+    fn an_active_rabbit_cannot_be_permanently_deleted_and_nothing_is_written_or_published() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service.clone());
+        let publisher = RecordingRabbitPublisher::default();
+        let request_id = request_id("operation-3");
+        let calls_before = service.calls();
+
+        let error = block_on_ready(deleted_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id.clone(),
+        ))
+        .expect_err("an active rabbit cannot be permanently deleted");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+
+        // The rabbit is still active, and still the row the active list resolves.
+        let one = household("household-1");
+        assert_eq!(
+            block_on_ready(listed_rabbits(&state, one.clone(), true)).expect("the list resolves"),
+            vec![],
+            "it was not moved to the archived list either"
+        );
+        assert_eq!(
+            block_on_ready(listed_rabbits(&state, one, false)).expect("the list resolves"),
+            vec![RabbitSummary {
+                id: rabbit.id.clone(),
+                name: rabbit.name.clone(),
+                thumbnail_ref: rabbit.photo_ref.clone(),
+                is_archived: false,
+            }],
+            "the rabbit remains active"
+        );
+    }
+
+    /// D1.16: a live row whose content is unknown could be one of the rabbit's entries, so the
+    /// deletion refuses with its own key, sends nothing and publishes nothing.
+    #[test]
+    fn a_deletion_of_a_row_with_unknown_content_is_refused_and_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit(service.clone());
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![
+                        rabbit_row(&rabbit, "2026-10-22T09:30:00Z"),
+                        CollectionItem {
+                            item_id: ItemId("entry-1".to_owned()),
+                            updated_at: Instant("2026-10-22T09:31:00Z".to_owned()),
+                            deleted: false,
+                            payload: None,
+                        },
+                    ],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T09:32:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+        let publisher = RecordingRabbitPublisher::default();
+        let request_id = request_id("operation-3");
+        let calls_before = service.calls();
+
+        let error = block_on_ready(deleted_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id.clone(),
+        ))
+        .expect_err("a row that cannot be described cannot be removed blind");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_ne!(error.message_key, "error.unknown");
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
+
+    /// RAB-10's sharing scenario: the deletion is one set of tombstones in the household's **single**
+    /// collection, naming the household and the writing member — not one removal per member — so every
+    /// member resolves the same household without the rabbit or its entry (HS-8).
+    #[test]
+    fn the_deletion_is_one_set_of_tombstones_in_the_households_shared_collection() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit_and_an_entry(service.clone());
+        let publisher = RecordingRabbitPublisher::default();
+
+        block_on_ready(deleted_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id("operation-3"),
+        ))
+        .expect("the double accepted the deletion");
+
+        let writes: Vec<serde_json::Value> = service
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                crate::sync::double::RecordedCall::Save { request, .. } => {
+                    Some(request.body().clone())
+                }
+                _ => None,
+            })
+            .collect();
+
+        // The create plus exactly one tombstone per deleted item: two writes for a rabbit and its
+        // entry, into the household's one collection, with the same writing member.
+        assert_eq!(writes.len(), 4);
+        for body in &writes[2..] {
+            assert_eq!(body["household_id"], json!("household-1"));
+            assert_eq!(body["writer_id"], json!("member-1"));
+            assert_eq!(body["deleted"], json!(true));
+        }
+        assert_eq!(writes[2]["item_id"], json!("entry-1"));
+        assert_eq!(writes[3]["item_id"], json!(rabbit.id.0));
+
+        // The device's own copy belongs to the read path: the write must not change it, or the removal
+        // would exist twice — once locally and once in the collection every member reads (SYNC-3).
+        let held = state
+            .read_collection(&household("household-1"), CollectionSource::Local)
+            .expect("the copy is held");
+        assert!(
+            held.items.iter().all(|item| !item.deleted),
+            "the deletion reached the service, not the local copy"
+        );
     }
 }

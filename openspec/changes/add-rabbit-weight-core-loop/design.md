@@ -371,6 +371,121 @@ writes no behaviour):
 - Nothing else changes: the thirteen commands, both events, `CommandError`, `SaveCause`, `Instant`,
   `Grams`, `Rabbit` and `WeightEntry` keep their frozen names and shapes; no dependency is added.
 
+### D1.17 — A removal is a tombstone write, and `deleted` is its own top-level argument (RAB-10; D1.8, D1.16)
+
+**What P0 recorded, and what it left open.** P0 froze the collection row with a tombstone flag —
+`CollectionItem { item_id, updated_at, deleted }`, "the tombstone flag is part of it because a removal
+must stay reportable" (archived P0 `design.md:1971-1973`) — and required the write in one sentence:
+"a hard delete must be a tombstone write so the change feed can report the removal"
+(archived `design.md:193-194`; the same as an ADR consequence, `docs/adr/0002-shared-service-mechanism.md:56`).
+The shipped read path holds that shape: `FeedRow` decodes `item_id`, `updated_at`, `deleted: bool` and
+`payload` as four sibling fields (`src-tauri/src/sync/read.rs:272-282`), and a tombstone is stored with
+or without content (`read.rs:1133-1186`). What P0 never recorded is how the flag reaches the service on
+a write: the only `save_item` definition is six arguments —
+`save_item(household_id, item_id, updated_at, payload, writer_id, request_id)`
+(archived `design.md:123`) — and ADR 0002 elides the middle of the same call (`0002:26`). The read feed
+therefore says a removal is a row-level fact while the write path says nothing about setting it. **The
+evidence is silent on the question**, so the choice below is made on one criterion: it must change
+nothing about the read feed's shape.
+
+**The flag travels as a seventh top-level argument, `deleted: bool`, defaulting to `false` in
+`save_item`.** The RPC body *is* the function's named-argument list: `HttpService` posts
+`SaveRequest::body()` to `/rest/v1/rpc/<rpc>` (`src-tauri/src/sync/http.rs:68,229`) and the body is an
+opaque `Value` on the client side (`src-tauri/src/sync/service.rs:166-187`), so an argument the function
+does not declare is not extra data a service may ignore — it is a call to a function that does not
+exist, refused before the write ever happens. The alternatives fail on the same evidence:
+
+- **Inside `payload`.** The flag is a row fact, not content: the answer carries `deleted` beside
+  `payload`, never in it (`read.rs:278`). Placing it in the envelope would either extend `ItemPayload`
+  past the two kinds D1.16 freezes or make one fact readable from two places, and a reader would have
+  to treat a payload-shaped removal as content — the conflation D1.16 exists to prevent.
+- **An existing argument.** None is a flag: the ids identify and address, `updated_at` is the version
+  marker, `payload` is the item's content. `payload: null` is already spoken for — it means **unknown
+  content** on this device, and `StoredItem::tombstone` uses exactly that representation for a tombstone
+  whose content was not read (`src-tauri/src/storage/collection.rs:44-69,83-94`). Reading a null payload
+  as "removed" would make an unreadable profile and a deleted one the same row, which D1.16 rules out by
+  name.
+- **A third payload `kind`** (`{"kind": "tombstone"}`) would change the envelope D1.16 freezes, make the
+  row's `deleted` a value the service must derive from content, and leave `ItemPayload` unable to carry
+  the content the removal has to retain (below).
+
+**The obligations this creates outside this repository.** Two, and both are the deployment's SQL rather
+than this client's code.
+
+- **The seventh argument.** `save_item` must declare `deleted boolean default false` and write it to the
+  row's own tombstone column, with the LWW tuple, the request ledger and the allowance accounting
+  unchanged. The default is what keeps the six-argument body valid — a non-removal write still sends only
+  the six (`save_body`, `src-tauri/src/domain/rabbit.rs`) — so the change is additive on the service as
+  well as on the client.
+- **The replayed verdict.** The ledger returns the outcome the first attempt **stored**; it does not
+  re-evaluate a replay against the row as it stands now. A replay of a losing write therefore keeps
+  `applied: false`, and a loser must carry the flag rather than omit it, because an absent `applied` is
+  read as applied. That is what lets a retry of a cascade see the same verdict on both attempts — and the
+  client's stop rule depends on it: a write that lost on version order is never reported as a removal, on
+  the first attempt or on a retry. A service that re-evaluated a replay could answer differently once
+  another device had written the item, turning a stopped deletion into a reported one.
+
+**What a tombstone retains.** Identity (`item_id`, and the payload's own `Rabbit.id` / `WeightEntry.id`),
+the version marker `updated_at`, `writer_id` and `request_id` — the LWW tuple is unchanged, so a removal
+is ordered and resumable like any other change (`collection.rs:63-66`) — and the **payload, kept rather
+than cleared**: DM-4's retained content is the content of the version that removed it (D1.16's "a
+removal is not required to blank the payload"), normalised the way every write is
+(`has_weight_drop_alert` written `false`). The row keeps its identity claim for the life of the
+collection, so nothing can resurrect what RAB-10 removed: a whole-item write addressed to a tombstoned
+row is refused, never re-submitted — the rabbit path already does this
+(`AppState::stored_rabbit`, `src-tauri/src/state.rs`), and the entry path (2.11) owes the same rule.
+
+**What a reader does with it: every read skips it, none describes it.** A tombstone stays in the copy —
+SYNC-1 counts it as the item — and each read excludes it **before** the unknown-content check, so a
+tombstone can never turn a read into `unknown`: it is in neither rabbit list (RAB-10, D1.8), and an entry
+tombstone is absent from the trend, the history, the alert derivation, the dashboard and the entry
+detail. That ordering is load-bearing, not incidental: a tombstone whose content was never read is
+stored as unknown content (`read.rs:294-307`), so a read that checked content first would refuse over a
+row it has already been told is removed. The one rabbit read orders it that way today (`summaries` in
+`domain::rabbit`; `get_rabbit` is still a stub); the entry reads (2.11–2.15) must do the same, and 2.11
+must refuse an edit of a tombstoned entry as an unknown entry (`validation`) rather than re-submitting it.
+
+**Contract impact: none on the IPC surface.** No command signature changes — `delete_rabbit` and
+`delete_weight_entry` stay `(id, request_id) -> ()` exactly as the frozen table above states — and the
+write body is not an IPC type: it is `SaveRequest`'s opaque `Value` and never crosses the Tauri boundary,
+so `src/bindings.ts` does not change and regeneration leaves no diff. Task 2.0's feed decode needs **no**
+adjustment either: `deleted` is decoded as its own field and the provenance classification is
+independent of it, so a tombstoned row of a known kind keeps its content, one with no payload stays
+unknown content on a tombstone (skipped by every read, per above), and a tombstoned row of a foreign kind
+is dropped as foreign — the three cases `read.rs:1133-1186` already asserts. What 2.0 must **not** do is
+treat `deleted: true` as a reason to drop or blank the row, because the row is the removal's report.
+
+**Residual risk, stated once: the six-parameter reading is unfalsifiable inside this repository.** If the
+deployed `save_item` is still the six-argument function, every tombstone write is refused by PostgREST as
+an unknown argument — a non-2xx, arriving as cause `unknown` through `cause_of_status`
+(`src-tauri/src/sync/gate.rs:184-191`) — and no test here can see it, because the gate mocks the service
+(ADR 0002:53) and the scripted double accepts any body it is handed.
+
+**Each item in a cascade has its own ledger key, and that derivation is a rule this change owns.** P0's
+ledger is keyed on `(account_user_id, request_id)` and refuses the same key with a different payload
+(archived `design.md:154-161`, ADR 0002:54) — D0.14. One `delete_rabbit` submits one write per removed
+item under one operation, so it cannot send the operation's id on all of them: the first write claims the
+key and every later one would be refused as the same key with a different payload. The rule: **the
+rabbit's tombstone carries the operation's `request_id` unchanged**, so the failure surface's retry
+re-issues the operation (D0.14), and **each cascaded entry's key is `<operation>/<entry item id>`**,
+deterministic so a retry resubmits the same keys. `delete_weight_entry` writes one item and needs no
+derivation. This belongs here rather than only in the write path's doc comment because it is a
+consequence of the ledger's contract that any later fan-out would meet again, not a private choice of one
+caller.
+
+**The derivation is injective only because no id may contain `/`, and that is a rule, not an accident.**
+With no `/` in either component the separator is unambiguous, so
+`(operation, entry item) -> operation + "/" + item` is injective and a derived key can never equal a raw
+operation id. Every id the app mints satisfies it today: `createRequestId` emits 32 lowercase hex
+characters (`src/lib/request-id.ts:84-89`), and a rabbit's item id **is** its create operation's id
+(`RabbitId(request_id.0.clone())`, `rabbit.rs:298-326`) — the minting rule 2.9 owes a weight entry's
+item id as well, since an entry has no id of its own before its create. But `RequestId` is contractually
+format-free (`src-tauri/src/ipc/types.rs:31-32`) and `ItemId` is opaque (`types.rs:59-66`), so injectivity
+belongs to the minter, not to the contract: **any future minter of either id must keep `/` out**, and one
+that cannot must replace this derivation (escaping or length-prefixing) instead of trusting it. The
+failure is loud rather than silent — a collision makes the ledger refuse the second write as the same key
+with a different payload, so a removal fails visibly instead of overwriting something.
+
 ## State and boundaries
 
 ```
@@ -685,6 +800,7 @@ P2), RAB-1's photo selection (PHOTO-2 in P2) and DM-4's health/medication scenar
 | R7 | **Permanent deletion is narrower than the source requirement.** RAB-10 in `docs/BunScale-Reimplementation-Requirements.md` permits permanent deletion with no precondition on the rabbit's state, which would allow an irreversible action straight from an active profile, while US-RAB-10's only case is an archived rabbit. | **Settled, recorded here so it is not reopened:** permanent deletion is available only for an archived rabbit; an active rabbit presents no delete affordance and the operation is refused, so the irreversible action sits behind the recoverable step of archiving (D1.8, task 2.7, task 4.5). This is an intentional **narrowing** of the source RAB-10, not a misreading — do not "restore" the unqualified reading. |
 | R8 | **Photo references without a picker.** P1 carries a photo reference whose selection arrives in P2, so the field is never populated in P1's own flows. | Accepted as a deliberate cross-phase split (D1.11): the thumbnail and placeholder behaviour (RAB-1, DASH-1) are testable with a supplied reference, and P2 supplies the picker. No photo-library capability is opened in P1. |
 | R9 | **Range state drifting between the two ranges.** A shared range store would silently couple the chart and the history sub-view and violate WT-6. | Ranges are separate typed search parameters, one per view (D1.4); the independence scenario is asserted as a component and as an E2E case. |
+| R10 | **The removal flag is unverified at the wire.** The service is outside this repository and the gate mocks it, so a deployment whose `save_item` lacks the seventh argument fails every delete as `unknown` while every test stays green. | D1.17 records the argument, the default and the service obligation; the deployment change must declare it and test it against a real PostgreSQL before the first release that deletes (ADR 0002). No in-repo test can close this. |
 
 ## Verification
 

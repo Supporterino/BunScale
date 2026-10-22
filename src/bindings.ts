@@ -383,12 +383,27 @@ export const commands = {
 	 *  keeps archiving the recoverable step before the point of no return (D1.8, R7). The confirmation
 	 *  that states the consequence is the frontend's (NFR-9); this command is called only after it.
 	 * 
+	 *  The removal is written as a **tombstone per item** — the rabbit and each weight entry that names it
+	 *  — into the household's shared collection, so the change feed reports it and every member resolves
+	 *  the household without it (D1.16, D1.17, HS-8). Each tombstone keeps the identity, the operation's
+	 *  version marker, the writing member and the content of the version that removed it, and carries the
+	 *  removal as `save_item`'s own `deleted` argument. Every read excludes a tombstone before its
+	 *  unknown-content check, so a removed item is never answered as unreadable (D1.17). The cascade stops
+	 *  before the rabbit's tombstone if any entry's removal does not apply, so the removal is never
+	 *  reported while a readable entry would survive it (RAB-10).
+	 * 
+	 *  A successful deletion publishes `rabbit:changed` with kind `deleted`; a refusal publishes nothing.
+	 *  No `weight:changed` is published per cascaded entry: the rabbit's removal names the whole subtree a
+	 *  listener drops, and this change has no weight write that owns those entries yet (tasks 2.9–2.11).
+	 * 
 	 *  # Errors
 	 * 
 	 *  `validation` for an **active** rabbit — the deliberate narrowing of RAB-10 (D1.8) — for an unknown
-	 *  rabbit, and for a blank operation identity. The write path's service conditions are reachable as for
-	 *  [`create_rabbit`]; a deletion the service did not accept leaves the rabbit in place and is never
-	 *  reported as removed.
+	 *  rabbit, for one this device holds only as a tombstone, for a blank operation identity, and for an
+	 *  id the derived ledger keys cannot keep distinct (D1.17). `unknown` with the unknown-content key when
+	 *  the rabbit's row or another live row cannot be described (D1.16), and `unknown` when a tombstone did
+	 *  not apply. The write path's service conditions are reachable as for [`create_rabbit`]; a deletion the
+	 *  service did not accept leaves the rabbit in place and is never reported as removed.
 	 */
 	deleteRabbit: (rabbitId: RabbitId, requestId: RequestId) => typedError<null, CommandError>(__TAURI_INVOKE("delete_rabbit", { rabbitId, requestId })),
 	/**
