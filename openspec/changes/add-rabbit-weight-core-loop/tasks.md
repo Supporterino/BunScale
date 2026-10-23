@@ -240,7 +240,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   the active list" (RAB-6), "Restoring returns the rabbit to the active list", "Restoration leaves the
   history unchanged" (RAB-7) and "Confirmed deletion removes the rabbit and its data", "An active
   rabbit cannot be permanently deleted", "The deletion is shared with every member" (RAB-10).
-- [ ] 5.3 [test-engineer] Rust tests for archived immutability and retention — covers "No new entry
+- [x] 5.3 [test-engineer] Rust tests for archived immutability and retention — covers "No new entry
   can be added to an archived rabbit", "Archived entries cannot be edited or deleted" (RAB-8),
   "Archived history survives an arbitrary interval", "Archiving discards nothing" (RAB-9) and "No
   weight data of an archived rabbit is mutable", "The archive is retrievable and its data is retained
