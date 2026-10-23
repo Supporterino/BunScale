@@ -19,7 +19,7 @@
 import { RouterProvider } from '@tanstack/react-router';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { cleanup, screen, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
@@ -30,7 +30,7 @@ import {
 } from '../../../test/setup';
 import type { DashboardRow } from '../../dashboard/queries';
 import { t } from '../../i18n';
-import type { Rabbit } from '../../rabbits/queries';
+import type { Rabbit, RabbitSummary } from '../../rabbits/queries';
 import type { ServiceStatus } from '../../sync/entry-status';
 import { resetSaveRetry } from '../../sync/save-retry';
 import type { Household } from '../queries';
@@ -95,6 +95,7 @@ type MockHandler = (args: Record<string, unknown>) => unknown;
 let calls: MockCall[];
 let handlers: Map<string, MockHandler>;
 let rows: DashboardRow[];
+let archivedRows: RabbitSummary[];
 
 function payloadOf(args: InvokeArgs | undefined): Record<string, unknown> {
   return (args ?? {}) as Record<string, unknown>;
@@ -104,6 +105,7 @@ beforeEach(() => {
   calls = [];
   handlers = new Map();
   rows = [];
+  archivedRows = [];
   resetSaveRetry();
 
   mockIPC(
@@ -149,6 +151,14 @@ function answerDashboard(): void {
   handlers.set('get_active_household', () => HOUSEHOLD);
   handlers.set('get_service_status', () => REACHABLE);
   handlers.set('get_dashboard', () => rows);
+  handlers.set('list_rabbits', (args) =>
+    args.includeArchived === true ? [...archivedRows] : [],
+  );
+  handlers.set('get_rabbit', (args) => ({
+    ...CREATED,
+    id: String(args.rabbitId),
+    name: String(args.rabbitId) === 'rabbit-hazel-2' ? 'Hazel 2' : CREATED.name,
+  }));
   handlers.set('load_household', () => ({
     household_id: HOUSEHOLD.id,
     items: [],
@@ -236,6 +246,40 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
     expect(addControl()).toHaveFocus();
   });
 
+  it('returns focus to the row that opened the detail when two names share a prefix', async () => {
+    rows = [
+      CREATED_ROW,
+      {
+        ...CREATED_ROW,
+        rabbit: {
+          ...CREATED_ROW.rabbit,
+          id: 'rabbit-hazel-2',
+          name: 'Hazel 2',
+        },
+      },
+    ];
+    answerDashboard();
+
+    await launchDashboard();
+
+    const user = userEvent.setup();
+    const second = await screen.findByText('Hazel 2');
+
+    await user.click(second);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Hazel 2' }),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: t('settings.back') }));
+
+    // Focus is restored by the rabbit's id, not by a name prefix: "Hazel" is a
+    // prefix of "Hazel 2" and must not capture the return.
+    await waitFor(() => {
+      expect(screen.getByText('Hazel 2').closest('button')).toHaveFocus();
+    });
+  });
+
   it('returns to the list after a confirmed create', async () => {
     answerDashboard();
     handlers.set('create_rabbit', () => {
@@ -262,7 +306,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
       screen.getByRole('button', { name: t('rabbit.form.save') }),
     );
 
-    // `onCreated` closes the form and the invalidated dashboard read answers
+    // `onSaved` closes the form and the invalidated dashboard read answers
     // with the new row.
     expect(await screen.findByText(CREATED.name)).toBeVisible();
     expect(
@@ -278,5 +322,110 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
         calls.filter((call) => call.command === 'create_rabbit'),
       ).toHaveLength(1);
     });
+  });
+
+  it('reaches the archived list from the empty dashboard', async () => {
+    // RAB-6: an all-archived household has zero active rows and presents the
+    // empty state, so the way into the archived list cannot live behind rows.
+    archivedRows = [
+      {
+        id: 'rabbit-willow',
+        name: 'Willow',
+        thumbnail_ref: null,
+        is_archived: true,
+      },
+    ];
+    answerDashboard();
+
+    await launchDashboard();
+
+    expect(
+      await screen.findByRole('heading', { name: t('dashboard.emptyTitle') }),
+    ).toBeVisible();
+
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole('button', { name: t('rabbit.archivedList.title') }),
+    );
+
+    expect(await screen.findByText('Willow')).toBeVisible();
+    expect(
+      screen.getByRole('heading', { name: t('rabbit.archivedList.title') }),
+    ).toBeVisible();
+    expect(
+      calls.some(
+        (call) =>
+          call.command === 'list_rabbits' && call.args.includeArchived === true,
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps the archived entry point while the dashboard read is pending', async () => {
+    answerDashboard();
+    handlers.set('get_dashboard', () => new Promise<DashboardRow[]>(() => {}));
+
+    await launchDashboard();
+
+    expect(
+      screen.getByRole('button', { name: t('rabbit.archivedList.title') }),
+    ).toBeVisible();
+    // The pending read has not claimed there are no rabbits.
+    expect(
+      screen.queryByRole('heading', { name: t('dashboard.emptyTitle') }),
+    ).toBeNull();
+  });
+
+  it('archives the last rabbit back to an announced empty state', async () => {
+    rows = [CREATED_ROW];
+    answerDashboard();
+    handlers.set('archive_rabbit', () => {
+      rows = [];
+      archivedRows = [
+        {
+          id: CREATED.id,
+          name: CREATED.name,
+          thumbnail_ref: null,
+          is_archived: true,
+        },
+      ];
+
+      return { ...CREATED, is_archived: true };
+    });
+
+    await launchDashboard();
+
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText(CREATED.name));
+
+    expect(
+      await screen.findByRole('heading', { name: CREATED.name }),
+    ).toBeVisible();
+
+    // RAB-6, D1.8: one press, no confirmation.
+    await user.click(screen.getByRole('button', { name: t('rabbit.archive') }));
+
+    expect(
+      await screen.findByRole('heading', { name: t('dashboard.emptyTitle') }),
+    ).toBeVisible();
+    expect(screen.queryByText(CREATED.name)).toBeNull();
+
+    // The empty state replaced content after an action, so it is inside the
+    // polite status region (EmptyState's contract).
+    expect(
+      within(screen.getByRole('status')).getByText(t('dashboard.emptyTitle')),
+    ).toBeVisible();
+
+    // The entry point survives the transition, and the rabbit is reachable.
+    const entry = screen.getByRole('button', {
+      name: t('rabbit.archivedList.title'),
+    });
+
+    expect(entry).toBeVisible();
+
+    await user.click(entry);
+
+    expect(await screen.findByText(CREATED.name)).toBeVisible();
   });
 });

@@ -190,6 +190,10 @@ export const P0_MESSAGES = {
   'connectivity.checkAgain': 'Check again',
   'connectivity.checking': 'Checking…',
 
+  // A single rabbit's failed read is profile-scoped, unlike the entry route's
+  // household-scoped `entry.loadFailed.title` (task 4.4; NFR-8).
+  'rabbit.loadFailed.title': 'This rabbit could not be loaded.',
+
   // Rabbit lifecycle controls (RAB-6, RAB-7, RAB-10, NFR-9). Archiving is the
   // reversible step and needs no consequence confirmation (D1.8), so there is
   // deliberately no `rabbit.archiveConfirm.*` group beside the delete one.

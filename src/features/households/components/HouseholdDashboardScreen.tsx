@@ -44,15 +44,40 @@
  * in the pending and non-empty states, while the zero-row state uses its own
  * prompt (DASH-8); every dashboard state therefore leads here.
  *
+ * **The profile detail is inline too (task 4.4; RAB-5).** `RabbitList` already
+ * accepts `onOpenRabbit`; this screen supplies it, so each row becomes a real
+ * control and a row replaces the list with `RabbitDetail` in the same scroll
+ * region. That is the same swap the form uses, and the detail owns its own edit
+ * state. Task 4.11 replaces this destination with the rabbit dashboard route;
+ * until then the detail is the destination the row's control has.
+ *
+ * **The archived list is reached from here, in every state (task 4.5; RAB-6).**
+ * A grouped list row above the content opens `ArchivedRabbitList` in the same
+ * scroll region. It is rendered outside the form/detail/list swap, so the
+ * pending read, zero rows, rows, the create form and the profile all carry the
+ * way in: a household whose rabbits are all archived is not trapped behind "No
+ * rabbits yet", because that empty state belongs to the active list (DASH-8,
+ * design.md D1.6). Closing the archived list returns focus to the row.
+ *
+ * **An archive that empties the list is announced.** The active list sits inside
+ * a wrapper that carries `role="status"` once this dashboard has held rows and
+ * then held none, so the empty state that replaces them is announced as replaced
+ * content rather than as the screen's initial state (`EmptyState`'s contract).
+ *
  * **Focus follows the swap in both directions.** The Add control unmounts when
  * the form takes its place, so the form focuses its first field on mount; on
  * cancel or a confirmed create the list returns and this screen puts focus back
- * on the Add control it was opened from. Without that, a keyboard or
- * screen-reader user would restart at the skip link after every swap.
+ * on the Add control it was opened from. A row likewise unmounts when the detail
+ * takes its place, and the detail's Back control returns focus to that row by
+ * the rabbit's id, so a duplicate name or a rename before closing still lands on
+ * the row that was opened. Without that, a keyboard or screen-reader user would
+ * restart at the skip link after every swap.
  */
 import { useEffect, useRef, useState } from 'react';
 import { AppShell } from '../../../components/ui/AppShell';
 import { IconButton } from '../../../components/ui/IconButton';
+import { List } from '../../../components/ui/List';
+import { ListRow } from '../../../components/ui/ListRow';
 import { NavigationBar } from '../../../components/ui/NavigationBar';
 import type { NavigationDestination } from '../../../components/ui/navigation';
 import { Screen } from '../../../components/ui/Screen';
@@ -66,6 +91,8 @@ import {
   GlyphSettings,
 } from '../../design-preview/components/glyphs';
 import { t } from '../../i18n';
+import { ArchivedRabbitList } from '../../rabbits/components/ArchivedRabbitList';
+import { RabbitDetail } from '../../rabbits/components/RabbitDetail';
 import { RabbitForm } from '../../rabbits/components/RabbitForm';
 import { LocalCopyNotice } from '../../sync/components/LocalCopyNotice';
 import { useActiveHousehold } from '../queries';
@@ -81,7 +108,13 @@ export function HouseholdDashboardScreen({
   useAppEvents();
 
   const [creatingRabbit, setCreatingRabbit] = useState(false);
+  const [openRabbitId, setOpenRabbitId] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const wasCreating = useRef(false);
+  const wasOpen = useRef(false);
+  const wasArchived = useRef(false);
+  const lastRabbitId = useRef<string | null>(null);
+  const hadActiveRows = useRef(false);
 
   const activeHousehold = useActiveHousehold();
   const householdName = activeHousehold.data?.name ?? t('dashboard.title');
@@ -122,6 +155,87 @@ export function HouseholdDashboardScreen({
   }, [creatingRabbit, dashboardRows.isFetching]);
 
   /*
+   * The same swap for the detail: the row that opened it has been unmounted, so
+   * Back returns focus to that row by the rabbit's id, not by its visible text —
+   * two rabbits may share a name prefix ("Hazel" and "Hazel 2"). The read is
+   * waited on because the detail's own save invalidates the dashboard rows, and
+   * focusing a row the new read has not painted yet would land nowhere.
+   */
+  useEffect(() => {
+    if (openRabbitId !== null) {
+      wasOpen.current = true;
+      lastRabbitId.current = openRabbitId;
+      return;
+    }
+
+    if (!wasOpen.current || dashboardRows.isFetching) {
+      return;
+    }
+
+    wasOpen.current = false;
+
+    const id = lastRabbitId.current;
+    const scope = document.querySelector('[data-household-entry="household"]');
+    const row =
+      id === null
+        ? undefined
+        : Array.from(
+            scope?.querySelectorAll<HTMLElement>('[data-rabbit-id]') ?? [],
+          ).find((element) => element.dataset.rabbitId === id);
+
+    /*
+     * An archived rabbit is no longer an active row, so there is nothing to
+     * return to. The archived entry point is where that rabbit went, and it is
+     * the next useful control rather than `<body>` (task 4.5, RAB-6).
+     */
+    (
+      row?.querySelector<HTMLButtonElement>('button.bs-list-row__target') ??
+      document.querySelector<HTMLButtonElement>(
+        '.bs-dashboard__archived button',
+      )
+    )?.focus();
+  }, [openRabbitId, dashboardRows.isFetching]);
+
+  /*
+   * The archived list's entry point is unmounted while that screen is open, so
+   * closing it returns focus to the control it was opened from (task 4.5).
+   */
+  useEffect(() => {
+    if (archivedOpen) {
+      wasArchived.current = true;
+      return;
+    }
+
+    if (!wasArchived.current) {
+      return;
+    }
+
+    wasArchived.current = false;
+    document
+      .querySelector<HTMLButtonElement>('.bs-dashboard__archived button')
+      ?.focus();
+  }, [archivedOpen]);
+
+  /*
+   * An archive can leave the active list at zero rows, and the empty state then
+   * replaces content rather than being the screen's initial state (DASH-8's
+   * contract in `EmptyState`). The region only carries `role="status"` once the
+   * dashboard has held rows in this mount, so first arrival on an all-archived
+   * household announces nothing. The active rows are read here at the shell's
+   * level because the list owns no live region of its own.
+   */
+  useEffect(() => {
+    if (dashboardRows.data !== undefined && dashboardRows.data.length > 0) {
+      hadActiveRows.current = true;
+    }
+  }, [dashboardRows.data]);
+
+  const announceEmpty =
+    hadActiveRows.current &&
+    dashboardRows.data !== undefined &&
+    dashboardRows.data.length === 0;
+
+  /*
    * One destination, because P0 has one product route for the shell. Its label
    * is `dashboard.title` ("Your household"), not the household's own name: a
    * navigation item should name a place, and the same label must not change when
@@ -153,31 +267,67 @@ export function HouseholdDashboardScreen({
         activeHousehold.data === null ? null : (
           <LocalCopyNotice householdId={activeHousehold.data.id} />
         )}
-        {creatingRabbit &&
-        activeHousehold.data !== undefined &&
-        activeHousehold.data !== null ? (
-          <RabbitForm
-            householdId={activeHousehold.data.id}
-            onCancel={() => setCreatingRabbit(false)}
-            onCreated={() => setCreatingRabbit(false)}
+        {archivedOpen ? (
+          <ArchivedRabbitList
+            onClose={() => {
+              setArchivedOpen(false);
+            }}
           />
         ) : (
-          <RabbitList
-            fallback={
-              <div className="bs-dashboard__intro">
-                <span aria-hidden="true" className="bs-dashboard__mark">
-                  <GlyphHousehold />
-                </span>
-                <Text tone="secondary">{t('dashboard.body')}</Text>
+          <>
+            {/*
+             * RAB-6's entry point, present in every dashboard state — the
+             * pending read, zero rows, rows, the form and the detail. Without
+             * it an all-archived household is trapped behind "No rabbits yet",
+             * because the empty state is keyed on the active list (DASH-8).
+             */}
+            <List className="bs-dashboard__archived">
+              <ListRow
+                accessory="chevron"
+                onClick={() => {
+                  setArchivedOpen(true);
+                }}
+                title={t('rabbit.archivedList.title')}
+              />
+            </List>
+            {creatingRabbit &&
+            activeHousehold.data !== undefined &&
+            activeHousehold.data !== null ? (
+              <RabbitForm
+                householdId={activeHousehold.data.id}
+                onCancel={() => setCreatingRabbit(false)}
+                onSaved={() => setCreatingRabbit(false)}
+              />
+            ) : openRabbitId !== null ? (
+              <RabbitDetail
+                onClose={() => setOpenRabbitId(null)}
+                rabbitId={openRabbitId}
+              />
+            ) : (
+              <div
+                className="bs-dashboard__active"
+                role={announceEmpty ? 'status' : undefined}
+              >
+                <RabbitList
+                  fallback={
+                    <div className="bs-dashboard__intro">
+                      <span aria-hidden="true" className="bs-dashboard__mark">
+                        <GlyphHousehold />
+                      </span>
+                      <Text tone="secondary">{t('dashboard.body')}</Text>
+                    </div>
+                  }
+                  onAddRabbit={
+                    activeHousehold.data === undefined ||
+                    activeHousehold.data === null
+                      ? undefined
+                      : () => setCreatingRabbit(true)
+                  }
+                  onOpenRabbit={setOpenRabbitId}
+                />
               </div>
-            }
-            onAddRabbit={
-              activeHousehold.data === undefined ||
-              activeHousehold.data === null
-                ? undefined
-                : () => setCreatingRabbit(true)
-            }
-          />
+            )}
+          </>
         )}
       </Screen>
     </AppShell>

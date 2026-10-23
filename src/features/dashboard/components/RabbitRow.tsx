@@ -88,7 +88,7 @@ export function RabbitRow({ row, onOpen, flag }: RabbitRowProps) {
   );
 
   return (
-    <li className="bs-list-row bs-rabbit-row">
+    <li className="bs-list-row bs-rabbit-row" data-rabbit-id={rabbit.id}>
       {onOpen === undefined ? (
         <span className="bs-list-row__target">{content}</span>
       ) : (

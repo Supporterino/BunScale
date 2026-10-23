@@ -1,9 +1,11 @@
 /*
- * The rabbit-creation form at the component layer (task 4.3; RAB-1, RAB-2).
+ * The rabbit form at the component layer (tasks 4.3 and 4.4; RAB-1, RAB-2,
+ * RAB-5).
  *
  * What this layer owns: the field set and the two fixed value sets (D1.14), the
  * "date of birth unknown" state, RAB-2's empty and whitespace-only refusal
- * before any command, and the shape of the profile `create_rabbit` receives.
+ * before any command, the shape of the profile `create_rabbit` receives, and —
+ * in edit mode — the threshold's own refusal before `update_rabbit`.
  * It also owns the save's two edges: exactly one command while a submit is in
  * flight, and a form that closes when the shell's recorded retry is confirmed.
  * IPC is mocked at `invoke`, the seam the other rabbit specs use, so the real
@@ -93,14 +95,14 @@ beforeEach(() => {
       args: (args ?? {}) as Record<string, unknown>,
     });
 
-    if (command !== 'create_rabbit') {
+    if (command !== 'create_rabbit' && command !== 'update_rabbit') {
       throw new Error(`unexpected mocked command "${command}"`);
     }
 
     const answer = answers.shift();
 
     if (answer === undefined) {
-      throw new Error('create_rabbit answered without a queued value');
+      throw new Error(`${command} answered without a queued value`);
     }
 
     return answer();
@@ -114,18 +116,34 @@ afterEach(async () => {
   resetSaveRetry();
 });
 
-function renderForm(onCreated = vi.fn()) {
+function renderForm(onSaved = vi.fn()) {
   const onCancel = vi.fn();
 
   renderWithQueryClient(
     <RabbitForm
       householdId={HOUSEHOLD_ID}
       onCancel={onCancel}
-      onCreated={onCreated}
+      onSaved={onSaved}
     />,
   );
 
-  return { onCancel, onCreated };
+  return { onCancel, onSaved };
+}
+
+/** The same form in edit mode: the saved profile, threshold included (RAB-5). */
+function renderEditForm(onSaved = vi.fn()) {
+  const onCancel = vi.fn();
+
+  renderWithQueryClient(
+    <RabbitForm
+      householdId={HOUSEHOLD_ID}
+      initial={{ rabbitId: CREATED.id, profile: CREATED }}
+      onCancel={onCancel}
+      onSaved={onSaved}
+    />,
+  );
+
+  return { onCancel, onSaved };
 }
 
 function nameField(): HTMLElement {
@@ -136,7 +154,7 @@ function submitButton(): HTMLElement {
   return screen.getByRole('button', { name: t('rabbit.form.save') });
 }
 
-describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
+describeAtBothBaselines('Rabbit form (RAB-1, RAB-2, RAB-5)', () => {
   it('offers the full identifying field set and the exact value sets', () => {
     renderForm();
 
@@ -193,7 +211,7 @@ describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
   it('submits every supplied identifying detail', async () => {
     answers.push(() => CREATED);
 
-    const { onCreated } = renderForm();
+    const { onSaved } = renderForm();
 
     fireEvent.change(nameField(), { target: { value: '  Hazel  ' } });
     fireEvent.change(
@@ -248,7 +266,7 @@ describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
       },
     });
 
-    expect(onCreated).toHaveBeenCalledTimes(1);
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
   it('saves an unknown date of birth without a date', async () => {
@@ -322,6 +340,27 @@ describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
     expect(getSaveRetryState().failure).toBeNull();
   });
 
+  it('refuses an unreadable edit threshold before writing', async () => {
+    const { onSaved } = renderEditForm();
+    const threshold = screen.getByRole('spinbutton', {
+      name: new RegExp(t('rabbit.form.thresholdLabel')),
+    });
+
+    expect(threshold).toHaveValue(5);
+
+    for (const value of ['', '-1']) {
+      fireEvent.change(threshold, { target: { value } });
+      fireEvent.click(submitButton());
+
+      expect(await screen.findByText(t('error.validation'))).toBeVisible();
+      expect(threshold).toHaveAttribute('aria-invalid', 'true');
+    }
+
+    // Nothing left the form, so no save can be reported as confirmed.
+    expect(calls).toHaveLength(0);
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
   it('re-sends the same operation for an unchanged retry', async () => {
     answers.push(() => {
       throw connectivityError();
@@ -357,7 +396,7 @@ describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
     });
     answers.push(() => CREATED);
 
-    const { onCreated } = renderForm();
+    const { onSaved } = renderForm();
 
     fireEvent.change(nameField(), { target: { value: 'Hazel' } });
     fireEvent.click(submitButton());
@@ -373,7 +412,7 @@ describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
     });
 
     await waitFor(() => {
-      expect(onCreated).toHaveBeenCalledTimes(1);
+      expect(onSaved).toHaveBeenCalledTimes(1);
     });
 
     expect(calls.map((call) => call.args.requestId)).toEqual([
@@ -391,7 +430,7 @@ describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
 
     answers.push(() => unresolved);
 
-    const { onCreated } = renderForm();
+    const { onSaved } = renderForm();
 
     fireEvent.change(nameField(), { target: { value: 'Hazel' } });
     fireEvent.click(submitButton());
@@ -415,7 +454,7 @@ describeAtBothBaselines('Rabbit creation form (RAB-1, RAB-2)', () => {
     });
 
     await waitFor(() => {
-      expect(onCreated).toHaveBeenCalledTimes(1);
+      expect(onSaved).toHaveBeenCalledTimes(1);
     });
   });
 });

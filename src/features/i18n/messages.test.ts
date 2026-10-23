@@ -206,6 +206,13 @@ describe('the P1 message catalog', () => {
     expect(t('rabbit.archived.readOnly')).toMatch(/read-only/i);
   });
 
+  it('gives a failed rabbit read its own profile-scoped title', () => {
+    expect(t('rabbit.loadFailed.title')).toBe(
+      'This rabbit could not be loaded.',
+    );
+    expect(t('rabbit.loadFailed.title')).not.toBe(t('entry.loadFailed.title'));
+  });
+
   it('pins the rabbit presentation fallbacks and blank-name prompt', () => {
     expect(t('rabbit.thumbnailPlaceholder')).toBe('No photo');
     expect(t('rabbit.dob.unknown')).toBe('Unknown');

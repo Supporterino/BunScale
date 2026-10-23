@@ -134,6 +134,338 @@
 }
 
 /*
+ * The dashboard's add control (task 4.3; RAB-4). It sits above the list or the
+ * nothing-loaded fallback, at the trailing edge on the content measure, so the
+ * same control reads as a toolbar action at both baselines. The empty state is
+ * not wrapped in it: that state already carries its own prompt and one add
+ * control per state is the point.
+ */
+.bs-dashboard__toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/*
+ * The rabbit creation form (task 4.3; RAB-1, RAB-2). It replaces the list
+ * inside the dashboard's scroll region. The card is the grouped surface and the
+ * form inside it keeps the system's stack rhythm; the measure is the form
+ * token, so a wide window does not stretch seven fields across the content
+ * column.
+ */
+.bs-rabbit-form {
+  width: 100%;
+  max-width: var(--layout-form-max);
+  margin-inline: auto;
+}
+
+.bs-rabbit-form__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-lg);
+  margin-block-start: var(--card-gap);
+}
+
+/*
+ * RAB-1's photo field without a picker (D1.11): a placeholder row in the
+ * sunken surface. It is informational, not a control — the image glyph is
+ * decorative and the visible "No photo" text is the name the reader hears.
+ */
+.bs-rabbit-form__photo {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-12);
+  background: var(--color-surface-sunken);
+}
+
+.bs-rabbit-form__photo-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-touch-target);
+  height: var(--size-touch-target);
+  border-radius: var(--radius-8);
+  background: var(--color-surface);
+  color: var(--color-text-tertiary);
+}
+
+/*
+ * The explicit "unknown" option for the date of birth. The native checkbox is
+ * the platform control (the system has no checkbox primitive); the label keeps
+ * the whole row at the 44 pt touch baseline and the accent colour is the one
+ * semantic brand role, so it follows the theme.
+ */
+.bs-rabbit-form__unknown {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: var(--size-touch-target);
+}
+
+/*
+ * `base.css` removes the native appearance from every `input` so the system's
+ * own fields can paint themselves. A checkbox has no primitive in the frozen
+ * inventory, so this one restores the platform control instead of imitating it
+ * with a background and a glyph.
+ */
+.bs-rabbit-form__unknown input {
+  width: var(--space-5);
+  height: var(--space-5);
+  margin: 0;
+  accent-color: var(--color-primary);
+  appearance: auto;
+  -webkit-appearance: auto;
+}
+
+.bs-rabbit-form__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/*
+ * The rabbit profile detail (task 4.4; RAB-5). It replaces the list inside the
+ * dashboard's scroll region, like the form. The action row holds the Back
+ * control and the directly visible edit control at opposite edges, so the edit
+ * is on the surface itself rather than behind a gesture (NFR-9); the measure is
+ * the form token so the values do not stretch across a wide window.
+ */
+.bs-rabbit-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+  width: 100%;
+  max-width: var(--layout-form-max);
+  margin-inline: auto;
+}
+
+.bs-rabbit-detail__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/*
+ * The identity row: the RAB-1 photo placeholder at the list row's fixed 44 pt
+ * size, beside the rabbit's name. The placeholder's accessible name is the
+ * "No photo" key, so it is information rather than decoration.
+ */
+.bs-rabbit-detail__card {
+  width: 100%;
+}
+
+.bs-rabbit-detail__identity {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.bs-rabbit-detail__photo {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-touch-target);
+  height: var(--size-touch-target);
+  overflow: hidden;
+  border-radius: var(--radius-8);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-tertiary);
+}
+
+.bs-rabbit-detail__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bs-rabbit-detail__name {
+  margin: 0;
+}
+
+/*
+ * One definition-list row per RAB-1 field. Label and value sit on one line with
+ * the value at the trailing edge (the iOS detail-row shape); long values wrap
+ * instead of being clipped, and the row grows with Dynamic Type because neither
+ * text container has a fixed height.
+ */
+.bs-rabbit-detail__fields {
+  display: flex;
+  flex-direction: column;
+  margin: var(--card-gap) 0 0;
+}
+
+.bs-rabbit-detail__field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  gap: var(--space-3);
+  align-items: baseline;
+  padding-block: var(--space-2);
+  border-block-end: var(--border-width-hairline) solid var(--color-border);
+}
+
+.bs-rabbit-detail__field:last-child {
+  border-block-end: 0;
+}
+
+.bs-rabbit-detail__term {
+  color: var(--color-text-secondary);
+  font-size: var(--text-subheadline-size);
+  line-height: var(--text-subheadline-line-height);
+}
+
+.bs-rabbit-detail__value {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-line-height);
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+
+/*
+ * The rabbit lifecycle surfaces (task 4.5; RAB-6, RAB-7, RAB-10).
+ *
+ * The detail's two right-hand actions (edit, archive) share one group so the
+ * action row keeps Back at the leading edge and the rabbit's own controls at the
+ * trailing one; `flex-wrap` is what lets them stack at a large preferred text
+ * size instead of shrinking below the 44 pt target.
+ */
+.bs-rabbit-detail__action-group {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/*
+ * The active half of the dashboard. It is a wrapper so the shell can put the
+ * empty state's `role="status"` around the content `RabbitList` owns (the list
+ * itself is a primitive-composed feature surface, not the live region's owner),
+ * and it keeps the screen's stack rhythm that the wrapper would otherwise hide.
+ */
+.bs-dashboard__active {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+}
+
+/*
+ * The archived list (RAB-6, RAB-7, RAB-10). It replaces the active list inside
+ * the dashboard's scroll region, like the form and the detail, and keeps the
+ * form measure so a wide window does not stretch a row's actions across it.
+ */
+.bs-archived {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+  width: 100%;
+  max-width: var(--layout-form-max);
+  margin-inline: auto;
+}
+
+.bs-archived__actions-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+/*
+ * One card per archived rabbit, stacked at the section distance: each card is a
+ * separate record with its own lifecycle controls, not a grouped settings list.
+ */
+.bs-archived__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-lg);
+}
+
+.bs-archived__meta {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/*
+ * The row's two controls wrap rather than shrink at 390 px and at a large
+ * preferred text size; the destructive control stays last (NFR-9).
+ */
+.bs-archived__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/*
+ * The permanent-deletion confirmation (`DeleteRabbitDialog`, RAB-10, NFR-9).
+ *
+ * The dialog is a feature component because the frozen inventory defers a modal
+ * primitive. It is fixed to the viewport (no transformed ancestor exists in the
+ * shell), above the skip link's `1` and the save-failure surface's `2`; a
+ * confirmation the person is answering belongs on top of a notice about an
+ * earlier failure. The four safe-area insets are added once, here, at the
+ * viewport edges: the panel is centred inside the padding those edges leave.
+ *
+ * The panel caps at the form measure and scrolls its own content rather than
+ * growing past the viewport, so the consequence and both controls stay
+ * reachable with Dynamic Type. `--color-scrim` and `--shadow-sheet` are the
+ * semantic elevation decisions; no new value is introduced.
+ */
+.bs-delete-dialog {
+  position: fixed;
+  z-index: 3;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-block: calc(var(--spacing-inline) + var(--safe-area-inset-top))
+    calc(var(--spacing-inline) + var(--safe-area-inset-bottom));
+  padding-inline: calc(var(--spacing-inline) + var(--safe-area-inset-left))
+    calc(var(--spacing-inline) + var(--safe-area-inset-right));
+  background: var(--color-scrim);
+}
+
+.bs-delete-dialog__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+  width: 100%;
+  max-width: var(--layout-form-max);
+  max-height: 100%;
+  padding: var(--card-padding);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-card);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-sheet);
+}
+
+/*
+ * The consequence: the rabbit's name as the secondary line, then the catalog's
+ * irreversible-consequence sentence. Both are ordinary text, so a reader hears
+ * the dialog's description rather than only its title.
+ */
+.bs-delete-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-sm);
+}
+
+.bs-delete-dialog__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/*
  * Settings & Profile (task 4.3). The screen's direct children are grouped
  * sections, so the content column's stack rhythm is widened to the section
  * distance; everything inside a section keeps the shared component rhythm.
