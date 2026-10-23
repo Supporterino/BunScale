@@ -18,8 +18,16 @@
  *     no `<time>` at all — the spec asks for "no date", not for a hidden one.
  *   - **A read in flight is not an empty household.** Until the read answers the
  *     list presents the caller's fallback and states nothing about how many
- *     rabbits exist; DASH-8's empty state is task 4.2's claim, not a placeholder
- *     this list may invent.
+ *     rabbits exist (DASH-8's empty state is task 4.2's claim).
+ *   - **Zero resolved rows is the empty state** (task 4.2; DASH-8, RAB-4): the
+ *     P1 title and body, and a directly visible add control that opens the
+ *     rabbit-creation form. The same section asserts the two readings that keep
+ *     it honest — a household with a rabbit shows the list instead, and a
+ *     household whose only rabbits are archived still shows the empty state,
+ *     because the state is keyed on the active list (design.md D1.6).
+ *   - **A read that fails never becomes the empty state.** A failed attempt that
+ *     never succeeded leaves the fallback in place; DASH-8 is a fact about a
+ *     successful answer, and 4.15 owns the failure surface.
  *
  * The renders run at both component baselines (390×844 and 1280×800) through
  * `describeAtBothBaselines`. Both platforms share this layer: nothing here is
@@ -29,14 +37,21 @@
  * fixed. Touch geometry and the adaptive layout are E2E's (5.15–5.18).
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import {
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   describeAtBothBaselines,
   renderWithQueryClient,
 } from '../../../test/setup';
 import type { Household } from '../../households/queries';
 import { t } from '../../i18n';
+import { dashboardKeys } from '../keys';
 import type { DashboardRow } from '../queries';
 import { RabbitList } from './RabbitList';
 
@@ -62,6 +77,19 @@ type FixtureRabbit = { readonly id: string; readonly name: string };
 const HAZEL: FixtureRabbit = { id: 'rabbit-hazel', name: 'Hazel' };
 const BRAMBLE: FixtureRabbit = { id: 'rabbit-bramble', name: 'Bramble' };
 const CLOVER: FixtureRabbit = { id: 'rabbit-clover', name: 'Clover' };
+
+/**
+ * The household's only rabbit, archived. It belongs to the archived list's own
+ * screen (RAB-6) and never to `get_dashboard`, whose rows are the active list;
+ * it is seeded so the empty state's key — the active list — is under test rather
+ * than the fixture's silence.
+ */
+const ARCHIVED_RABBIT = {
+  id: 'rabbit-willow',
+  name: 'Willow',
+  thumbnail_ref: null,
+  is_archived: true,
+};
 
 const RABBITS: readonly FixtureRabbit[] = [HAZEL, BRAMBLE, CLOVER];
 
@@ -114,10 +142,12 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 const NO_ROWS_YET = t('dashboard.body');
 
 let answer: DashboardRow[] | Promise<DashboardRow[]>;
+let failRead: boolean;
 let calls: string[];
 
 beforeEach(() => {
   answer = [];
+  failRead = false;
   calls = [];
 
   mockIPC((command) => {
@@ -127,7 +157,17 @@ beforeEach(() => {
       case 'get_active_household':
         return HOUSEHOLD;
       case 'get_dashboard':
+        if (failRead) {
+          // Thrown at call time, not stored as a rejected promise, so the test
+          // owns exactly one failure and nothing leaks an unhandled rejection.
+          throw new Error('dashboard unavailable');
+        }
+
         return answer;
+      case 'list_rabbits':
+        // The archived read would answer with the household's archived rabbit;
+        // the active dashboard read is what the empty state is keyed on.
+        return [ARCHIVED_RABBIT];
       default:
         throw new Error(`unexpected mocked command "${command}"`);
     }
@@ -270,6 +310,79 @@ describeAtBothBaselines(
       }
     });
 
+    it('prompts for the first rabbit with a visible add control', async () => {
+      const onAddRabbit = vi.fn();
+
+      renderWithQueryClient(<RabbitList onAddRabbit={onAddRabbit} />);
+
+      // The P1 copy (3.8), not a message invented here.
+      expect(
+        await screen.findByRole('heading', {
+          name: t('dashboard.emptyTitle'),
+        }),
+      ).toBeVisible();
+      expect(screen.getByText(t('dashboard.emptyBody'))).toBeVisible();
+
+      // RAB-4: the control that opens the creation form is directly visible,
+      // and it is a real, enabled button because this caller supplies the form.
+      const add = screen.getByRole('button', { name: t('rabbit.add') });
+
+      expect(add).toBeVisible();
+      expect(add).toBeEnabled();
+
+      fireEvent.click(add);
+
+      expect(onAddRabbit).toHaveBeenCalledTimes(1);
+
+      // The empty state replaces the list; it does not sit above an empty one.
+      expect(screen.queryByRole('list')).toBeNull();
+    });
+
+    it('keeps the add control present but disabled before the form exists', async () => {
+      // Task 4.3 supplies the destination. Until then the control is honest
+      // about having nowhere to go rather than being a live no-op.
+      renderWithQueryClient(<RabbitList />);
+
+      expect(
+        await screen.findByRole('heading', {
+          name: t('dashboard.emptyTitle'),
+        }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: t('rabbit.add') }),
+      ).toBeDisabled();
+    });
+
+    it('presents the list instead of the empty state once a rabbit exists', async () => {
+      answer = [HAZEL_ROW];
+
+      await showRows(HAZEL.name);
+
+      expect(screen.getAllByRole('listitem')).toHaveLength(1);
+      expect(screen.queryByText(t('dashboard.emptyTitle'))).toBeNull();
+      expect(screen.queryByText(t('dashboard.emptyBody'))).toBeNull();
+    });
+
+    it('presents the empty state for a household whose rabbits are all archived', async () => {
+      // `get_dashboard` answers the active list only; the household's sole
+      // rabbit is archived, so the resolved answer is zero rows. The archived
+      // read would return it, and the list must not consult it (design.md D1.6).
+      answer = [];
+
+      renderWithQueryClient(<RabbitList />);
+
+      expect(
+        await screen.findByRole('heading', {
+          name: t('dashboard.emptyTitle'),
+        }),
+      ).toBeVisible();
+      expect(screen.getByText(t('dashboard.emptyBody'))).toBeVisible();
+
+      expect(calls).toContain('get_dashboard');
+      expect(calls).not.toContain('list_rabbits');
+      expect(screen.queryByText(ARCHIVED_RABBIT.name)).toBeNull();
+    });
+
     it('claims nothing until the read answers', async () => {
       // A read that never answers: the state before the first response, which a
       // person sits in on a cold start.
@@ -286,8 +399,28 @@ describeAtBothBaselines(
       expect(screen.getByText(NO_ROWS_YET)).toBeVisible();
 
       // No list and, above all, no empty state: "no rabbits" is a fact only a
-      // loaded answer can state (DASH-8 is task 4.2's).
+      // loaded answer can state (DASH-8).
       expect(screen.queryByRole('list')).toBeNull();
+      expect(screen.queryByText(t('dashboard.emptyTitle'))).toBeNull();
+      expect(screen.queryByText(t('dashboard.emptyBody'))).toBeNull();
+    });
+
+    it('never presents the empty state for a read that failed', async () => {
+      // A failure that never resolved is not "no rabbits"; 4.15 owns the
+      // failure surface, so this list keeps the nothing-loaded fallback.
+      failRead = true;
+
+      const { client } = renderWithQueryClient(
+        <RabbitList fallback={<p>{NO_ROWS_YET}</p>} />,
+      );
+
+      await waitFor(() => {
+        expect(
+          client.getQueryState(dashboardKeys.rows(HOUSEHOLD.id))?.status,
+        ).toBe('error');
+      });
+
+      expect(screen.getByText(NO_ROWS_YET)).toBeVisible();
       expect(screen.queryByText(t('dashboard.emptyTitle'))).toBeNull();
       expect(screen.queryByText(t('dashboard.emptyBody'))).toBeNull();
     });

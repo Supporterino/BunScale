@@ -1,5 +1,6 @@
 /*
- * The dashboard rabbit list (task 4.1; DASH-1, DASH-2, DASH-3).
+ * The dashboard rabbit list (task 4.1; DASH-1, DASH-2, DASH-3), with the
+ * zero-row empty state added by task 4.2 (DASH-8, RAB-4).
  *
  * One read, one list: `useDashboardRows` asks the active household's dashboard
  * read for its rows and this component presents them as P0's grouped `List` of
@@ -8,13 +9,25 @@
  * Sorting here would be the second derivation the read model exists to avoid,
  * and it would have to reproduce the backend's own ordering rules.
  *
- * **What this list does not own.** DASH-8's empty state (task 4.2) and DASH-4's
- * per-row drop flag (task 4.12) are the next tasks on this surface; DASH-9's
- * quick-weight control (4.7) composes into the row's control slot. Until one of
- * them lands, zero rows and a read that has not answered yet both render the
- * `fallback` the screen supplies — P0's "what this household is" intro. That is
- * a nothing-loaded surface, not an invented empty state: "no rabbits" is a fact
- * only a loaded answer can state, and 4.2 is the task that states it.
+ * **No answer is not "no rabbits".** `data === undefined` means no read has
+ * resolved: the first one is still in flight, or it failed before it ever
+ * succeeded. That is the caller's `fallback` (P0's "what this household is"
+ * intro), because "no rabbits" is a fact only a resolved answer can state.
+ * DASH-8's empty state is therefore decided on `data.length === 0`, never on
+ * the absence of data.
+ *
+ * **The empty state is keyed on the active list.** `get_dashboard` carries the
+ * household's non-archived rabbits only, so a household whose rabbits are all
+ * archived resolves to zero rows here and presents the empty state, while the
+ * archived list stays reachable as its own screen (design.md D1.6). This list
+ * never consults the archived read to decide: the empty state belongs to the
+ * active list, not to a household rabbit count.
+ *
+ * **A failure is 4.15's surface, not this one.** A read that never resolved
+ * falls back exactly as before; nothing here invents failure copy.
+ *
+ * **What this list still does not own.** DASH-4's per-row drop flag (task 4.12)
+ * and DASH-9's quick-weight control (4.7) compose into the row's control slot.
  *
  * **The row control is supplied, not invented.** DASH-6's destination is the
  * rabbit dashboard, which P1's route tree does not hold until task 4.11, so the
@@ -25,33 +38,48 @@
 import type { ReactNode } from 'react';
 import { List } from '../../../components/ui/List';
 import { useDashboardRows } from '../queries';
+import { EmptyRabbitList } from './EmptyRabbitList';
 import { RabbitRow } from './RabbitRow';
 
 export type RabbitListProps = {
   /**
-   * Shown while there is no loaded row to present — before the first answer,
-   * on a failed read, and for a household with no rabbits (until task 4.2's
-   * empty state replaces it). The screen supplies P0's intro.
+   * Shown while no answer has resolved — before the first one, and when the read
+   * failed and never succeeded. Zero resolved rows is DASH-8's empty state, not
+   * this fallback.
    */
   fallback?: ReactNode;
   /** Opens a row's rabbit dashboard (DASH-6; task 4.11 supplies this). */
   onOpenRabbit?: (rabbitId: string) => void;
+  /**
+   * Opens the rabbit-creation form from the empty state (RAB-4). Task 4.3's route
+   * supplies it; absent, the control renders disabled rather than pretending to
+   * have a destination.
+   */
+  onAddRabbit?: () => void;
 };
 
-export function RabbitList({ fallback = null, onOpenRabbit }: RabbitListProps) {
+export function RabbitList({
+  fallback = null,
+  onOpenRabbit,
+  onAddRabbit,
+}: RabbitListProps) {
   const rows = useDashboardRows();
 
   /*
    * `data` is the last successful answer: `undefined` before the first one,
    * still present during a refetch, and undefined again when the read failed
    * and never succeeded. A failed read has no cause copy that belongs to this
-   * task's catalog, so it degrades to the same nothing-loaded surface rather
-   * than presenting a stale claim or an invented message.
+   * task's catalog, so it keeps the nothing-loaded fallback rather than
+   * presenting an invented message (4.15 owns the failure surface).
    */
   const data = rows.data;
 
-  if (data === undefined || data.length === 0) {
+  if (data === undefined) {
     return <>{fallback}</>;
+  }
+
+  if (data.length === 0) {
+    return <EmptyRabbitList onAddRabbit={onAddRabbit} />;
   }
 
   return (

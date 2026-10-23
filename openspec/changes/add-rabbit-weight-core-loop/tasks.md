@@ -156,8 +156,11 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 4.1 [frontend-ui] Build the dashboard rabbit list: name, thumbnail with placeholder fallback,
   last-weighed date or never-weighed indication, sorted with never-weighed last; laid out for 390×844
   first and 1280×800 second (DASH-1, DASH-2, DASH-3).
-- [ ] 4.2 [frontend-ui] Build the dashboard empty state prompting the person to add their first
-  rabbit, with the add control present from it (DASH-8, RAB-4).
+- [x] 4.2 [frontend-ui] Build the dashboard empty state prompting the person to add their first
+  rabbit, with the add control present from it (DASH-8, RAB-4). **4.3 must** pass a real
+  `onAddRabbit` into `RabbitList`, render the add control outside the zero-row branch (RAB-4 wants it
+  whether the household holds rabbits or none, including pending), and delete the failing test's
+  "disabled interim" expectation at `rabbit-list.test.tsx:341` so that state cannot outlive the change.
 - [ ] 4.3 [frontend-ui] Build the rabbit-creation form reachable from the dashboard at all times:
   name, optional photo, breed, date of birth with an "unknown" option, sex offered as exactly
   `male`/`female`/`unknown`, neuter status offered as exactly `intact`/`neutered`/`spayed`/`unknown`
@@ -168,7 +171,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   restore and permanent-delete controls; the permanent-delete control lives on the archived list and
   in the archived rabbit's read-only surface and is absent from an active rabbit's profile, deleting
   requires a confirmation stating the consequence, and archiving does not (RAB-6, RAB-7, RAB-10,
-  NFR-9).
+  NFR-9). **Also:** the archived-list entry point must be present on the dashboard in **every** state
+  including the empty one, or an all-archived household is trapped behind "No rabbits yet"; and the
+  transition to zero rows after an archive or delete must announce the replaced content
+  (`role="status"`), per the `EmptyState` contract.
 - [ ] 4.6 [frontend-ui] Build the read-only presentation of an archived rabbit: its dashboard, its
   history and its entry details without any control that adds, edits or deletes its weight data (the
   lifecycle controls — restore and permanent delete — belong to the archived list, task 4.5)
