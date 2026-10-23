@@ -61,7 +61,11 @@
 //! moment or the operation's creation instant, and the note is optional and kept whole (WT-1). An
 //! entry's identity is its create operation's identity, so a retried create is the same row (D0.14),
 //! and the derived drop-alert flag is written `false` rather than persisted (D1.16, D1.3). The value
-//! rules, the edit and delete paths, the reads and the derivation are the tasks that follow it.
+//! rules of WT-4 are applied where the draft becomes a record: a value of zero or less is refused, and
+//! a value above the plausibility bound is refused until the draft confirms it — the bound is a
+//! confirmation threshold, so a confirmed outlier is stored at its true value (D1.9). The same rule is
+//! public for the edit path. The edit and delete paths, the reads and the derivation are the tasks that
+//! follow.
 //!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.

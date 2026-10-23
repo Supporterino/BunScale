@@ -85,7 +85,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   `AppState::writable_rabbit` (2.8) and adds a **command-level** test that an archived rabbit's
   create is refused with nothing written or published. Also add the missing test that a row whose
   payload is a weight entry, not a rabbit, is refused as `validation` (2.8's non-rabbit branch).
-- [ ] 2.10 [rust-backend] Implement weight value validation: reject zero and negative values through
+- [x] 2.10 [rust-backend] Implement weight value validation: reject zero and negative values through
   P0's failure surface, and mark a value above the plausibility bound as requiring confirmation
   (WT-4).
 - [ ] 2.11 [rust-backend] Implement editing and deleting a past weight entry, shared with all

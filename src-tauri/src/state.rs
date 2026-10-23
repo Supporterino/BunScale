@@ -635,13 +635,15 @@ impl AppState {
     ///    cannot establish that the rabbit is not archived (D1.16), and an id that names an item which
     ///    is not a rabbit is refused as `validation` too. The household that resolved the rabbit is the
     ///    collection the entry is written into, never the person's active household.
-    /// 2. The entry is recorded next, so the refusals the input itself produces — a blank operation
-    ///    identity and a timestamp that is not an absolute instant — are reported as `validation` even
-    ///    when no account exists, because that is what the form has to change. The value is stored in
-    ///    canonical grams exactly as supplied and carries no unit (DM-1); the supplied timestamp is kept
-    ///    as that moment, including in the past, and an omitted one becomes the operation's creation
-    ///    instant (WT-1) — minted once per operation by [`AppState::entry_created_at`], so a retry sends
-    ///    the same one (D0.14). The note is optional and kept whole.
+    /// 2. The entry is recorded next, so the refusals the input itself produces — a value of zero or
+    ///    less, an unconfirmed value above the plausibility bound (WT-4), a blank operation identity
+    ///    and a timestamp that is not an absolute instant — are reported as `validation` even when no
+    ///    account exists, because that is what the form has to change. The value is stored in
+    ///    canonical grams exactly as supplied and carries no unit (DM-1); a confirmed outlier is
+    ///    recorded at its true value, never clamped (D1.9). The supplied timestamp is kept as that
+    ///    moment, including in the past, and an omitted one becomes the operation's creation instant
+    ///    (WT-1) — minted once per operation by [`AppState::entry_created_at`], so a retry sends the
+    ///    same one (D0.14). The note is optional and kept whole.
     /// 3. No account is `no_account` before any probe, and the **writing member** is resolved from the
     ///    person's household book exactly as a rabbit write resolves it (ADR 0002 criterion 3).
     /// 4. The version marker is the one minted for the operation and the write goes through
@@ -661,7 +663,8 @@ impl AppState {
     /// # Errors
     ///
     /// `validation` for a blank rabbit id, a rabbit this device holds no live row for, one whose row is
-    /// not a rabbit, an **archived** rabbit (DM-4, RAB-8; D1.5), a blank operation identity, a
+    /// not a rabbit, an **archived** rabbit (DM-4, RAB-8; D1.5), a value of zero or less, an
+    /// unconfirmed value above the plausibility bound (WT-4), a blank operation identity, a
     /// timestamp that is not an absolute instant, and a household with no member for this account;
     /// `unknown` with the unknown-content key when the rabbit's row has no content this device can
     /// describe (D1.16); `no_account` when no account is available; and otherwise the gate's mapped

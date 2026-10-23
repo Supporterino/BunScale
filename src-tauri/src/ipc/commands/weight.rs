@@ -17,8 +17,10 @@
 //! through the same seam when their bodies land.
 //!
 //! The create body records the value in canonical grams exactly as the draft carries it. WT-4's value
-//! rules — a value of zero or less, and an unconfirmed value above the plausibility bound — are task
-//! 2.10's and are deliberately not applied here yet.
+//! rules — a value of zero or less, and an unconfirmed value above the plausibility bound — are
+//! applied where the draft becomes a record, by `crate::domain::weight::validate_value`, so the edit
+//! body of task 2.11 calls that same rule rather than a second copy. The bound is a confirmation
+//! threshold, not a rejection (D1.9): a confirmed outlier is stored at its true value.
 //!
 //! **Everything on this wire is grams.** No command accepts a per-entry unit, no type here carries a
 //! unit field, and the display unit never appears in a payload (D1.2, DM-1). The conversion between
@@ -211,7 +213,7 @@ mod tests {
     use crate::ipc::events::test_support::RecordingWeightPublisher;
     use crate::ipc::types::{
         AccountUserId, CollectionItem, CollectionSource, Grams, HouseholdCollection, ItemId,
-        ItemPayload, NeuterStatus, Rabbit, Sex,
+        ItemPayload, NeuterStatus, PLAUSIBILITY_BOUND_GRAMS, Rabbit, Sex,
     };
     use crate::state::AppState;
     use crate::storage::AbsoluteInstant;
@@ -460,6 +462,181 @@ mod tests {
         assert!(
             publisher.published().is_empty(),
             "a refusal never reports a weight change"
+        );
+    }
+
+    /// WT-4, "A zero value is rejected": the refusal is `validation`, carries the operation's identity,
+    /// and neither writes nor publishes anything, so no entry is left for the person to see.
+    #[test]
+    fn a_zero_value_is_refused_and_writes_and_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service.clone());
+        let publisher = RecordingWeightPublisher::default();
+        let calls_before = service.calls();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(created_weight_entry(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            WeightEntryDraft {
+                value_grams: Grams(0),
+                ..draft()
+            },
+            request_id.clone(),
+        ))
+        .expect_err("a zero value names no weight");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a weight change"
+        );
+    }
+
+    /// WT-4, "A negative value is rejected": `validation`, the operation's identity, and nothing
+    /// written or published.
+    #[test]
+    fn a_negative_value_is_refused_and_writes_and_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service.clone());
+        let publisher = RecordingWeightPublisher::default();
+        let calls_before = service.calls();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(created_weight_entry(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            WeightEntryDraft {
+                value_grams: Grams(-250),
+                ..draft()
+            },
+            request_id.clone(),
+        ))
+        .expect_err("a negative value names no weight");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a weight change"
+        );
+    }
+
+    /// WT-4, "A value above the plausibility bound requires confirmation": one gram above the bound is
+    /// refused while the draft is unconfirmed — the bound is inclusive, so this is the first value that
+    /// needs confirming — and nothing is written or published.
+    #[test]
+    fn one_gram_above_the_bound_is_refused_until_confirmed_and_writes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service.clone());
+        let publisher = RecordingWeightPublisher::default();
+        let calls_before = service.calls();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(created_weight_entry(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            WeightEntryDraft {
+                value_grams: Grams(PLAUSIBILITY_BOUND_GRAMS.0 + 1),
+                outlier_confirmed: false,
+                ..draft()
+            },
+            request_id.clone(),
+        ))
+        .expect_err("an unconfirmed outlier is not saved");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a weight change"
+        );
+    }
+
+    /// WT-4, D1.9: the bound itself is plausible — exactly 10 kg is saved without confirmation, which
+    /// fixes the bound on the accepted side rather than the rejected one.
+    #[test]
+    fn a_value_exactly_at_the_bound_is_saved_without_confirmation() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service.clone());
+        let publisher = RecordingWeightPublisher::default();
+
+        let created = block_on_ready(created_weight_entry(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            WeightEntryDraft {
+                value_grams: PLAUSIBILITY_BOUND_GRAMS,
+                outlier_confirmed: false,
+                ..draft()
+            },
+            request_id("operation-3"),
+        ))
+        .expect("the bound itself needs no confirmation");
+
+        assert_eq!(created.value_grams, PLAUSIBILITY_BOUND_GRAMS);
+        let body = write_bodies(&service)
+            .pop()
+            .expect("the entry write reached the transport");
+        assert_eq!(
+            body["payload"]["weight_entry"]["value_grams"],
+            json!(PLAUSIBILITY_BOUND_GRAMS.0)
+        );
+        assert_eq!(
+            publisher.published().len(),
+            1,
+            "the saved entry is reported exactly once"
+        );
+    }
+
+    /// WT-4, "A confirmed outlier is saved": the person's confirmation lets the entry through at its
+    /// true value — it is stored as submitted and never clamped to the bound or otherwise rewritten.
+    #[test]
+    fn a_confirmed_outlier_is_saved_with_its_true_value() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service.clone());
+        let publisher = RecordingWeightPublisher::default();
+        let outlier = Grams(30_000);
+
+        let created = block_on_ready(created_weight_entry(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            WeightEntryDraft {
+                value_grams: outlier,
+                outlier_confirmed: true,
+                ..draft()
+            },
+            request_id("operation-3"),
+        ))
+        .expect("a confirmed outlier is saved");
+
+        assert_eq!(created.value_grams, outlier, "the value is never clamped");
+        let body = write_bodies(&service)
+            .pop()
+            .expect("the entry write reached the transport");
+        assert_eq!(
+            body["payload"]["weight_entry"]["value_grams"],
+            json!(outlier.0),
+            "the stored payload carries the confirmed value itself"
+        );
+        assert_eq!(
+            publisher.published().len(),
+            1,
+            "the saved entry is reported exactly once"
         );
     }
 }

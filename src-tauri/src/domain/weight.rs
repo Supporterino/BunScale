@@ -37,17 +37,23 @@
 //! SYNC-2). What this device holds afterwards is its **copy of the shared collection**, filled by the
 //! read path (SYNC-3) — never by this module writing it.
 //!
-//! **What this module does not decide.** Duplicate-entry detection, the value rules of WT-4 (a value
-//! of zero or less, an unconfirmed outlier), editing and deletion, the reads and the drop-alert
-//! derivation belong to tasks 2.10–2.15. [`WeightEntryDraft::outlier_confirmed`] is carried by the
-//! draft but not yet read here.
+//! **A value is checked where the draft becomes a record.** [`validate_value`] is the one WT-4 rule —
+//! a value of zero or less is refused, and a value above [`PLAUSIBILITY_BOUND_GRAMS`] is refused until
+//! the draft's [`outlier_confirmed`](WeightEntryDraft::outlier_confirmed) says the person confirmed it
+//! — and [`record`] applies it before anything is recorded. It is a separate function so task 2.11's
+//! edit path can apply the identical rule to a correction rather than growing a second copy. The bound
+//! is a confirmation threshold, not a rejection (D1.9): a confirmed outlier is recorded at its true
+//! value, never clamped.
+//!
+//! **What this module does not decide.** Duplicate-entry detection, editing and deletion, the reads
+//! and the drop-alert derivation belong to tasks 2.11–2.15.
 
 use serde_json::{Value, json};
 
 use super::rabbit::SAVE_ITEM_RPC;
 use crate::ipc::types::{
-    CommandError, HouseholdId, Instant, ItemId, ItemPayload, MemberId, RabbitId, RequestId,
-    WeightEntry, WeightEntryDraft, WeightEntryId,
+    CommandError, Grams, HouseholdId, Instant, ItemId, ItemPayload, MemberId,
+    PLAUSIBILITY_BOUND_GRAMS, RabbitId, RequestId, WeightEntry, WeightEntryDraft, WeightEntryId,
 };
 use crate::storage::AbsoluteInstant;
 use crate::sync::{SaveGate, SaveRequest, SharedService};
@@ -72,6 +78,39 @@ pub fn item_id(entry_id: &WeightEntryId) -> ItemId {
     ItemId(entry_id.0.clone())
 }
 
+/// The one WT-4 value rule, applied wherever a draft becomes a recorded value.
+///
+/// A value of zero or less is refused (`validation`): it names no weighable rabbit and is inevitably a
+/// typing error. A value **above** [`PLAUSIBILITY_BOUND_GRAMS`] is refused until
+/// [`WeightEntryDraft::outlier_confirmed`] says the person confirmed it; exactly at the bound is
+/// accepted without confirmation, so the bound itself is plausible and only a value beyond it is
+/// questioned (D1.9). A confirmed outlier passes unchanged and is recorded at its true value — the
+/// bound is a confirmation threshold, never a rejection.
+///
+/// It is public so task 2.11's edit path calls this same function for a correction: the value rule has
+/// one implementation, not a create copy and an edit copy.
+///
+/// # Errors
+///
+/// `validation`, carrying the operation's identity, for a value of zero or less and for an unconfirmed
+/// value above the bound. Nothing is sent by this function; it only answers whether the value may
+/// become an entry.
+pub fn validate_value(
+    value_grams: Grams,
+    outlier_confirmed: bool,
+    request_id: &RequestId,
+) -> Result<(), CommandError> {
+    if value_grams <= Grams(0) {
+        return Err(CommandError::validation(Some(request_id.clone())));
+    }
+
+    if value_grams > PLAUSIBILITY_BOUND_GRAMS && !outlier_confirmed {
+        return Err(CommandError::validation(Some(request_id.clone())));
+    }
+
+    Ok(())
+}
+
 /// Record one weight entry for `rabbit_id` (WT-1, DM-1).
 ///
 /// The supplied value is recorded in canonical grams exactly as it stands (D1.2, DM-1). The timestamp
@@ -90,10 +129,11 @@ pub fn item_id(entry_id: &WeightEntryId) -> ItemId {
 /// # Errors
 ///
 /// `validation` for a blank operation identity, because the entry's id is minted from it and a blank
-/// one would name no item at all, and for a supplied timestamp that is not an absolute instant — the
-/// unparseable text is refused rather than replaced with `now`, so a corrupt input cannot masquerade
-/// as the moment of creation (DM-6). Both carry the operation's identity, and neither sends anything.
-/// The value rules of WT-4 are task 2.10's and are deliberately not applied here.
+/// one would name no item at all; for a value of zero or less, and for an unconfirmed value above the
+/// plausibility bound (WT-4, via [`validate_value`]); and for a supplied timestamp that is not an
+/// absolute instant — the unparseable text is refused rather than replaced with `now`, so a corrupt
+/// input cannot masquerade as the moment of creation (DM-6). All carry the operation's identity, and
+/// none sends anything.
 pub fn record(
     rabbit_id: RabbitId,
     draft: WeightEntryDraft,
@@ -108,8 +148,10 @@ pub fn record(
         value_grams,
         timestamp,
         note,
-        ..
+        outlier_confirmed,
     } = draft;
+
+    validate_value(value_grams, outlier_confirmed, request_id)?;
 
     let timestamp = match timestamp {
         // The moment is the point: an explicit past instant is a valid record of that moment and is
@@ -289,6 +331,29 @@ mod tests {
         assert_eq!(writes.len(), 1, "one create submits exactly one write");
 
         writes[0].clone()
+    }
+
+    /// WT-4, D1.9: the bound is inclusive. Exactly 10 kg is plausible, so it needs no confirmation.
+    #[test]
+    fn a_value_exactly_at_the_plausibility_bound_is_accepted_without_confirmation() {
+        validate_value(PLAUSIBILITY_BOUND_GRAMS, false, &request_id("operation-1"))
+            .expect("the bound itself is a plausible value");
+    }
+
+    /// WT-4, D1.9: one gram above the bound is a *confirmation* threshold — refused until confirmed,
+    /// and accepted once it is, never clamped to the bound.
+    #[test]
+    fn one_gram_above_the_plausibility_bound_requires_confirmation() {
+        let above = Grams(PLAUSIBILITY_BOUND_GRAMS.0 + 1);
+        let operation = request_id("operation-1");
+
+        let error = validate_value(above, false, &operation)
+            .expect_err("an unconfirmed outlier is refused");
+
+        assert_eq!(error.cause, crate::ipc::types::SaveCause::Validation);
+        assert_eq!(error.request_id, Some(operation.clone()));
+
+        validate_value(above, true, &operation).expect("a confirmed outlier is accepted");
     }
 
     /// WT-1, "An entry is recorded with the current time": an omitted timestamp records the creation
