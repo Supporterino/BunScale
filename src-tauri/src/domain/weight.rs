@@ -63,10 +63,17 @@
 //! [`ordered`], tombstones are excluded before the content check, and a live row whose content this
 //! device cannot describe refuses the whole read rather than answering a partial set (D1.16, D1.17).
 //!
-//! **What this module does not decide.** Duplicate-entry detection, the drop-alert derivation and
-//! the entry-detail read belong to tasks 2.13–2.15; a deletion is the write path's tombstone (D1.17).
-//! [`trend`] answers each point's `has_weight_drop_alert` as the constant `false` — the stored value
-//! is ignored on every read (D1.16) — and task 2.13 replaces the constant with the derived value.
+//! **The drop alert is one derivation over the whole entry set.** [`alerts`] orders the rabbit's
+//! entries by the one comparator and flags an entry whose drop against its predecessor exceeds the
+//! rabbit's threshold, so a threshold change, an edit or a deletion re-evaluates the surrounding
+//! entries without rewriting any stored one (WT-7; D1.3, D1.13). [`trend`] applies the window to the
+//! **points only**: each flag is derived from the full set, so a point whose predecessor lies outside
+//! the returned window is still judged against it (I3). The stored `has_weight_drop_alert` is never
+//! read back (D1.16). The dashboard read (2.14) and the entry-detail read (2.15) call [`alerts`] the
+//! same way rather than re-deriving the rule. Duplicate-entry detection and a deletion's tombstone
+//! remain the write path's (D1.17).
+
+use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use time::format_description::well_known::Rfc3339;
@@ -318,6 +325,93 @@ pub struct EntryOrder {
     id: String,
 }
 
+/// WT-7's documented default drop threshold, in percent (RAB-1, RAB-5).
+///
+/// The wire type makes the threshold a required `f64` on every rabbit
+/// ([`Rabbit::weight_drop_threshold_percent`]), so the derivation never receives "no threshold": the
+/// default is what a rabbit profile carries unless the person changes it, and it is recorded once on
+/// the rabbit — never on an entry. No alert is derived here; [`alerts`] takes the stored value.
+pub const DEFAULT_DROP_THRESHOLD_PERCENT: f64 = 5.0;
+
+/// One entry's derived drop alert, in the shared order (WT-7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryAlert {
+    /// The entry the flag belongs to.
+    pub id: WeightEntryId,
+    /// Whether the entry's drop against its predecessor exceeds the rabbit's threshold.
+    pub has_weight_drop_alert: bool,
+}
+
+/// Derive the drop alert of every entry of one rabbit (WT-7; D1.3, D1.12, D1.13).
+///
+/// The entries are ordered by [`ordered`] — `(timestamp, created_at, id)` — so the predecessor is the
+/// one WT-7 names, and two entries sharing a timestamp are judged by their recorded creation order
+/// rather than by insertion or id. The first entry has **no predecessor and is never flagged**.
+///
+/// An entry is flagged when its drop against the predecessor **exceeds** `threshold_percent`, as a
+/// percentage of the predecessor's value. The comparison is strict: a drop exactly at the threshold
+/// is not a drop *beyond* it and raises no alert. It is evaluated without a division — `(previous −
+/// current) · 100 > threshold · previous` — so no `NaN` or infinity can arise and the equality
+/// boundary is decided on the exact gram values rather than on a rounded quotient. Because both sides
+/// are computed identically on every device, the same entries and threshold yield the same flags
+/// everywhere (WT-7).
+///
+/// **Nothing is stored and nothing is rewritten.** The function reads the entries it is given and
+/// returns one flag per entry; a threshold change is another call with another number, and an edit or
+/// deletion is another call over the changed set. The stored `has_weight_drop_alert` is never read
+/// (D1.16).
+///
+/// Callers pass the rabbit's **full** entry set, never a window: `get_weight_entries` derives here
+/// first and only then applies its range, and the dashboard row (2.14) and the entry detail (2.15)
+/// call this same function for their flags (I3, R2).
+///
+/// # Errors
+///
+/// `unknown` with no operation identity when a stored timestamp or creation instant is not an
+/// absolute instant, because the order the derivation depends on cannot be built (DM-6).
+pub fn alerts(
+    entries: &[WeightEntry],
+    threshold_percent: f64,
+) -> Result<Vec<EntryAlert>, CommandError> {
+    let mut derived = Vec::with_capacity(entries.len());
+    let mut previous: Option<Grams> = None;
+
+    for entry in ordered(entries.to_vec())? {
+        let has_weight_drop_alert = previous
+            .is_some_and(|previous| drop_exceeds(previous, entry.value_grams, threshold_percent));
+
+        previous = Some(entry.value_grams);
+        derived.push(EntryAlert {
+            id: entry.id,
+            has_weight_drop_alert,
+        });
+    }
+
+    Ok(derived)
+}
+
+/// Whether the drop from `previous` to `current` exceeds `threshold_percent` (WT-7).
+///
+/// One line of arithmetic with no division: `(previous − current) · 100 > threshold · previous`.
+/// The left side is exact for integer grams and the right side is one rounding of the stored
+/// threshold, so an exactly-at-threshold drop compares equal and does **not** flag. A gain is a
+/// negative drop and cannot flag.
+///
+/// The guard makes the function total on corrupt input: a **non-positive predecessor** names no
+/// percentage (WT-4 refuses it on write), and a **negative or non-finite threshold** names no bound —
+/// read as an inequality, either would let a gain or an equal-value pair satisfy the comparison. Both
+/// raise no alert; the profile boundary refuses such a threshold as `validation`
+/// ([`crate::domain::rabbit`]), so this is the second of two safeguards rather than the primary one.
+fn drop_exceeds(previous: Grams, current: Grams, threshold_percent: f64) -> bool {
+    if previous <= Grams(0) || !threshold_percent.is_finite() || threshold_percent < 0.0 {
+        return false;
+    }
+
+    let dropped = i64::from(previous.0) - i64::from(current.0);
+
+    dropped as f64 * 100.0 > threshold_percent * f64::from(previous.0)
+}
+
 /// One rabbit's weight entries inside a range window, oldest first, with the rabbit's threshold
 /// alongside (WT-6, WT-7; D1.4, D1.16, D1.17).
 ///
@@ -339,8 +433,9 @@ pub struct EntryOrder {
 /// rabbit's entries (or an entry that precedes one of them), and a subset is not the rabbit's set
 /// (D1.16).
 ///
-/// Each point's `has_weight_drop_alert` is the constant `false`: the stored payload's flag is ignored
-/// on every read (D1.16), and the derived flag is task 2.13's.
+/// Each point's `has_weight_drop_alert` is [`alerts`]'s derivation over the rabbit's **full** entry
+/// set, never over the window: a point whose predecessor lies outside the returned points is still
+/// judged against it (I3, R2). The stored payload's flag is ignored on every read (D1.16).
 ///
 /// # Errors
 ///
@@ -367,11 +462,7 @@ pub fn trend(
             Some(ItemPayload::WeightEntry { weight_entry })
                 if weight_entry.rabbit_id == rabbit.id =>
             {
-                let at = parse_instant(&weight_entry.timestamp)?;
-
-                if inside(at, lower_bound, upper_bound) {
-                    entries.push(weight_entry.clone());
-                }
+                entries.push(weight_entry.clone());
             }
             // A rabbit row — this one or another — is not an entry of this series.
             Some(_) => {}
@@ -379,15 +470,35 @@ pub fn trend(
         }
     }
 
-    let points = ordered(entries)?
+    // The flags are derived from the full set before the window is applied, so trimming the points
+    // can never re-base an alert on a different predecessor (I3).
+    let flags: HashMap<WeightEntryId, bool> =
+        alerts(&entries, rabbit.weight_drop_threshold_percent)?
+            .into_iter()
+            .map(|alert| (alert.id, alert.has_weight_drop_alert))
+            .collect();
+
+    let mut in_window = Vec::new();
+
+    for entry in entries {
+        let at = parse_instant(&entry.timestamp)?;
+
+        if inside(at, lower_bound, upper_bound) {
+            in_window.push(entry);
+        }
+    }
+
+    let points = ordered(in_window)?
         .into_iter()
-        .map(|entry| WeightEntrySummary {
-            id: entry.id,
-            value_grams: entry.value_grams,
-            timestamp: entry.timestamp,
-            // The payload's flag is not content and is ignored on read (D1.16); task 2.13 replaces
-            // this constant with the derived value (WT-7).
-            has_weight_drop_alert: false,
+        .map(|entry| {
+            let id = entry.id;
+
+            WeightEntrySummary {
+                has_weight_drop_alert: flags.get(&id).copied().unwrap_or(false),
+                id,
+                value_grams: entry.value_grams,
+                timestamp: entry.timestamp,
+            }
         })
         .collect();
 
@@ -1094,7 +1205,7 @@ mod tests {
             neuter_status: crate::ipc::types::NeuterStatus::Spayed,
             adoption_date: None,
             is_archived: false,
-            weight_drop_threshold_percent: 5.0,
+            weight_drop_threshold_percent: DEFAULT_DROP_THRESHOLD_PERCENT,
         }
     }
 
@@ -1397,6 +1508,328 @@ mod tests {
         );
     }
 
+    /// The derived flags of `entries`, in order, as `(id, flagged)` pairs.
+    fn alert_flags(rabbit: &Rabbit, entries: &[WeightEntry]) -> Vec<(String, bool)> {
+        alerts(entries, rabbit.weight_drop_threshold_percent)
+            .expect("the entries order")
+            .into_iter()
+            .map(|alert| (alert.id.0, alert.has_weight_drop_alert))
+            .collect()
+    }
+
+    /// WT-7, "A drop exceeding the threshold is flagged": 2000 g → 1800 g at 5% is a 10% drop.
+    #[test]
+    fn a_drop_beyond_the_threshold_is_flagged() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_800, "2026-10-21T00:00:00Z"),
+        ];
+
+        assert_eq!(
+            alert_flags(&rabbit, &entries),
+            vec![("entry-1".to_owned(), false), ("entry-2".to_owned(), true)]
+        );
+    }
+
+    /// WT-7, "A drop within the threshold is not flagged": 2000 g → 1950 g at 5% is a 2.5% drop.
+    #[test]
+    fn a_drop_within_the_threshold_is_not_flagged() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_950, "2026-10-21T00:00:00Z"),
+        ];
+
+        assert_eq!(
+            alert_flags(&rabbit, &entries),
+            vec![("entry-1".to_owned(), false), ("entry-2".to_owned(), false)]
+        );
+    }
+
+    /// WT-7's word is "exceeds", so the comparison is strict: a drop exactly at the threshold is not
+    /// flagged, and one gram more is. 2000 → 1900 is exactly 5%; 2000 → 1899 is 5.05%.
+    #[test]
+    fn a_drop_exactly_at_the_threshold_is_not_flagged_and_one_gram_beyond_is() {
+        let rabbit = stored_rabbit();
+        let at_threshold = [
+            stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_900, "2026-10-21T00:00:00Z"),
+        ];
+        let beyond = [
+            stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_899, "2026-10-21T00:00:00Z"),
+        ];
+
+        assert!(
+            !alert_flags(&rabbit, &at_threshold)[1].1,
+            "equality is not `exceeds`"
+        );
+        assert!(alert_flags(&rabbit, &beyond)[1].1);
+    }
+
+    /// WT-7: the derivation's second safeguard. A negative or non-finite threshold should never reach
+    /// it — the profile boundary refuses one — but if it did, it must not flag a gain or an
+    /// equal-value pair: neither is a drop.
+    #[test]
+    fn a_negative_or_non_finite_threshold_flags_no_entry() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 2_000, "2026-10-21T00:00:00Z"),
+            stored_entry(&rabbit, "entry-3", 2_100, "2026-10-22T00:00:00Z"),
+        ];
+
+        for threshold in [-5.0, f64::NEG_INFINITY, f64::INFINITY, f64::NAN] {
+            let flags = alerts(&entries, threshold).expect("the entries order");
+
+            assert!(
+                flags.iter().all(|alert| !alert.has_weight_drop_alert),
+                "{threshold} flags no entry: an equal value and a gain are not drops"
+            );
+        }
+    }
+
+    /// WT-7: the first entry has no predecessor, so it is never flagged — whatever its value.
+    #[test]
+    fn the_first_entry_is_never_flagged() {
+        let rabbit = stored_rabbit();
+        let entries = [stored_entry(
+            &rabbit,
+            "entry-1",
+            1_000,
+            "2026-10-20T00:00:00Z",
+        )];
+
+        assert_eq!(
+            alert_flags(&rabbit, &entries),
+            vec![("entry-1".to_owned(), false)]
+        );
+    }
+
+    /// WT-7, "Raising the threshold clears an existing flag" and "Lowering the threshold raises a
+    /// flag": the same entries are re-derived against three thresholds, and no entry is rewritten.
+    /// `entry-2` drops 10%; `entry-3` drops 2.5% against it.
+    #[test]
+    fn a_threshold_change_re_derives_the_flags_without_rewriting_an_entry() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_800, "2026-10-21T00:00:00Z"),
+            stored_entry(&rabbit, "entry-3", 1_755, "2026-10-22T00:00:00Z"),
+        ];
+        let as_stored = entries.clone();
+
+        assert_eq!(
+            alert_flags(&rabbit, &entries),
+            vec![
+                ("entry-1".to_owned(), false),
+                ("entry-2".to_owned(), true),
+                ("entry-3".to_owned(), false),
+            ],
+            "at 5% the 10% drop is flagged and the 2.5% drop is not"
+        );
+
+        let raised = alerts(&entries, 15.0).expect("the entries order");
+        assert_eq!(
+            raised
+                .iter()
+                .filter(|alert| alert.has_weight_drop_alert)
+                .count(),
+            0,
+            "raising the threshold above every drop clears the flags"
+        );
+
+        let lowered = alerts(&entries, 2.0).expect("the entries order");
+        assert_eq!(
+            lowered
+                .iter()
+                .filter(|alert| alert.has_weight_drop_alert)
+                .count(),
+            2,
+            "lowering it below the 2.5% drop raises the flag"
+        );
+
+        assert_eq!(
+            entries, as_stored,
+            "a threshold change derives flags only; no stored entry is rewritten"
+        );
+        assert!(
+            entries.iter().all(|entry| !entry.has_weight_drop_alert),
+            "every stored entry still carries the write boundary's constant `false`"
+        );
+    }
+
+    /// WT-7, "Entries sharing a timestamp are ordered by creation": the earlier-created entry is the
+    /// predecessor, and the later-created one's drop is measured against it. The ids sort opposite to
+    /// creation order, so an id-based tie rule would flip the result.
+    #[test]
+    fn entries_sharing_a_timestamp_are_judged_against_the_earlier_created_entry() {
+        let rabbit = stored_rabbit();
+        let earlier = created_entry(
+            &rabbit,
+            "entry-z",
+            2_000,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T09:00:00Z",
+        );
+        let later = created_entry(
+            &rabbit,
+            "entry-a",
+            1_800,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T10:00:00Z",
+        );
+
+        assert_eq!(
+            alert_flags(&rabbit, &[later, earlier]),
+            vec![("entry-z".to_owned(), false), ("entry-a".to_owned(), true)],
+            "the later-created entry is judged against the earlier-created one"
+        );
+    }
+
+    /// WT-7, "Deleting an entry re-derives the following entry's alert": with the middle entry gone,
+    /// the remaining later entry is compared against the one that now precedes it.
+    #[test]
+    fn deleting_an_entry_re_derives_the_following_entry_against_its_new_predecessor() {
+        let rabbit = stored_rabbit();
+        let first = stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z");
+        let middle = stored_entry(&rabbit, "entry-2", 1_500, "2026-10-21T00:00:00Z");
+        let following = stored_entry(&rabbit, "entry-3", 1_600, "2026-10-22T00:00:00Z");
+
+        assert!(
+            !alert_flags(&rabbit, &[first.clone(), middle, following.clone()])[2].1,
+            "against the 1500 g entry the 1600 g reading is a gain"
+        );
+        assert!(
+            alert_flags(&rabbit, &[first, following])[1].1,
+            "against the 2000 g entry the 1600 g reading is a 20% drop"
+        );
+    }
+
+    /// WT-7, "Editing an entry re-derives the alerts around it": the edited entry's own flag and the
+    /// following entry's flag both change with the corrected value.
+    #[test]
+    fn editing_an_entry_re_derives_its_own_flag_and_the_following_entrys() {
+        let rabbit = stored_rabbit();
+        let first = stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z");
+        let edited = stored_entry(&rabbit, "entry-2", 1_900, "2026-10-21T00:00:00Z");
+        let following = stored_entry(&rabbit, "entry-3", 1_800, "2026-10-22T00:00:00Z");
+
+        let before = alert_flags(&rabbit, &[first.clone(), edited.clone(), following.clone()]);
+        assert_eq!(
+            before,
+            vec![
+                ("entry-1".to_owned(), false),
+                ("entry-2".to_owned(), false),
+                ("entry-3".to_owned(), true),
+            ],
+            "the 5% drop is at the threshold; the 5.26% drop beyond it is flagged"
+        );
+
+        let corrected = stored_entry(&rabbit, "entry-2", 1_750, "2026-10-21T00:00:00Z");
+        let after = alert_flags(&rabbit, &[first, corrected, following]);
+
+        assert_eq!(
+            after,
+            vec![
+                ("entry-1".to_owned(), false),
+                ("entry-2".to_owned(), true),
+                ("entry-3".to_owned(), false),
+            ],
+            "the corrected entry is now flagged and its follower no longer is"
+        );
+    }
+
+    /// I3: the window limits the points, never the derivation. Entries outside a window are still the
+    /// predecessors of its earliest points, and every returned flag equals the one the full set
+    /// produced for the same entry.
+    #[test]
+    fn a_point_whose_predecessor_is_outside_the_window_is_judged_against_it() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-old", 2_000, "2026-01-01T00:00:00Z"),
+            stored_entry(&rabbit, "entry-mid", 1_700, "2026-09-01T00:00:00Z"),
+            stored_entry(&rabbit, "entry-recent", 1_600, "2026-10-22T00:00:00Z"),
+        ];
+        let rows = entries.iter().map(entry_row).collect();
+        let collection = collection(&rabbit, rows);
+        let now = at("2026-10-23T00:00:00Z");
+
+        let full: HashMap<WeightEntryId, bool> = alerts(&entries, DEFAULT_DROP_THRESHOLD_PERCENT)
+            .expect("the entries order")
+            .into_iter()
+            .map(|alert| (alert.id, alert.has_weight_drop_alert))
+            .collect();
+
+        for (range, expected) in [
+            (WeightRange::Days30, vec![("entry-recent", true)]),
+            (
+                WeightRange::Days90,
+                vec![("entry-mid", true), ("entry-recent", true)],
+            ),
+            (
+                WeightRange::All,
+                vec![
+                    ("entry-old", false),
+                    ("entry-mid", true),
+                    ("entry-recent", true),
+                ],
+            ),
+        ] {
+            let trend =
+                trend(&collection, &rabbit, range, &now).expect("the collection is readable");
+
+            assert_eq!(
+                trend
+                    .points
+                    .iter()
+                    .map(|point| (point.id.0.as_str(), point.has_weight_drop_alert))
+                    .collect::<Vec<_>>(),
+                expected,
+                "each point is judged against its full-set predecessor in {range:?}"
+            );
+
+            for point in &trend.points {
+                assert_eq!(
+                    Some(&point.has_weight_drop_alert),
+                    full.get(&point.id),
+                    "a window's flag equals the full set's flag for the same entry"
+                );
+            }
+        }
+    }
+
+    /// WT-7, D1.3, D1.16: the rabbit's threshold travels with the series so a point is judged against
+    /// the same number that produced it, and a stored payload's `true` is ignored: the flag is derived
+    /// on read, and a lone entry has no predecessor to be flagged against.
+    #[test]
+    fn the_trend_carries_the_rabbits_threshold_and_ignores_a_stored_alert() {
+        let rabbit = Rabbit {
+            weight_drop_threshold_percent: 8.5,
+            ..stored_rabbit()
+        };
+        let entry = WeightEntry {
+            has_weight_drop_alert: true,
+            ..stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z")
+        };
+        let collection = collection(&rabbit, vec![entry_row(&entry)]);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(trend.drop_threshold_percent, 8.5);
+        assert!(
+            !trend.points[0].has_weight_drop_alert,
+            "the stored flag is never read back; the derivation has no predecessor to flag against"
+        );
+    }
+
     /// WT-6's 90-day window is exercised directly, so a wrong day count in that arm cannot pass the
     /// suite. `2026-07-25T00:00:00Z` is exactly 90 days before `2026-10-23T00:00:00Z`.
     #[test]
@@ -1603,36 +2036,6 @@ mod tests {
             crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
         );
         assert_eq!(error.request_id, None);
-    }
-
-    /// WT-7, D1.3, D1.16: the rabbit's threshold travels with the series so a point is judged against
-    /// the same number, and the point's flag is the constant `false` — a non-normalised stored `true`
-    /// is ignored on read, because the derived flag is task 2.13's.
-    #[test]
-    fn the_trend_carries_the_rabbits_threshold_and_the_constant_alert() {
-        let rabbit = Rabbit {
-            weight_drop_threshold_percent: 8.5,
-            ..stored_rabbit()
-        };
-        let entry = WeightEntry {
-            has_weight_drop_alert: true,
-            ..stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z")
-        };
-        let collection = collection(&rabbit, vec![entry_row(&entry)]);
-
-        let trend = trend(
-            &collection,
-            &rabbit,
-            WeightRange::All,
-            &at("2026-10-23T00:00:00Z"),
-        )
-        .expect("the collection is readable");
-
-        assert_eq!(trend.drop_threshold_percent, 8.5);
-        assert!(
-            !trend.points[0].has_weight_drop_alert,
-            "the stored flag is ignored on read; the point carries the constant"
-        );
     }
 
     /// Only the named rabbit's entries are in its series; another rabbit's entry in the same

@@ -131,6 +131,24 @@ pub fn validate_name(
     RabbitName::parse(input).ok_or_else(|| CommandError::validation(Some(request_id.clone())))
 }
 
+/// WT-7's threshold is a percentage of a **drop**, so it is a finite, non-negative number.
+///
+/// Zero is accepted — a person may want every drop flagged — but a negative value names no percentage
+/// and, read as a bound, would flag a gain and an equal-value pair in the derivation. A non-finite
+/// value (`NaN`, `±∞`) is the same refusal: it cannot be displayed, stored as JSON is not guaranteed,
+/// and the derivation could not compare against it meaningfully. The refusal is `validation`, because
+/// this is a person-supplied profile field (the same cause the rest of the profile's input rules use),
+/// and it is applied at **both** the create and the edit boundary. The derivation also refuses such a
+/// value defensively ([`crate::domain::weight::alerts`]), so a value that bypassed this boundary still
+/// cannot flag a non-drop.
+fn validate_threshold(threshold_percent: f64, request_id: &RequestId) -> Result<(), CommandError> {
+    if !threshold_percent.is_finite() || threshold_percent < 0.0 {
+        return Err(CommandError::validation(Some(request_id.clone())));
+    }
+
+    Ok(())
+}
+
 /// One rabbit profile as the domain holds it: the RAB-1 field set, once it does not contradict
 /// itself.
 ///
@@ -168,7 +186,7 @@ pub struct RabbitRecord {
     /// Whether the rabbit is archived. A created rabbit is never archived: RAB-6's archiving is an
     /// operation of its own.
     is_archived: bool,
-    /// The weight-drop threshold percentage (WT-7), as supplied.
+    /// The weight-drop threshold percentage (WT-7), finite and non-negative by construction.
     weight_drop_threshold_percent: f64,
 }
 
@@ -182,9 +200,10 @@ impl RabbitRecord {
     /// # Errors
     ///
     /// `validation` when the name is blank — empty or entirely whitespace, which RAB-2 treats as the
-    /// same refusal — and when the profile marks the date of birth unknown **and** supplies one: the
-    /// two cannot both be true, and refusing the pair is the only answer that cannot disagree with
-    /// what the form showed (I8). Also `validation` for a blank operation identity, because the item's
+    /// same refusal — when the profile marks the date of birth unknown **and** supplies one (the two
+    /// cannot both be true, and refusing the pair is the only answer that cannot disagree with what
+    /// the form showed, I8), and when the weight-drop threshold is negative or not finite (WT-7).
+    /// Also `validation` for a blank operation identity, because the item's
     /// id is minted from it and a blank one would name no item at all. Every refusal happens here —
     /// before the caller checks the account — so a request the *input* makes impossible is reported
     /// as itself rather than as a missing account. Each carries the operation's identity, like every
@@ -203,6 +222,8 @@ impl RabbitRecord {
         if profile.dob_unknown && profile.dob.is_some() {
             return Err(CommandError::validation(Some(request_id.clone())));
         }
+
+        validate_threshold(profile.weight_drop_threshold_percent, request_id)?;
 
         Ok(Self {
             id: rabbit_id(request_id),
@@ -238,11 +259,11 @@ impl RabbitRecord {
     /// # Errors
     ///
     /// `validation` for a blank name — the same [`validate_name`] rule creation uses, whitespace-only
-    /// included (RAB-2) — for the contradictory date-of-birth pair (I8), and for a blank operation
-    /// identity or a blank rabbit id, because neither names the item being edited. Every refusal
-    /// happens here, before the caller checks the account, and none sends anything to the shared
-    /// service. Each carries the operation's identity like every failure of a state-changing command
-    /// (D0.14).
+    /// included (RAB-2) — for the contradictory date-of-birth pair (I8), for a negative or non-finite
+    /// weight-drop threshold (WT-7, via [`validate_threshold`]), and for a blank operation identity
+    /// or a blank rabbit id, because neither names the item being edited. Every refusal happens here,
+    /// before the caller checks the account, and none sends anything to the shared service. Each
+    /// carries the operation's identity like every failure of a state-changing command (D0.14).
     pub fn updated(
         household_id: HouseholdId,
         id: RabbitId,
@@ -258,6 +279,8 @@ impl RabbitRecord {
         if profile.dob_unknown && profile.dob.is_some() {
             return Err(CommandError::validation(Some(request_id.clone())));
         }
+
+        validate_threshold(profile.weight_drop_threshold_percent, request_id)?;
 
         Ok(Self {
             id,
@@ -1050,6 +1073,56 @@ mod tests {
             json!("2026-05-01T00:00:00Z")
         );
         assert_eq!(service.write_count(), 1);
+    }
+
+    /// WT-7: the threshold is a percentage of a **drop**, so a negative or non-finite value is
+    /// refused as `validation` at both profile boundaries — create and edit — before anything is sent.
+    /// Zero is a valid bound (every drop flags) and is not part of the refusal.
+    #[test]
+    fn a_negative_or_non_finite_threshold_is_refused_at_both_profile_boundaries() {
+        let service = ScriptedService::new();
+        let one = household("household-1");
+        let operation = request_id("operation-1");
+
+        for threshold in [-0.1, f64::NEG_INFINITY, f64::INFINITY, f64::NAN] {
+            let profile = RabbitProfile {
+                weight_drop_threshold_percent: threshold,
+                ..full_profile()
+            };
+
+            let created = create_with(&service, &one, profile.clone(), operation.clone())
+                .expect_err("a negative or non-finite threshold names no percentage");
+            assert_eq!(created.cause, SaveCause::Validation);
+            assert_eq!(created.request_id, Some(operation.clone()));
+
+            let updated = update_with(
+                &service,
+                &one,
+                RabbitId("rabbit-1".to_owned()),
+                profile,
+                operation.clone(),
+            )
+            .expect_err("an edit refuses the same threshold as a create");
+            assert_eq!(updated.cause, SaveCause::Validation);
+            assert_eq!(updated.request_id, Some(operation.clone()));
+        }
+
+        assert_eq!(
+            service.write_count(),
+            0,
+            "a boundary refusal never reaches save_rabbit"
+        );
+
+        create_with(
+            &service,
+            &one,
+            RabbitProfile {
+                weight_drop_threshold_percent: 0.0,
+                ..full_profile()
+            },
+            operation,
+        )
+        .expect("zero is a valid bound: every drop flags");
     }
 
     #[test]

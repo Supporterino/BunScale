@@ -98,7 +98,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 2.12 [rust-backend] Implement the weight trend and history read: a `WeightRange` window of
   7/30/90/all returning the entries inside it, the rabbit's threshold alongside, and the two ranges
   served independently so one query cannot influence the other (WT-6).
-- [ ] 2.13 [rust-backend] Implement the drop-alert derivation: order a rabbit's entries by timestamp
+- [x] 2.13 [rust-backend] Implement the drop-alert derivation: order a rabbit's entries by timestamp
   and take the earlier-created entry as the previous entry when two share a timestamp (D1.12); flag
   an entry when its drop against that previous entry exceeds the rabbit's threshold (default 5%);
   derive on read over the current entry set so a threshold change, an edit or a deletion re-evaluates
@@ -106,9 +106,12 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 2.14 [rust-backend] Implement the dashboard read model: non-archived rabbits with name,
   thumbnail reference, last-weighed timestamp or never-weighed indication, sorted by most recent
   weigh-in with never-weighed rabbits last, and the derived weight-drop flag per row (DASH-1, DASH-2,
-  DASH-3, DASH-4).
+  DASH-3, DASH-4). The drop flag comes from `domain::weight::alerts` over the rabbit's **full** entry
+  set — `.iter().any(|a| a.has_weight_drop_alert)` — never a second derivation and never the window.
 - [ ] 2.15 [rust-backend] Implement the weight entry detail read: value in grams, timestamp,
-  untruncated note, derived drop-alert flag and the entry's photo references (WT-8).
+  untruncated note, derived drop-alert flag and the entry's photo references (WT-8). The flag comes
+  from `domain::weight::alerts` over the rabbit's **full** entry set (`.find(|a| a.id == entry.id)`),
+  overriding any stored value — one derivation, shared with 2.13 and 2.14.
 
 ## 3. Frontend logic
 

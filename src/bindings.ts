@@ -271,10 +271,11 @@ export const commands = {
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for a blank or whitespace-only name, which is treated as blank (RAB-2), and for a
-	 *  blank operation identity. The write path's service conditions — `connectivity`, `no_account`,
-	 *  `allowance_exceeded`, `rate_limited`, `timeout` — are reachable because the profile is a shared
-	 *  write (D1.1), and `unknown` is the honest remainder.
+	 *  `validation` for a blank or whitespace-only name, which is treated as blank (RAB-2), for a
+	 *  negative or non-finite weight-drop threshold (WT-7), and for a blank operation identity. The
+	 *  write path's service conditions — `connectivity`, `no_account`, `allowance_exceeded`,
+	 *  `rate_limited`, `timeout` — are reachable because the profile is a shared write (D1.1), and
+	 *  `unknown` is the honest remainder.
 	 */
 	createRabbit: (householdId: HouseholdId, profile: RabbitProfile, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("create_rabbit", { householdId, profile, requestId })),
 	/**
@@ -330,12 +331,12 @@ export const commands = {
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for a blank name (RAB-2), for an unknown or already-deleted rabbit — the request is
-	 *  refused rather than accepted and ignored — for an **archived** rabbit (RAB-8, DM-4; D1.5), and for
-	 *  a blank operation identity. `unknown` with the unknown-content key when the rabbit's row has no
-	 *  content this device can describe, because it cannot establish that the rabbit is not archived
-	 *  (D1.16). The write path's service conditions are reachable as for [`create_rabbit`], and `unknown`
-	 *  is the honest remainder.
+	 *  `validation` for a blank name (RAB-2), for a negative or non-finite weight-drop threshold
+	 *  (WT-7), for an unknown or already-deleted rabbit — the request is refused rather than accepted
+	 *  and ignored — for an **archived** rabbit (RAB-8, DM-4; D1.5), and for a blank operation identity.
+	 *  `unknown` with the unknown-content key when the rabbit's row has no content this device can
+	 *  describe, because it cannot establish that the rabbit is not archived (D1.16). The write path's
+	 *  service conditions are reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
 	 */
 	updateRabbit: (rabbitId: RabbitId, profile: RabbitProfile, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("update_rabbit", { rabbitId, profile, requestId })),
 	/**
@@ -443,11 +444,9 @@ export const commands = {
 	 * 
 	 *  A bounded range is `[now - N days, now]`, both edges inclusive; `all` is the unbounded full
 	 *  history (WT-6, D1.4). The window limits which points come back, **not** how the flags are derived:
-	 *  once task 2.13 derives the alert it is computed over the rabbit's full entry set, so the earliest
-	 *  point of a window may be flagged on the basis of an entry outside it (D1.13). Until then each
-	 *  point's `has_weight_drop_alert` is the constant `false` — the stored payload's value is not content
-	 *  and is ignored on every read (D1.16). Points are ordered oldest first by the one comparator,
-	 *  `(timestamp, created_at, id)`, the order the previous-entry derivation uses (D1.12).
+	 *  the alert is computed over the rabbit's full entry set, so the earliest point of a window may be
+	 *  flagged on the basis of an entry outside it (D1.13, I3). Points are ordered oldest first by the one
+	 *  comparator, `(timestamp, created_at, id)`, the order the previous-entry derivation uses (D1.12).
 	 * 
 	 *  An archived rabbit is readable: RAB-8 presents its timeline read-only, so the read does not refuse
 	 *  an archived target. Unreachability is a status fact, not a read failure (SYNC-3).
@@ -466,6 +465,9 @@ export const commands = {
 	 *  exactly as it is for the trend and the dashboard (D1.3), so the three surfaces cannot disagree. An
 	 *  entry of an archived rabbit is readable — RAB-8 makes the timeline viewable and read-only — and the
 	 *  frontend withholds Edit and Delete from what this command returns rather than the read refusing.
+	 * 
+	 *  Still a stub (task 2.15): its body must call `crate::domain::weight::alerts` over the rabbit's full
+	 *  entry set, never re-derive the rule.
 	 * 
 	 *  # Errors
 	 * 
@@ -1075,7 +1077,11 @@ export type RabbitProfile = {
 	neuter_status: NeuterStatus,
 	/**  The adoption date, or `None`. A calendar date pinned to a fixed offset, like `dob`. */
 	adoption_date: Instant | null,
-	/**  The weight-drop threshold percentage (WT-7). */
+	/**
+	 *  The weight-drop threshold percentage (WT-7). It is a finite, non-negative number: the profile
+	 *  boundary refuses a negative or non-finite value as `validation`, because such a value names no
+	 *  percentage and would flag a gain rather than a drop.
+	 */
 	weight_drop_threshold_percent: number | null,
 };
 
@@ -1374,12 +1380,11 @@ export type WeightRange =
  *  derivation (R2). [`WeightTrend::points`] is ordered **oldest first** — the order the previous-entry
  *  derivation uses (D1.12) — and a view that presents newest first reverses it.
  * 
- *  The window limits which points are returned, **not** how the flags are derived: once task 2.13
- *  derives the flag, it is computed over the rabbit's full entry set, so the earliest point of a
- *  window can be flagged on the basis of an entry outside it (D1.13). Until then each point's
- *  `has_weight_drop_alert` is the constant `false` — the payload's stored value is not content and is
- *  ignored on every read (D1.16). A derivation that re-based at the window edge would make the same
- *  entry disagree with the dashboard flag as soon as a range was selected.
+ *  The window limits which points are returned, **not** how the flags are derived: each point's
+ *  `has_weight_drop_alert` is derived over the rabbit's full entry set, so the earliest point of a
+ *  window can be flagged on the basis of an entry outside it (D1.13). The payload's stored value is
+ *  not content and is ignored on every read (D1.16). A derivation that re-based at the window edge
+ *  would make the same entry disagree with the dashboard flag as soon as a range was selected.
  */
 export type WeightTrend = {
 	/**  The window these points were read for. */

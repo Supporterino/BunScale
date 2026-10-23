@@ -193,10 +193,11 @@ async fn deleted_rabbit(
 ///
 /// # Errors
 ///
-/// `validation` for a blank or whitespace-only name, which is treated as blank (RAB-2), and for a
-/// blank operation identity. The write path's service conditions — `connectivity`, `no_account`,
-/// `allowance_exceeded`, `rate_limited`, `timeout` — are reachable because the profile is a shared
-/// write (D1.1), and `unknown` is the honest remainder.
+/// `validation` for a blank or whitespace-only name, which is treated as blank (RAB-2), for a
+/// negative or non-finite weight-drop threshold (WT-7), and for a blank operation identity. The
+/// write path's service conditions — `connectivity`, `no_account`, `allowance_exceeded`,
+/// `rate_limited`, `timeout` — are reachable because the profile is a shared write (D1.1), and
+/// `unknown` is the honest remainder.
 #[tauri::command]
 #[specta::specta]
 pub async fn create_rabbit(
@@ -273,12 +274,12 @@ pub async fn get_rabbit(rabbit_id: RabbitId) -> Result<Rabbit, CommandError> {
 ///
 /// # Errors
 ///
-/// `validation` for a blank name (RAB-2), for an unknown or already-deleted rabbit — the request is
-/// refused rather than accepted and ignored — for an **archived** rabbit (RAB-8, DM-4; D1.5), and for
-/// a blank operation identity. `unknown` with the unknown-content key when the rabbit's row has no
-/// content this device can describe, because it cannot establish that the rabbit is not archived
-/// (D1.16). The write path's service conditions are reachable as for [`create_rabbit`], and `unknown`
-/// is the honest remainder.
+/// `validation` for a blank name (RAB-2), for a negative or non-finite weight-drop threshold
+/// (WT-7), for an unknown or already-deleted rabbit — the request is refused rather than accepted
+/// and ignored — for an **archived** rabbit (RAB-8, DM-4; D1.5), and for a blank operation identity.
+/// `unknown` with the unknown-content key when the rabbit's row has no content this device can
+/// describe, because it cannot establish that the rabbit is not archived (D1.16). The write path's
+/// service conditions are reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_rabbit(

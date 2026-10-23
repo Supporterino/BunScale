@@ -193,11 +193,9 @@ async fn read_weight_trend(
 ///
 /// A bounded range is `[now - N days, now]`, both edges inclusive; `all` is the unbounded full
 /// history (WT-6, D1.4). The window limits which points come back, **not** how the flags are derived:
-/// once task 2.13 derives the alert it is computed over the rabbit's full entry set, so the earliest
-/// point of a window may be flagged on the basis of an entry outside it (D1.13). Until then each
-/// point's `has_weight_drop_alert` is the constant `false` — the stored payload's value is not content
-/// and is ignored on every read (D1.16). Points are ordered oldest first by the one comparator,
-/// `(timestamp, created_at, id)`, the order the previous-entry derivation uses (D1.12).
+/// the alert is computed over the rabbit's full entry set, so the earliest point of a window may be
+/// flagged on the basis of an entry outside it (D1.13, I3). Points are ordered oldest first by the one
+/// comparator, `(timestamp, created_at, id)`, the order the previous-entry derivation uses (D1.12).
 ///
 /// An archived rabbit is readable: RAB-8 presents its timeline read-only, so the read does not refuse
 /// an archived target. Unreachability is a status fact, not a read failure (SYNC-3).
@@ -223,6 +221,9 @@ pub async fn get_weight_entries(
 /// exactly as it is for the trend and the dashboard (D1.3), so the three surfaces cannot disagree. An
 /// entry of an archived rabbit is readable — RAB-8 makes the timeline viewable and read-only — and the
 /// frontend withholds Edit and Delete from what this command returns rather than the read refusing.
+///
+/// Still a stub (task 2.15): its body must call `crate::domain::weight::alerts` over the rabbit's full
+/// entry set, never re-derive the rule.
 ///
 /// # Errors
 ///

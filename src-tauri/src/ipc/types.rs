@@ -557,7 +557,9 @@ pub struct RabbitProfile {
     pub neuter_status: NeuterStatus,
     /// The adoption date, or `None`. A calendar date pinned to a fixed offset, like `dob`.
     pub adoption_date: Option<Instant>,
-    /// The weight-drop threshold percentage (WT-7).
+    /// The weight-drop threshold percentage (WT-7). It is a finite, non-negative number: the profile
+    /// boundary refuses a negative or non-finite value as `validation`, because such a value names no
+    /// percentage and would flag a gain rather than a drop.
     pub weight_drop_threshold_percent: f64,
 }
 
@@ -722,12 +724,11 @@ pub enum WeightRange {
 /// derivation (R2). [`WeightTrend::points`] is ordered **oldest first** — the order the previous-entry
 /// derivation uses (D1.12) — and a view that presents newest first reverses it.
 ///
-/// The window limits which points are returned, **not** how the flags are derived: once task 2.13
-/// derives the flag, it is computed over the rabbit's full entry set, so the earliest point of a
-/// window can be flagged on the basis of an entry outside it (D1.13). Until then each point's
-/// `has_weight_drop_alert` is the constant `false` — the payload's stored value is not content and is
-/// ignored on every read (D1.16). A derivation that re-based at the window edge would make the same
-/// entry disagree with the dashboard flag as soon as a range was selected.
+/// The window limits which points are returned, **not** how the flags are derived: each point's
+/// `has_weight_drop_alert` is derived over the rabbit's full entry set, so the earliest point of a
+/// window can be flagged on the basis of an entry outside it (D1.13). The payload's stored value is
+/// not content and is ignored on every read (D1.16). A derivation that re-based at the window edge
+/// would make the same entry disagree with the dashboard flag as soon as a range was selected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct WeightTrend {
     /// The window these points were read for.

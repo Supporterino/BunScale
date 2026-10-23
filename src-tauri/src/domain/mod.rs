@@ -74,8 +74,12 @@
 //! read is a window over the current entry set: [`weight::trend`] selects the entries inside a
 //! `WeightRange` and carries the rabbit's threshold beside them, and because the window is applied on
 //! the read alone the trend and the weight-only history can hold different ranges over the same rabbit
-//! without one influencing the other (WT-6, D1.4). The drop-alert derivation and the entry-detail read
-//! are the tasks that follow (2.13–2.15).
+//! without one influencing the other (WT-6, D1.4). [`weight::alerts`] is the one drop-alert derivation:
+//! it orders a rabbit's entries by the shared comparator, flags a drop beyond the threshold and is
+//! applied over the full entry set, so a threshold change, an edit or a deletion re-evaluates the
+//! surrounding entries without rewriting a stored one (WT-7; D1.3, D1.12, D1.13). The dashboard read
+//! (2.14) and the entry-detail read (2.15) call that same function for their flags rather than
+//! re-deriving the rule.
 //!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.
