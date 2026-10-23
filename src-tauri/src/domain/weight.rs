@@ -412,6 +412,100 @@ fn drop_exceeds(previous: Grams, current: Grams, threshold_percent: f64) -> bool
     dropped as f64 * 100.0 > threshold_percent * f64::from(previous.0)
 }
 
+/// One entry's detail: the stored entry with its drop-alert flag re-derived (WT-8; D1.13, I2, I3).
+///
+/// The entry's own fields are returned unchanged — the canonical grams, the timestamp, the note
+/// **whole** (nothing on this path truncates it) and the photo references in their stored order,
+/// which is empty when the entry has none, so no pager is ever invented (WT-8). Only
+/// [`WeightEntry::has_weight_drop_alert`] is replaced: it comes from [`alerts`] over the rabbit's
+/// **full** entry set, found by the entry's own id, so the detail can never disagree with the trend
+/// or the dashboard, and a stored value is ignored (D1.16, I2, I3).
+///
+/// The entry set is [`entries_of`]'s — the one live-row scan the trend/history read shares — so the
+/// tombstone and unknown-content rules cannot drift between the two reads that must agree (I3, R2).
+/// The rabbit's threshold is read from the rabbit's row in the same collection, because the flag
+/// needs it and no derivation may be computed from a subset (D1.16). An archived rabbit is not a
+/// refusal: RAB-8 presents its timeline read-only and the frontend withholds Edit and Delete.
+///
+/// The value is **not** converted to a display unit: grams are the only weight on this path and
+/// `src/features/weight/api.ts` formats them for display (D1.2, I1).
+///
+/// # Errors
+///
+/// `unknown` with the unknown-content key when a live row has no content this device can describe
+/// (D1.16); `validation` when the collection holds no live rabbit for the entry, which names an
+/// orphaned entry; and `unknown` when a stored timestamp or creation instant is not an absolute
+/// instant. A read carries no operation identity, so every failure answers `request_id: None`.
+pub fn detail(
+    collection: &HouseholdCollection,
+    entry: &WeightEntry,
+) -> Result<WeightEntry, CommandError> {
+    let entries = entries_of(collection, &entry.rabbit_id)?;
+
+    // `entries_of` has already refused every live row this device cannot describe, so the rabbit row
+    // is resolved from the same known-content collection (D1.16).
+    let rabbit = collection
+        .items
+        .iter()
+        .filter(|item| !item.deleted)
+        .find_map(|item| match &item.payload {
+            Some(ItemPayload::Rabbit { rabbit }) if rabbit.id == entry.rabbit_id => Some(rabbit),
+            _ => None,
+        })
+        .ok_or_else(|| CommandError::validation(None))?;
+
+    let has_weight_drop_alert = alerts(&entries, rabbit.weight_drop_threshold_percent)?
+        .into_iter()
+        .find(|alert| alert.id == entry.id)
+        .is_some_and(|alert| alert.has_weight_drop_alert);
+
+    Ok(WeightEntry {
+        has_weight_drop_alert,
+        ..entry.clone()
+    })
+}
+
+/// The live weight entries of `rabbit_id` in `collection`, in collection order (WT-6, WT-8; D1.16,
+/// D1.17).
+///
+/// The **one** live-row scan both weight read derivations use — the trend/history window and the
+/// entry detail — so the tombstone rule and the unknown-content refusal cannot drift between reads
+/// that must never disagree (I3, R2; D1.16). A tombstone is excluded **before** the content check,
+/// because a tombstone's content need not be on this device and it names an entry that is already
+/// removed (D1.17). A live row whose content is not on this device refuses the read with the
+/// unknown-content key: it could be one of this rabbit's entries, and a subset is not the rabbit's
+/// set (D1.16). A rabbit row — this one or another — is not an entry of this series.
+///
+/// # Errors
+///
+/// `unknown` with the unknown-content key when a live row of the collection has no content this
+/// device can describe (D1.16). A read carries no operation identity, so the refusal answers
+/// `request_id: None`.
+fn entries_of(
+    collection: &HouseholdCollection,
+    rabbit_id: &RabbitId,
+) -> Result<Vec<WeightEntry>, CommandError> {
+    let mut entries = Vec::new();
+
+    for item in &collection.items {
+        if item.deleted {
+            continue;
+        }
+
+        match &item.payload {
+            Some(ItemPayload::WeightEntry { weight_entry })
+                if weight_entry.rabbit_id == *rabbit_id =>
+            {
+                entries.push(weight_entry.clone());
+            }
+            Some(_) => {}
+            None => return Err(CommandError::household_content_unloaded(None)),
+        }
+    }
+
+    Ok(entries)
+}
+
 /// One rabbit's weight entries inside a range window, oldest first, with the rabbit's threshold
 /// alongside (WT-6, WT-7; D1.4, D1.16, D1.17).
 ///
@@ -427,11 +521,11 @@ fn drop_exceeds(previous: Grams, current: Grams, threshold_percent: f64) -> bool
 /// bounds at all, so the full history includes an entry stamped in the future (D1.4).
 ///
 /// The points are ordered by [`ordered`] — `(timestamp, created_at, id)`, the one comparator the
-/// previous-entry derivation also uses (D1.12) — oldest first. A tombstone is excluded **before** the
-/// content check, so a removed entry never becomes an unreadable row (D1.17). A live row whose content
-/// is not on this device refuses the read with the unknown-content key: it could be one of this
-/// rabbit's entries (or an entry that precedes one of them), and a subset is not the rabbit's set
-/// (D1.16).
+/// previous-entry derivation also uses (D1.12) — oldest first. The entry set is [`entries_of`]'s, the
+/// same scan the detail read uses: a tombstone is excluded **before** the content check, so a removed
+/// entry never becomes an unreadable row (D1.17), and a live row whose content is not on this device
+/// refuses the read with the unknown-content key because it could be one of this rabbit's entries (or
+/// an entry that precedes one of them), and a subset is not the rabbit's set (D1.16).
 ///
 /// Each point's `has_weight_drop_alert` is [`alerts`]'s derivation over the rabbit's **full** entry
 /// set, never over the window: a point whose predecessor lies outside the returned points is still
@@ -449,26 +543,8 @@ pub fn trend(
     now: &Instant,
 ) -> Result<WeightTrend, CommandError> {
     let (lower_bound, upper_bound) = window(range, now)?;
-    let mut entries = Vec::new();
-
-    for item in &collection.items {
-        // A tombstone names a removed entry, so it is not in any window. Its retained content is
-        // never read as an entry (D1.17).
-        if item.deleted {
-            continue;
-        }
-
-        match &item.payload {
-            Some(ItemPayload::WeightEntry { weight_entry })
-                if weight_entry.rabbit_id == rabbit.id =>
-            {
-                entries.push(weight_entry.clone());
-            }
-            // A rabbit row — this one or another — is not an entry of this series.
-            Some(_) => {}
-            None => return Err(CommandError::household_content_unloaded(None)),
-        }
-    }
+    // The same live-entry scan the detail read uses, so neither can classify a row differently.
+    let entries = entries_of(collection, &rabbit.id)?;
 
     // The flags are derived from the full set before the window is applied, so trimming the points
     // can never re-base an alert on a different predecessor (I3).
@@ -1238,6 +1314,18 @@ mod tests {
     /// One live row carrying the entry's content (D1.16).
     fn entry_row(entry: &WeightEntry) -> crate::ipc::types::CollectionItem {
         row_at(entry, &entry.timestamp)
+    }
+
+    /// One live row carrying the rabbit's content, so the detail read can read its threshold (WT-8).
+    fn rabbit_row(rabbit: &Rabbit) -> crate::ipc::types::CollectionItem {
+        crate::ipc::types::CollectionItem {
+            item_id: ItemId(rabbit.id.0.clone()),
+            updated_at: at("2026-10-22T09:30:00Z"),
+            deleted: false,
+            payload: Some(ItemPayload::Rabbit {
+                rabbit: rabbit.clone(),
+            }),
+        }
     }
 
     /// One live entry row whose LWW `updated_at` is stated separately from the entry's content, so a
@@ -2059,5 +2147,190 @@ mod tests {
 
         assert_eq!(trend.points.len(), 1);
         assert_eq!(trend.points[0].id.0, "entry-1");
+    }
+
+    /// WT-8, "The detail shows the value in the display unit and the untruncated note": the read
+    /// returns the stored grams, the timestamp and the note whole — newlines, spacing and length
+    /// included — with the photo references in their stored order. The display unit is not applied
+    /// here (I1); `api.ts` formats the grams.
+    #[test]
+    fn the_detail_returns_the_stored_grams_timestamp_whole_note_and_photos() {
+        let rabbit = stored_rabbit();
+        let note = "weighed after the long run\n\
+                    and before breakfast  \n\
+                    the vet asked us to keep a weekly log, so this note is deliberately long \
+                    enough that any truncation shorter than the whole text would be visible in \
+                    the assertion below";
+        let entry = WeightEntry {
+            note: Some(note.to_owned()),
+            photo_refs: vec!["photo-2".to_owned(), "photo-1".to_owned()],
+            ..stored_entry(&rabbit, "entry-1", 1_842, "2026-10-22T07:15:00Z")
+        };
+        let collection = collection(&rabbit, vec![rabbit_row(&rabbit), entry_row(&entry)]);
+
+        let detail = detail(&collection, &entry).expect("the collection is readable");
+
+        assert_eq!(
+            detail.value_grams,
+            Grams(1_842),
+            "the value is the stored grams"
+        );
+        assert_eq!(detail.timestamp, at("2026-10-22T07:15:00Z"));
+        assert_eq!(
+            detail.note.as_deref(),
+            Some(note),
+            "the note is returned whole, with its newlines, spacing and full length"
+        );
+        assert_eq!(
+            detail.photo_refs,
+            vec!["photo-2".to_owned(), "photo-1".to_owned()],
+            "the photo references keep their stored order"
+        );
+    }
+
+    /// WT-8, "The drop-alert flag appears in the detail when it applies", and D1.16: the flag is
+    /// derived over the rabbit's full entry set and any stored value is ignored — the first entry's
+    /// stored `true` cannot survive the derivation, and the second entry's drop is derived.
+    #[test]
+    fn the_detail_derives_the_flag_over_the_full_entry_set_and_ignores_the_stored_value() {
+        let rabbit = stored_rabbit();
+        let first = WeightEntry {
+            has_weight_drop_alert: true,
+            ..stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z")
+        };
+        let second = WeightEntry {
+            has_weight_drop_alert: false,
+            ..stored_entry(&rabbit, "entry-2", 1_800, "2026-10-21T00:00:00Z")
+        };
+        let collection = collection(
+            &rabbit,
+            vec![rabbit_row(&rabbit), entry_row(&first), entry_row(&second)],
+        );
+
+        let flagged = detail(&collection, &second).expect("the collection is readable");
+        let unflagged = detail(&collection, &first).expect("the collection is readable");
+
+        assert!(
+            flagged.has_weight_drop_alert,
+            "2000 g to 1800 g is a 10% drop beyond the 5% threshold"
+        );
+        assert!(
+            !unflagged.has_weight_drop_alert,
+            "the stored `true` is ignored: the first entry has no predecessor to drop from"
+        );
+    }
+
+    /// WT-8, "An entry with no photos shows no pager": an entry with no photo references answers an
+    /// empty list, so nothing can invent a pager.
+    #[test]
+    fn an_entry_with_no_photos_answers_an_empty_photo_reference_list() {
+        let rabbit = stored_rabbit();
+        let entry = stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z");
+        let collection = collection(&rabbit, vec![rabbit_row(&rabbit), entry_row(&entry)]);
+
+        let detail = detail(&collection, &entry).expect("the collection is readable");
+
+        assert!(
+            detail.photo_refs.is_empty(),
+            "no pager is invented for an entry without photos"
+        );
+    }
+
+    /// WT-8, "An archived rabbit's entry detail is read-only": archived is a read-only presentation,
+    /// not a refusal, and the flag is still derived from the archived rabbit's threshold.
+    #[test]
+    fn an_archived_rabbits_entry_detail_is_readable_and_still_derives_its_flag() {
+        let rabbit = Rabbit {
+            is_archived: true,
+            ..stored_rabbit()
+        };
+        let first = stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z");
+        let second = stored_entry(&rabbit, "entry-2", 1_800, "2026-10-21T00:00:00Z");
+        let collection = collection(
+            &rabbit,
+            vec![rabbit_row(&rabbit), entry_row(&first), entry_row(&second)],
+        );
+
+        let detail =
+            detail(&collection, &second).expect("an archived rabbit's entry is read, not refused");
+
+        assert_eq!(detail.value_grams, Grams(1_800));
+        assert!(
+            detail.has_weight_drop_alert,
+            "the derivation needs only the rabbit's threshold, which an archived rabbit still has"
+        );
+    }
+
+    /// D1.16: a live row whose content is not on this device could be an entry of this rabbit (or its
+    /// predecessor), so the detail refuses rather than answering a partial derivation.
+    #[test]
+    fn a_live_row_with_unknown_content_refuses_the_detail() {
+        let rabbit = stored_rabbit();
+        let entry = stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z");
+        let rows = vec![
+            rabbit_row(&rabbit),
+            entry_row(&entry),
+            crate::ipc::types::CollectionItem {
+                item_id: ItemId("entry-2".to_owned()),
+                updated_at: at("2026-10-22T00:00:00Z"),
+                deleted: false,
+                payload: None,
+            },
+        ];
+        let collection = collection(&rabbit, rows);
+
+        let error = detail(&collection, &entry)
+            .expect_err("an unreadable row leaves the entry set partial");
+
+        assert_eq!(error.cause, crate::ipc::types::SaveCause::Unknown);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_eq!(error.request_id, None);
+    }
+
+    /// D1.17: a tombstone is excluded before the content check, so a removed entry neither refuses the
+    /// detail nor takes part in the derivation — its content need not be on this device.
+    #[test]
+    fn a_tombstoned_row_is_excluded_from_the_details_derivation() {
+        let rabbit = stored_rabbit();
+        let first = stored_entry(&rabbit, "entry-1", 2_000, "2026-10-20T00:00:00Z");
+        let second = stored_entry(&rabbit, "entry-2", 1_900, "2026-10-21T00:00:00Z");
+        let rows = vec![
+            rabbit_row(&rabbit),
+            entry_row(&first),
+            // If the removed 1000 g entry were part of the derivation, `entry-2` would show a 90%
+            // drop and be flagged; the tombstone's content is deliberately absent too.
+            crate::ipc::types::CollectionItem {
+                item_id: ItemId("entry-removed".to_owned()),
+                updated_at: at("2026-10-22T00:00:00Z"),
+                deleted: true,
+                payload: None,
+            },
+            entry_row(&second),
+        ];
+        let collection = collection(&rabbit, rows);
+
+        let detail = detail(&collection, &second).expect("a tombstone is not unreadable content");
+
+        assert!(
+            !detail.has_weight_drop_alert,
+            "the removed entry is not a predecessor: 2000 g to 1900 g is exactly at the threshold"
+        );
+    }
+
+    /// The detail needs the rabbit's threshold, so an entry whose rabbit row the collection does not
+    /// hold cannot be judged; it is refused rather than flagged against an invented value.
+    #[test]
+    fn an_entry_whose_rabbit_row_is_absent_is_refused() {
+        let rabbit = stored_rabbit();
+        let entry = stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z");
+        let collection = collection(&rabbit, vec![entry_row(&entry)]);
+
+        let error = detail(&collection, &entry).expect_err("no rabbit row means no threshold");
+
+        assert_eq!(error.cause, crate::ipc::types::SaveCause::Validation);
+        assert_eq!(error.request_id, None);
     }
 }

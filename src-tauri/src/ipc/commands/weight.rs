@@ -2,12 +2,11 @@
 //! DM-1).
 //!
 //! Five commands, frozen by task 1.1: [`create_weight_entry`], [`get_weight_entries`],
-//! [`get_weight_entry`], [`update_weight_entry`] and [`delete_weight_entry`].
-//! **[`create_weight_entry`] (task 2.9), [`update_weight_entry`] and [`delete_weight_entry`] (task
-//! 2.11) and [`get_weight_entries`] (task 2.12) are implemented; [`get_weight_entry`] is a typed stub
-//! returning [`CommandError::not_implemented`]**, which the task that owns it replaces (2.15) — its
-//! signature is what `src/bindings.ts` is generated from, so a stub is the contract rather than a
-//! placeholder to be reshaped.
+//! [`get_weight_entry`], [`update_weight_entry`] and [`delete_weight_entry`]. **All five are
+//! implemented:** [`create_weight_entry`] (task 2.9), [`update_weight_entry`] and
+//! [`delete_weight_entry`] (task 2.11), [`get_weight_entries`] (task 2.12) and
+//! [`get_weight_entry`] (task 2.15). Their signatures are what `src/bindings.ts` is generated from,
+//! so a body is replaced and never reshaped.
 //!
 //! The writing bodies take the app's state and, as every write does, a publication seam —
 //! `tauri::State` is how a command reaches the shared service, the account and this device's copy, and
@@ -215,26 +214,46 @@ pub async fn get_weight_entries(
     read_weight_trend(state.inner(), rabbit_id, range).await
 }
 
+/// The `get_weight_entry` body over the state alone.
+///
+/// The outermost layer a unit test can call, like the other command bodies: `tauri::State` has no
+/// public constructor outside a running app. The read takes no operation identity, because it is
+/// idempotent and a retry is a fresh read rather than a re-issued one (D0.14).
+async fn read_weight_entry(
+    state: &crate::state::AppState,
+    entry_id: WeightEntryId,
+) -> Result<WeightEntry, CommandError> {
+    state.weight_entry(&entry_id)
+}
+
 /// One entry's detail: value, timestamp, full note, derived alert and photo references (WT-8).
 ///
 /// The note is returned whole and never truncated by the contract; the alert flag is derived on read
-/// exactly as it is for the trend and the dashboard (D1.3), so the three surfaces cannot disagree. An
-/// entry of an archived rabbit is readable — RAB-8 makes the timeline viewable and read-only — and the
-/// frontend withholds Edit and Delete from what this command returns rather than the read refusing.
+/// exactly as it is for the trend and the dashboard (D1.3, D1.13), so the three surfaces cannot
+/// disagree. An entry of an archived rabbit is readable — RAB-8 makes the timeline viewable and
+/// read-only — and the frontend withholds Edit and Delete from what this command returns rather than
+/// the read refusing.
 ///
-/// Still a stub (task 2.15): its body must call `crate::domain::weight::alerts` over the rabbit's full
-/// entry set, never re-derive the rule.
+/// **The value is grams.** No display unit is applied here; `src/features/weight/api.ts` formats the
+/// grams for display with the person's preferred unit (D1.2, I1), so the detail must not convert
+/// twice.
+///
+/// The photo references are the entry's stored list in order, and an empty list means the entry has
+/// no photos — the detail then shows no pager, and this read invents none.
 ///
 /// # Errors
 ///
-/// `validation` for an unknown entry or a blank id. Unreachability is a status fact, not a read
-/// failure (SYNC-3).
+/// `validation` for an unknown or blank entry id and for a tombstoned entry; `unknown` with the
+/// unknown-content key when the entry's or its rabbit's content is not on this device (D1.16). A read
+/// carries no operation identity, so every failure answers `request_id: None`. Unreachability is a
+/// status fact, not a read failure (SYNC-3).
 #[tauri::command]
 #[specta::specta]
-pub async fn get_weight_entry(entry_id: WeightEntryId) -> Result<WeightEntry, CommandError> {
-    let _ = entry_id;
-
-    Err(CommandError::not_implemented(None))
+pub async fn get_weight_entry(
+    entry_id: WeightEntryId,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<WeightEntry, CommandError> {
+    read_weight_entry(state.inner(), entry_id).await
 }
 
 /// Correct a past entry, sharing the change with every member (WT-5, WT-7).
@@ -1008,5 +1027,215 @@ mod tests {
             vec![("entry-1", Grams(1_800)), ("entry-2", Grams(1_700)),],
             "oldest first, with the stored values"
         );
+    }
+
+    /// WT-8: the command body answers the stored entry's detail — grams, timestamp, note — and the
+    /// flag is derived over the rabbit's full entry set, so the later entry is flagged and the first
+    /// one is not (D1.13, I2).
+    #[test]
+    fn the_command_body_answers_the_entrys_detail_with_its_derived_flag() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, _rabbit, entry) = state_with_one_rabbit_and_entries(service);
+
+        let flagged = block_on_ready(read_weight_entry(
+            &state,
+            WeightEntryId("entry-2".to_owned()),
+        ))
+        .expect("the held copy is served");
+        let unflagged =
+            block_on_ready(read_weight_entry(&state, entry.id.clone())).expect("served");
+
+        assert_eq!(flagged.id, WeightEntryId("entry-2".to_owned()));
+        assert_eq!(flagged.value_grams, Grams(1_700));
+        assert_eq!(flagged.timestamp, at("2026-10-22T09:00:00Z"));
+        assert_eq!(flagged.note.as_deref(), Some("morning"));
+        assert!(
+            flagged.photo_refs.is_empty(),
+            "the stored entry has no photos, so no pager can be drawn"
+        );
+        assert!(
+            flagged.has_weight_drop_alert,
+            "1800 g to 1700 g is beyond the 5% threshold"
+        );
+        assert!(
+            !unflagged.has_weight_drop_alert,
+            "the first entry has no predecessor to drop from"
+        );
+    }
+
+    /// WT-8, "The detail shows the value in the display unit and the untruncated note": the command
+    /// returns a long, multi-line note whole. The value stays grams — the display unit is `api.ts`'s
+    /// (I1) — and an entry with no photos answers an empty list rather than an invented pager.
+    #[test]
+    fn a_long_note_is_returned_whole_and_no_photos_answer_an_empty_list() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service);
+        let one = household("household-1");
+        let note = "weighed before breakfast\n\
+                    and after the run  \n\
+                    a deliberately long note, so a truncation shorter than this whole text would \
+                    be visible when the returned value is compared with it";
+        let entry = WeightEntry {
+            note: Some(note.to_owned()),
+            photo_refs: Vec::new(),
+            ..stored_entry(&rabbit, "entry-1", 1_842, "2026-10-22T09:00:00Z")
+        };
+
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![rabbit_row(&rabbit), entry_row(&entry)],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let detail = block_on_ready(read_weight_entry(&state, entry.id.clone())).expect("served");
+
+        assert_eq!(
+            detail.value_grams,
+            Grams(1_842),
+            "grams on the wire, never a unit"
+        );
+        assert_eq!(
+            detail.note.as_deref(),
+            Some(note),
+            "the note is returned whole, newlines and all"
+        );
+        assert!(
+            detail.photo_refs.is_empty(),
+            "an entry with no photos has no photo references"
+        );
+    }
+
+    /// WT-8, "An archived rabbit's entry detail is read-only": the detail is readable, not refused,
+    /// and a read never touches the shared service (SYNC-3).
+    #[test]
+    fn an_archived_rabbits_entry_detail_is_readable() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, _rabbit, entry) = state_with_an_archived_rabbit_and_entries(service.clone());
+        let calls_before = service.calls();
+
+        let detail = block_on_ready(read_weight_entry(&state, entry.id.clone()))
+            .expect("an archived rabbit's entry is read, not refused");
+
+        assert_eq!(detail.value_grams, Grams(1_800));
+        assert_eq!(detail.timestamp, entry.timestamp);
+        assert_eq!(
+            service.calls(),
+            calls_before,
+            "a read never probes the service"
+        );
+    }
+
+    /// D1.16: a live row whose content is not on this device could be an entry of this rabbit (or its
+    /// predecessor), so the command refuses with the unknown-content key rather than answering a
+    /// partial derivation. A read carries no operation identity.
+    #[test]
+    fn a_live_row_with_unknown_content_refuses_the_detail_read() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service);
+        let one = household("household-1");
+        let entry = stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T09:00:00Z");
+
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![
+                        rabbit_row(&rabbit),
+                        entry_row(&entry),
+                        CollectionItem {
+                            item_id: ItemId("entry-2".to_owned()),
+                            updated_at: at("2026-10-22T09:00:00Z"),
+                            deleted: false,
+                            payload: None,
+                        },
+                    ],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let error = block_on_ready(read_weight_entry(&state, entry.id))
+            .expect_err("an unreadable row leaves the entry set partial");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_eq!(
+            error.request_id, None,
+            "a read carries no operation identity"
+        );
+    }
+
+    /// D1.17: a tombstoned entry is refused as an **unknown entry** (`validation`) rather than
+    /// described. The check is before the content, so a removed row whose content was never read is
+    /// still a removal rather than unreadable content.
+    #[test]
+    fn a_tombstoned_entry_is_refused_as_an_unknown_entry() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service);
+        let one = household("household-1");
+
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![
+                        rabbit_row(&rabbit),
+                        CollectionItem {
+                            item_id: ItemId("entry-1".to_owned()),
+                            updated_at: at("2026-10-22T09:00:00Z"),
+                            deleted: true,
+                            payload: None,
+                        },
+                    ],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let error = block_on_ready(read_weight_entry(
+            &state,
+            WeightEntryId("entry-1".to_owned()),
+        ))
+        .expect_err("a tombstone names no live entry");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(
+            error.request_id, None,
+            "a read carries no operation identity"
+        );
+    }
+
+    /// The detail read's id validation: a blank id names no entry and is refused as `validation`, with
+    /// no operation identity because the read is idempotent (D0.14).
+    #[test]
+    fn a_blank_entry_id_is_refused_by_the_detail_read() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, _rabbit) = state_with_one_rabbit(service);
+
+        let error = block_on_ready(read_weight_entry(&state, WeightEntryId("  ".to_owned())))
+            .expect_err("a blank id names no entry");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert_eq!(error.request_id, None);
     }
 }

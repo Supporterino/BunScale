@@ -108,10 +108,18 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   weigh-in with never-weighed rabbits last, and the derived weight-drop flag per row (DASH-1, DASH-2,
   DASH-3, DASH-4). The drop flag comes from `domain::weight::alerts` over the rabbit's **full** entry
   set — `.iter().any(|a| a.has_weight_drop_alert)` — never a second derivation and never the window.
-- [ ] 2.15 [rust-backend] Implement the weight entry detail read: value in grams, timestamp,
+- [x] 2.15 [rust-backend] Implement the weight entry detail read: value in grams, timestamp,
   untruncated note, derived drop-alert flag and the entry's photo references (WT-8). The flag comes
   from `domain::weight::alerts` over the rabbit's **full** entry set (`.find(|a| a.id == entry.id)`),
   overriding any stored value — one derivation, shared with 2.13 and 2.14.
+- [x] 2.16 [rust-backend] **Added mid-change (Q8).** Implement the rabbit profile read,
+  `get_rabbit(rabbit_id) → Rabbit`. The frozen contract has it and the frontend's profile detail
+  depends on it (3.2's `useRabbitProfile` → `api.ts`'s `getRabbit`), but no task owned it, so it was
+  still a `not_implemented` stub after 2.15 — the profile screen could never load. Resolve from the
+  local copy with the established read shape (`summaries`/`dashboard`/`detail`): tombstone before the
+  content check, unknown content refuses with `error.household_content_unloaded`, an archived rabbit
+  is readable (read-only), a non-rabbit id and a blank id are `validation`. Its scenarios are RAB-1's
+  read side and DASH-6's "selecting a rabbit opens its dashboard". (RAB-1, RAB-5, DASH-6, D1.16)
 
 ## 3. Frontend logic
 

@@ -53,6 +53,13 @@
 //! * **A rabbit list is one selection, never a union, and never partial.** [`summaries`] answers the
 //!   active list or the archived list from the rows this device holds, and refuses as `unknown`
 //!   rather than omitting a row whose content it cannot describe (D1.16, RAB-6).
+//! * **One rabbit reads back as this device's copy holds it, and archived is readable.** The profile
+//!   read ([`crate::state::AppState::rabbit`]) resolves the addressed row through the same live-row
+//!   rule an edit uses: a blank or unknown id, a tombstone and an id that names a non-rabbit item are
+//!   `validation`, while a live row whose content this device cannot describe is `unknown` with the
+//!   unknown-content key rather than a partial profile (D1.16, D1.17). An archived rabbit is returned
+//!   as it stands, because RAB-8/DASH-6 present its surface read-only and the frontend withholds the
+//!   write controls from what the read returns (D1.5, RAB-5).
 //! * **Permanent deletion is archived-only and takes the rabbit's weight entries with it.**
 //!   [`deletion_plan`] is the one rule: the target is a live **archived** rabbit, every live row must
 //!   be describable, and the plan is that rabbit plus every live weight-entry row whose `rabbit_id`

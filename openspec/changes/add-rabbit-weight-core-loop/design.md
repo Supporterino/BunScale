@@ -525,9 +525,9 @@ tombstone can never turn a read into `unknown`: it is in neither rabbit list (RA
 tombstone is absent from the trend, the history, the alert derivation, the dashboard and the entry
 detail. That ordering is load-bearing, not incidental: a tombstone whose content was never read is
 stored as unknown content (`read.rs:294-307`), so a read that checked content first would refuse over a
-row it has already been told is removed. The one rabbit read orders it that way today (`summaries` in
-`domain::rabbit`; `get_rabbit` is still a stub); the entry reads (2.11–2.15) must do the same, and 2.11
-must refuse an edit of a tombstoned entry as an unknown entry (`validation`) rather than re-submitting it.
+row it has already been told is removed. Both rabbit reads order it that way today — `summaries` and
+`get_rabbit`, in `domain::rabbit` — and the entry reads (2.11–2.15) must do the same: 2.11 must refuse an
+edit of a tombstoned entry as an unknown entry (`validation`) rather than re-submitting it.
 
 **Contract impact: none on the IPC surface.** No command signature changes — `delete_rabbit` and
 `delete_weight_entry` stay `(id, request_id) -> ()` exactly as the frozen table above states — and the
@@ -757,17 +757,16 @@ saved once confirmed, so the bound stays a confirmation threshold rather than a 
 one `pub const` in `src-tauri/src/ipc/types.rs`; `api.ts` mirrors the number only to decide *when* to
 ask, never what is stored, so a drift could change when the prompt appears but never the saved value.
 
-**I5 — Stub state.** Every one of the thirteen bodies returns `CommandError::not_implemented` — cause
-`unknown`, `retryable: false`, key `error.not_implemented` — with the command's `RequestId` on the
-writes and `None` on the reads. A stub is therefore unmistakable in the UI and in a test, and section 2
-replaces them without changing a signature or a generated name. `lib.rs` needs no edit for this: the
-commands are mounted through the one `ipc::builder()`, whose `collect_commands!` list task 1.1 extended.
-The split is asserted rather than documented only:
-`ipc::commands::tests::every_p1_write_stub_is_not_implemented_and_carries_the_operations_identity`
-covers all eight writes and
-`every_p1_read_stub_is_not_implemented_and_carries_no_operation_identity` covers all five reads, each
-checking the cause, the withheld retry, the placeholder key and the carried id — so a write that
-answered `None`, or a body that named `error.unknown`, fails a test instead of passing every stage.
+**I5 — No P1 command is a stub, and each is tested through its real body.** The contract below was fixed
+before any body existed, and section 2 filled all thirteen: `CommandError::not_implemented` — cause
+`unknown`, `retryable: false`, key `error.not_implemented` — is now unreachable from every P1 write and
+read, so a placeholder can be neither mistaken for an answer in the UI nor pass as one in a test. Nothing
+in the shape moved on the way: no signature, generated name or mounted list changed, because the commands
+are mounted through the one `ipc::builder()` whose `collect_commands!` list task 1.1 extended, so `lib.rs`
+needed no edit. What is asserted is that end state rather than a stub's shape: **every P1 command is
+exercised through its real body by a behavioural test and no P1 command answers `not_implemented`** — a
+source-text guard refuses the placeholder key's return and the per-command tests check the behaviour each
+command promises, so a body that regressed to the placeholder fails a test instead of passing every stage.
 
 **I6 — No explicit type registration is needed.** P0 exports `Member` through `Builder::typ` because no
 command references it; every P1 **command-reachable** type is exported transitively from the signature

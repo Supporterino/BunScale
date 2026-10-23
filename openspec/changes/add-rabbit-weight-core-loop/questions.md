@@ -112,6 +112,21 @@ spec wins over the frozen snapshot and no data exists yet (pre-release), and rec
 bindings change deliberately, 2.12 adopts one comparator, 2.13 orders the full set with it, and 5.5 must
 assert the discriminating case (earlier-created entry edited *after* the later one).
 
+## Q8 — The rabbit profile read had no owning task (found in task 2.15)
+
+**Status: settled by adding a task.** Raised and resolved 2026-10-23.
+
+Implementing the last read (2.15) left exactly one P1 command still returning `not_implemented`:
+`get_rabbit`. The frozen contract has it, `src/features/rabbits/api.ts` wraps it, and 4.4's profile
+detail reads through it — but no task in section 2 named it. Left alone, the profile screen could never
+load, and 4.4's "edit control gated on the profile read" would be permanently empty.
+
+**Resolution:** task 2.16 added (rust-backend), implementing `get_rabbit` with the same read shape as
+`summaries`/`dashboard`/`detail` (tombstone before the content check, unknown content refuses, archived
+readable, blank or non-rabbit id refused as `validation`). No design change — the contract already
+required the command; the plan was missing the task.
+
+
 
 
 

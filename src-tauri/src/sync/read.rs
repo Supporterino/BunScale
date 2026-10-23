@@ -168,10 +168,12 @@ impl ReadPath {
     /// the never-loaded representation.
     ///
     /// The method is `pub(crate)` for the local-set callers that answer from the copy without
-    /// attempting a refresh: `list_rabbits`, and the weight trend/history read
-    /// ([`crate::state::AppState::weight_trend`]). Each performs its own blank-id validation, exactly
-    /// as [`ReadPath::load`] does, so reaching the copy directly does not bypass that refusal. P6's
-    /// progressive render will be the next such caller.
+    /// attempting a refresh: `list_rabbits`, the weight trend/history read
+    /// ([`crate::state::AppState::weight_trend`]) and the entry-detail read
+    /// ([`crate::state::AppState::weight_entry`]). Each performs its own blank-id validation — the
+    /// trend read directly, the detail read through the `AppState::live_entry` resolution it calls —
+    /// exactly as [`ReadPath::load`] does, so reaching the copy directly does not bypass that refusal.
+    /// P6's progressive render will be the next such caller.
     pub(crate) fn serve_local(
         &self,
         state: &AppState,

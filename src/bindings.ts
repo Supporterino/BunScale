@@ -308,11 +308,18 @@ export const commands = {
 	/**
 	 *  One rabbit's profile and archived state (DASH-6, RAB-5).
 	 * 
+	 *  The profile is answered from **this device's copy**, like [`list_rabbits`], while the collection
+	 *  read owns the refresh (SYNC-3), so unreachability is a status fact rather than a read failure. An
+	 *  **archived** rabbit is readable: RAB-8 presents its timeline read-only and the frontend withholds
+	 *  the write controls from what this command returns (D1.5).
+	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an id this household's collection does not hold, or for a blank id. A rabbit of
-	 *  another household is reported the same way and never resolved: RAB-3 forbids presenting a rabbit
-	 *  of one household as a rabbit of another.
+	 *  `validation` for a blank or unknown id, for a rabbit this device holds only as a tombstone, and for
+	 *  an id that names a non-rabbit item; `unknown` with the unknown-content key when the row's content
+	 *  is not on this device (D1.16). A rabbit of another household is reported the same way and never
+	 *  resolved: RAB-3 forbids presenting a rabbit of one household as a rabbit of another. A read carries
+	 *  no operation identity, so every failure answers `request_id: None`.
 	 */
 	getRabbit: (rabbitId: RabbitId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("get_rabbit", { rabbitId })),
 	/**
@@ -462,17 +469,24 @@ export const commands = {
 	 *  One entry's detail: value, timestamp, full note, derived alert and photo references (WT-8).
 	 * 
 	 *  The note is returned whole and never truncated by the contract; the alert flag is derived on read
-	 *  exactly as it is for the trend and the dashboard (D1.3), so the three surfaces cannot disagree. An
-	 *  entry of an archived rabbit is readable — RAB-8 makes the timeline viewable and read-only — and the
-	 *  frontend withholds Edit and Delete from what this command returns rather than the read refusing.
+	 *  exactly as it is for the trend and the dashboard (D1.3, D1.13), so the three surfaces cannot
+	 *  disagree. An entry of an archived rabbit is readable — RAB-8 makes the timeline viewable and
+	 *  read-only — and the frontend withholds Edit and Delete from what this command returns rather than
+	 *  the read refusing.
 	 * 
-	 *  Still a stub (task 2.15): its body must call `crate::domain::weight::alerts` over the rabbit's full
-	 *  entry set, never re-derive the rule.
+	 *  **The value is grams.** No display unit is applied here; `src/features/weight/api.ts` formats the
+	 *  grams for display with the person's preferred unit (D1.2, I1), so the detail must not convert
+	 *  twice.
+	 * 
+	 *  The photo references are the entry's stored list in order, and an empty list means the entry has
+	 *  no photos — the detail then shows no pager, and this read invents none.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an unknown entry or a blank id. Unreachability is a status fact, not a read
-	 *  failure (SYNC-3).
+	 *  `validation` for an unknown or blank entry id and for a tombstoned entry; `unknown` with the
+	 *  unknown-content key when the entry's or its rabbit's content is not on this device (D1.16). A read
+	 *  carries no operation identity, so every failure answers `request_id: None`. Unreachability is a
+	 *  status fact, not a read failure (SYNC-3).
 	 */
 	getWeightEntry: (entryId: WeightEntryId) => typedError<WeightEntry, CommandError>(__TAURI_INVOKE("get_weight_entry", { entryId })),
 	/**

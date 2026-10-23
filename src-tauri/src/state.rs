@@ -772,7 +772,7 @@ impl AppState {
             return Err(CommandError::validation(Some(request_id)));
         }
 
-        let (household_id, stored) = self.live_entry(&entry_id, &request_id)?;
+        let (household_id, stored) = self.live_entry(&entry_id, Some(&request_id))?;
         let (rabbit_household_id, _rabbit) =
             self.writable_rabbit(&stored.rabbit_id, &request_id)?;
 
@@ -858,7 +858,7 @@ impl AppState {
             return Err(CommandError::validation(Some(request_id)));
         }
 
-        let (household_id, stored) = self.live_entry(&entry_id, &request_id)?;
+        let (household_id, stored) = self.live_entry(&entry_id, Some(&request_id))?;
         let rabbit_id = stored.rabbit_id.clone();
         let (rabbit_household_id, _rabbit) = self.writable_rabbit(&rabbit_id, &request_id)?;
 
@@ -898,6 +898,63 @@ impl AppState {
         Ok((household_id, rabbit_id))
     }
 
+    /// One rabbit's profile and archived state, resolved from **this device's copy** (DASH-6, RAB-1's
+    /// read side, RAB-5).
+    ///
+    /// The read is a local one, like [`list_rabbits`](super::ipc::commands::rabbit::list_rabbits): the
+    /// copy is what the profile surface renders from, while the collection read owns the refresh
+    /// (SYNC-3). It never probes the service, so unreachability is a status fact rather than a read
+    /// failure.
+    ///
+    /// The resolution is [`AppState::live_rabbit`]'s — the same rule an edit, a lifecycle write and
+    /// the weight reads use — so the classification cannot differ between reading and writing: a blank
+    /// or unknown id, a tombstone and an id that names a non-rabbit item are `validation`; a live row
+    /// whose content this device cannot describe is `unknown` with the unknown-content key (D1.16,
+    /// D1.17). An **archived** rabbit is readable, as it is for [`AppState::weight_entry`]: RAB-8
+    /// presents its timeline read-only and the frontend withholds the write controls from what this
+    /// read returns (D1.5).
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank or unknown rabbit id, a tombstoned rabbit, and an id that names a
+    /// non-rabbit item; `unknown` with the unknown-content key when the row's content is not on this
+    /// device (D1.16). A read carries no operation identity, so every failure answers
+    /// `request_id: None`.
+    pub fn rabbit(&self, rabbit_id: &RabbitId) -> Result<Rabbit, CommandError> {
+        let (_household_id, rabbit) = self.live_rabbit(rabbit_id, None)?;
+
+        Ok(rabbit)
+    }
+
+    /// One entry's detail: the stored entry with its alert re-derived from the rabbit's full entry
+    /// set (WT-8; D1.13, D1.16, D1.17).
+    ///
+    /// The entry is resolved from **this device's copy** through [`AppState::live_entry`], so a blank
+    /// or unknown id, a tombstoned row and a non-entry item are refused exactly as the edit path
+    /// refuses them. The derived flag is [`crate::domain::weight::detail`]'s:
+    /// [`crate::domain::weight::alerts`] over the rabbit's **full** entry set, never the stored
+    /// payload's value and never a range window (I2, I3). Every other field — the grams, the
+    /// timestamp, the note whole and the photo references — is the stored entry unchanged, and no
+    /// display unit is applied here (I1).
+    ///
+    /// An archived rabbit is readable: RAB-8 presents its timeline read-only, so the read does not
+    /// refuse an archived target and the frontend withholds Edit and Delete from what it returns.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank or unknown entry id, a tombstoned entry, an id that names a non-entry
+    /// item and an entry whose rabbit row the collection does not hold; `unknown` with the
+    /// unknown-content key when the entry's row, its rabbit's row or a live row of the collection has
+    /// no content this device can describe (D1.16); and `unknown` when a stored timestamp or creation
+    /// instant is not an absolute instant. A read carries no operation identity, so every failure
+    /// answers `request_id: None`.
+    pub fn weight_entry(&self, entry_id: &WeightEntryId) -> Result<WeightEntry, CommandError> {
+        let (household_id, entry) = self.live_entry(entry_id, None)?;
+        let collection = crate::sync::ReadPath::shared().serve_local(self, &household_id);
+
+        domain::weight::detail(&collection, &entry)
+    }
+
     /// One rabbit's weight entries inside a range window, with its threshold alongside (WT-6, WT-7;
     /// D1.4, D1.16, D1.17).
     ///
@@ -929,22 +986,8 @@ impl AppState {
         range: WeightRange,
         now: &Instant,
     ) -> Result<WeightTrend, CommandError> {
-        if rabbit_id.0.trim().is_empty() {
-            return Err(CommandError::validation(None));
-        }
-
-        let Some((household_id, stored)) = self.stored_rabbit(rabbit_id) else {
-            return Err(CommandError::validation(None));
-        };
-
-        let rabbit = match stored.payload {
-            // Archived is readable: RAB-8 presents an archived rabbit's timeline read-only (DASH-7).
-            Some(ItemPayload::Rabbit { rabbit }) => rabbit,
-            None => return Err(CommandError::household_content_unloaded(None)),
-            // The identity names an item that is not a rabbit, so there is no weight series.
-            Some(ItemPayload::WeightEntry { .. }) => return Err(CommandError::validation(None)),
-        };
-
+        // Archived is readable: RAB-8 presents an archived rabbit's timeline read-only (DASH-7).
+        let (household_id, rabbit) = self.live_rabbit(rabbit_id, None)?;
         let collection = crate::sync::ReadPath::shared().serve_local(self, &household_id);
 
         domain::weight::trend(&collection, &rabbit, range, now)
@@ -1252,7 +1295,9 @@ impl AppState {
     /// A lifecycle write does **not** call it: restore (2.6) and permanent deletion (2.7) target an
     /// archived rabbit by definition (RAB-7, RAB-10), and archive checks its own transition.
     ///
-    /// The rules are all read from this device's copy, so a refusal sends nothing:
+    /// The resolve-and-decode block is [`AppState::live_rabbit`]'s, so a read and a write classify the
+    /// same row identically; this method adds only the archived-target rule a content write owes. The
+    /// rules are all read from this device's copy, so a refusal sends nothing:
     ///
     /// * The claim alone is not enough. It survives a tombstone, so a permanently deleted rabbit still
     ///   names its household; the row must exist and be **live**, or a full-payload write would
@@ -1273,36 +1318,28 @@ impl AppState {
         rabbit_id: &RabbitId,
         request_id: &RequestId,
     ) -> Result<(HouseholdId, Rabbit), CommandError> {
-        let Some((household_id, stored)) = self.stored_rabbit(rabbit_id) else {
-            return Err(CommandError::validation(Some(request_id.clone())));
-        };
+        let (household_id, rabbit) = self.live_rabbit(rabbit_id, Some(request_id))?;
 
-        match stored.payload {
-            Some(ItemPayload::Rabbit { rabbit }) => {
-                domain::rabbit::ensure_writable(&rabbit, request_id)?;
+        // The resolve-and-decode block is [`AppState::live_rabbit`]'s; only the archived-target rule
+        // belongs to a content write (DM-4, RAB-8; D1.5).
+        domain::rabbit::ensure_writable(&rabbit, request_id)?;
 
-                Ok((household_id, rabbit))
-            }
-            // A live row whose content this device cannot describe cannot establish that the rabbit
-            // is not archived, so the write is refused rather than sent blind (D1.16).
-            None => Err(CommandError::household_content_unloaded(Some(
-                request_id.clone(),
-            ))),
-            // The identity names an item that is not a rabbit: there is no rabbit to write.
-            Some(ItemPayload::WeightEntry { .. }) => {
-                Err(CommandError::validation(Some(request_id.clone())))
-            }
-        }
+        Ok((household_id, rabbit))
     }
 
     /// The **live** weight entry `entry_id` names, with the household that owns its row (WT-5, D1.16,
     /// D1.17; SYNC-1).
     ///
-    /// The entry counterpart of [`AppState::stored_rabbit`], and the one resolution both the edit and
-    /// the deletion use so the rules cannot differ between them. **The household returned is the one
-    /// that claimed the entry's item id**, and it is the only collection the caller may write the
-    /// entry into: the rabbit's household is checked against it by the caller, so an entry can never be
-    /// edited or removed inside a collection that does not hold it (NFR-10).
+    /// The entry counterpart of [`AppState::stored_rabbit`], and the one resolution the edit, the
+    /// deletion and the detail read use so the rules cannot differ between them. **The household
+    /// returned is the one that claimed the entry's item id**, and it is the only collection the
+    /// caller may write the entry into: the rabbit's household is checked against it by the caller,
+    /// so an entry can never be edited or removed inside a collection that does not hold it (NFR-10).
+    ///
+    /// `request_id` is `Some` for a write and `None` for a read: a write carries the operation's
+    /// identity on every refusal, while a read is idempotent and names none (D0.14). The resolution
+    /// itself is identical, so the detail read (`get_weight_entry`) accepts and refuses exactly the
+    /// rows an edit would.
     ///
     /// A tombstone is checked **before** the content, because a tombstone whose content was never read
     /// is stored as unknown content; it names an entry that is already removed, so it is refused as a
@@ -1321,28 +1358,30 @@ impl AppState {
     ///
     /// `validation` for a blank id, an entry this device holds no live row for, a tombstoned entry, a
     /// non-entry item, and a payload naming another entry id; `unknown` with the unknown-content key
-    /// when the live row's content is not on this device. All carry the operation's identity and none
-    /// sends anything.
+    /// when the live row's content is not on this device. All carry `request_id` and none sends
+    /// anything.
     fn live_entry(
         &self,
         entry_id: &WeightEntryId,
-        request_id: &RequestId,
+        request_id: Option<&RequestId>,
     ) -> Result<(HouseholdId, WeightEntry), CommandError> {
+        let refused = || CommandError::validation(request_id.cloned());
+
         if entry_id.0.trim().is_empty() {
-            return Err(CommandError::validation(Some(request_id.clone())));
+            return Err(refused());
         }
 
         let item_id = domain::weight::item_id(entry_id);
         let copies = lock(&self.copies);
         let Some(household_id) = copies.household_of(&item_id).cloned() else {
-            return Err(CommandError::validation(Some(request_id.clone())));
+            return Err(refused());
         };
         let Ok(Some(stored)) = copies.item(&household_id, &item_id) else {
-            return Err(CommandError::validation(Some(request_id.clone())));
+            return Err(refused());
         };
 
         if stored.deleted {
-            return Err(CommandError::validation(Some(request_id.clone())));
+            return Err(refused());
         }
 
         match &stored.payload {
@@ -1351,28 +1390,67 @@ impl AppState {
             }
             // The payload names another item than the row it is stored under, so it cannot be the
             // content of the row `entry_id` resolved (D1.16, SYNC-1).
-            Some(ItemPayload::WeightEntry { .. }) => {
-                Err(CommandError::validation(Some(request_id.clone())))
-            }
+            Some(ItemPayload::WeightEntry { .. }) => Err(refused()),
             // The row exists but its content is not on this device: a whole-item write cannot be
             // composed, and a partial one would replace the stored version (D1.16).
-            None => Err(CommandError::household_content_unloaded(Some(
-                request_id.clone(),
-            ))),
+            None => Err(CommandError::household_content_unloaded(
+                request_id.cloned(),
+            )),
             // The identity names an item that is not an entry, so there is nothing to edit or delete.
-            Some(ItemPayload::Rabbit { .. }) => {
-                Err(CommandError::validation(Some(request_id.clone())))
+            Some(ItemPayload::Rabbit { .. }) => Err(refused()),
+        }
+    }
+
+    /// The **live** rabbit `rabbit_id` names, with the household whose copy holds it (D1.16, D1.17).
+    ///
+    /// The one resolve-and-decode rule the profile read ([`AppState::rabbit`]), the weight
+    /// trend/history read ([`AppState::weight_trend`]) and the content-write boundary
+    /// ([`AppState::writable_rabbit`]) share, so a blank id, an absent or tombstoned rabbit, a
+    /// non-rabbit item and a row whose content is not on this device cannot be classified one way by
+    /// a read and another by a write.
+    ///
+    /// `request_id` is `Some` for a write and `None` for a read: a write carries the operation's
+    /// identity on every refusal, while a read is idempotent and names none (D0.14).
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank or unknown id, a tombstoned rabbit and an id that names a non-rabbit
+    /// item; `unknown` with the unknown-content key when the live row's content is not on this device
+    /// (D1.16). A write applies [`crate::domain::rabbit::ensure_writable`] to the returned rabbit
+    /// itself, because an archived rabbit is readable but not writable (D1.5).
+    fn live_rabbit(
+        &self,
+        rabbit_id: &RabbitId,
+        request_id: Option<&RequestId>,
+    ) -> Result<(HouseholdId, Rabbit), CommandError> {
+        if rabbit_id.0.trim().is_empty() {
+            return Err(CommandError::validation(request_id.cloned()));
+        }
+
+        let Some((household_id, stored)) = self.stored_rabbit(rabbit_id) else {
+            return Err(CommandError::validation(request_id.cloned()));
+        };
+
+        match stored.payload {
+            Some(ItemPayload::Rabbit { rabbit }) => Ok((household_id, rabbit)),
+            // The row exists but its content is not on this device: a whole-item write cannot be
+            // composed from it and a read cannot answer it (D1.16).
+            None => Err(CommandError::household_content_unloaded(
+                request_id.cloned(),
+            )),
+            // The identity names an item that is not a rabbit, so it names no profile and no series.
+            Some(ItemPayload::WeightEntry { .. }) => {
+                Err(CommandError::validation(request_id.cloned()))
             }
         }
     }
 
     /// The **live** row this device holds for `rabbit_id`, with the household that claimed it.
     ///
-    /// The one lookup both an edit and a lifecycle write resolve their target through, so the
-    /// liveness rule cannot differ between them: a tombstone keeps its identity claim, but it names a
-    /// permanently deleted rabbit, so a whole-item write to it would resurrect what RAB-10 removed
-    /// (D1.5, NFR-10). `None` covers a blank id, a rabbit this device has never loaded, and a deleted
-    /// one — none of which names a rabbit a write may reach.
+    /// The row lookup behind [`AppState::live_rabbit`], which is the one resolution an edit, a
+    /// lifecycle write and a read use. A tombstone keeps its identity claim, but it names a permanently
+    /// deleted rabbit, so `None` is answered for it as well as for a blank id and a rabbit this device
+    /// has never loaded — none of which names a rabbit that may be read or written (D1.5, NFR-10).
     fn stored_rabbit(&self, rabbit_id: &RabbitId) -> Option<(HouseholdId, StoredItem)> {
         let item_id = domain::rabbit::item_id(rabbit_id);
         let copies = lock(&self.copies);

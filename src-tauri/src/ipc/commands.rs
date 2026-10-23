@@ -25,16 +25,16 @@
 //! return. `error.not_implemented` is a surface state, and `error.household_content_unloaded` is the
 //! one documented second key for `unknown` (D1.16); see [`failure`](super::failure)'s module doc.
 //!
-//! **Two of the thirteen P1 bodies are stubs; `create_rabbit` (task 2.1), `update_rabbit` (task
+//! **All thirteen P1 bodies are implemented:** `create_rabbit` (task 2.1), `update_rabbit` (task
 //! 2.4), `list_rabbits` and `archive_rabbit` (task 2.5), `restore_rabbit` (task 2.6), `delete_rabbit`
 //! (task 2.7), `create_weight_entry` (task 2.9), `update_weight_entry` and `delete_weight_entry` (task
-//! 2.11), `get_weight_entries` (task 2.12) and `get_dashboard` (task 2.14) are implemented.** Each
-//! remaining stub returns [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
-//! `error.not_implemented` — carrying `None` on the reading commands, so a frozen signature can never
-//! be mistaken for implemented behaviour. The remaining reads are `get_rabbit` (still awaiting an
-//! owner in `tasks.md`) and `get_weight_entry` (2.15). Replacing a body needs no `src/bindings.ts`
-//! change — the state a command reaches the app through is a `tauri::State` parameter, which the
-//! exporter does not emit.
+//! 2.11), `get_weight_entries` (task 2.12), `get_dashboard` (task 2.14), `get_weight_entry` (task
+//! 2.15) and `get_rabbit` (task 2.16). No P1 command returns
+//! [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
+//! `error.not_implemented` — any more; the constructor remains the distinct state a future
+//! not-yet-implemented command would return, and this module's inventory test asserts that none of the
+//! area modules calls it. Replacing a body needs no `src/bindings.ts` change — the state a command
+//! reaches the app through is a `tauri::State` parameter, which the exporter does not emit.
 //!
 //! **The frontend reaches these commands only through `src/features/*/api.ts`** — wrappers over the
 //! generated `src/bindings.ts` (project hard rule 2). No route, component or hook imports the
@@ -88,52 +88,33 @@ pub use weight::{
 
 #[cfg(test)]
 mod tests {
-    use super::super::failure::NOT_IMPLEMENTED_MESSAGE_KEY;
-    use super::super::types::*;
-    use super::*;
-    use crate::sync::double::test_support::block_on_ready;
-
-    fn rabbit() -> RabbitId {
-        RabbitId("rabbit-1".to_owned())
-    }
-
-    fn entry() -> WeightEntryId {
-        WeightEntryId("entry-1".to_owned())
-    }
-
-    /// The one placeholder failure shape (design I5): classified as `unknown` with its retry withheld,
-    /// and named by the placeholder key rather than by `error.unknown`.
-    fn assert_not_implemented(error: &CommandError, expected: Option<RequestId>) {
-        assert_eq!(error.cause, SaveCause::Unknown);
-        assert!(!error.retryable);
-        assert_eq!(error.message_key, NOT_IMPLEMENTED_MESSAGE_KEY);
-        assert_ne!(
-            error.message_key, "error.unknown",
-            "a placeholder is not a second key for the classified cause"
-        );
-        assert_eq!(error.request_id, expected);
-    }
-
-    /// The two remaining P1 read stubs are idempotent, so their failure carries no operation
-    /// identity (D0.14). `list_rabbits` left this list when task 2.5 implemented its body,
-    /// `get_weight_entries` when task 2.12 did, and `get_dashboard` when task 2.14 did; all three are
-    /// covered by their tasks' own tests. The two write stubs left when task 2.11 implemented
-    /// `update_weight_entry` and `delete_weight_entry`.
+    /// **A source-text tripwire, not the guarantee that the P1 surface is implemented.** It checks
+    /// that the three P1 area files contain no call to `CommandError::not_implemented` outside their
+    /// test modules. That constructor is the one state a stub body returns (design I5), so a
+    /// re-introduced stub is what this catches cheaply.
     ///
-    /// Each body is polled once through the double's helper: a stub has nothing to wait for, so a
-    /// future that is not immediately ready is itself the defect.
+    /// It cannot see a stub that returns another cause or reaches the constructor through an alias,
+    /// a body added to `commands.rs` or a ninth area module, or a placeholder that compiles under a
+    /// different name; conversely it deliberately does not scan the P0 areas, where a legitimate
+    /// placeholder cannot fail it. The per-command behaviour tests are the real guarantee, and this
+    /// guard does not replace them. The `#[cfg(test)]` half of each file is excluded, so this test's
+    /// own text cannot satisfy or defeat the check.
     #[test]
-    fn every_p1_read_stub_is_not_implemented_and_carries_no_operation_identity() {
-        let failures = [
-            block_on_ready(rabbit::get_rabbit(rabbit())).expect_err("get_rabbit is a stub"),
-            block_on_ready(weight::get_weight_entry(entry()))
-                .expect_err("get_weight_entry is a stub"),
-        ];
+    fn p1_area_sources_do_not_call_the_placeholder_constructor() {
+        for (area, source) in [
+            ("dashboard", include_str!("commands/dashboard.rs")),
+            ("rabbit", include_str!("commands/rabbit.rs")),
+            ("weight", include_str!("commands/weight.rs")),
+        ] {
+            let implementation = source
+                .split("#[cfg(test)]")
+                .next()
+                .expect("a split always yields at least one part");
 
-        assert_eq!(failures.len(), 2, "every remaining P1 read is covered");
-
-        for failure in &failures {
-            assert_not_implemented(failure, None);
+            assert!(
+                !implementation.contains("not_implemented("),
+                "{area} contains a placeholder call outside its tests: a P1 command may be a stub"
+            );
         }
     }
 }

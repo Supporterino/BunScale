@@ -6,17 +6,18 @@
 //! time, and the signatures are what `src/bindings.ts` is generated from, so a stub is the contract
 //! rather than a placeholder to be reshaped.
 //!
-//! **[`create_rabbit`] (task 2.1), [`update_rabbit`] (task 2.4), [`list_rabbits`] and
-//! [`archive_rabbit`] (task 2.5), [`restore_rabbit`] (task 2.6) and [`delete_rabbit`] (task 2.7) are
-//! implemented; [`get_rabbit`] is still a stub.** Each implemented body takes the app's state and, for a
-//! write, a publication seam — `tauri::State` is how a command reaches the shared service and the
-//! account, and `tauri::AppHandle` is the seam [`RabbitChangePublisher`] is implemented by — which
-//! are parameters Tauri supplies and `src/bindings.ts` does not export, so the command the frontend
-//! calls keeps the arguments it was frozen with. A successful create publishes `rabbit:changed` with
-//! kind `created`, an edit with kind `updated`, an archive with kind `archived`, a restore with kind
-//! `restored`, and a deletion with kind `deleted`, as the contract's event table requires of every
-//! successful rabbit write; a refusal publishes nothing. The remaining stub keeps exactly the
-//! arguments it was frozen with, so its bindings do not move either.
+//! **All seven bodies are implemented:** [`create_rabbit`] (task 2.1), [`update_rabbit`] (task 2.4),
+//! [`list_rabbits`] and [`archive_rabbit`] (task 2.5), [`restore_rabbit`] (task 2.6),
+//! [`delete_rabbit`] (task 2.7) and [`get_rabbit`] (task 2.16). Each body takes the app's state and,
+//! for a write, a publication seam — `tauri::State` is how a command reaches the shared service and
+//! the account, and `tauri::AppHandle` is the seam [`RabbitChangePublisher`] is implemented by —
+//! which are parameters Tauri supplies and `src/bindings.ts` does not export, so the command the
+//! frontend calls keeps the arguments it was frozen with. A successful create publishes
+//! `rabbit:changed` with kind `created`, an edit with kind `updated`, an archive with kind `archived`,
+//! a restore with kind `restored`, and a deletion with kind `deleted`, as the contract's event table
+//! requires of every successful rabbit write; a refusal publishes nothing. A read takes the state
+//! alone and publishes nothing: [`list_rabbits`] and [`get_rabbit`] answer from this device's copy and
+//! report `request_id: None` on every failure (D0.14, SYNC-3).
 //!
 //! Three things the signatures already encode, because section 2 must not have to renegotiate them:
 //!
@@ -36,10 +37,6 @@
 //!   [`crate::state::AppState`]'s `writable_rabbit`, which resolves the target from this device's copy
 //!   and applies [`crate::domain::rabbit::ensure_writable`]; `update_rabbit` calls it now, and the
 //!   weight-entry commands must call it with the target entry's `rabbit_id` when their bodies land.
-//!
-//! Every remaining stub body consumes its arguments deliberately: the parameters are part of the
-//! frozen signature and the bindings' argument names, and an unused-parameter warning under
-//! `clippy -D warnings` would otherwise have to be silenced.
 
 // The shared contract types, including the ones only the doc comments link (see the parent module's
 // docs for why this is a glob).
@@ -244,19 +241,39 @@ pub async fn list_rabbits(
     listed_rabbits(state.inner(), household_id, include_archived).await
 }
 
+/// The `get_rabbit` body over the state alone.
+///
+/// The outermost layer a unit test can call, like the other command bodies: `tauri::State` has no
+/// public constructor outside a running app. The read takes no operation identity, because it is
+/// idempotent and a retry is a fresh read rather than a re-issued one (D0.14).
+async fn read_rabbit(
+    state: &crate::state::AppState,
+    rabbit_id: RabbitId,
+) -> Result<Rabbit, CommandError> {
+    state.rabbit(&rabbit_id)
+}
+
 /// One rabbit's profile and archived state (DASH-6, RAB-5).
+///
+/// The profile is answered from **this device's copy**, like [`list_rabbits`], while the collection
+/// read owns the refresh (SYNC-3), so unreachability is a status fact rather than a read failure. An
+/// **archived** rabbit is readable: RAB-8 presents its timeline read-only and the frontend withholds
+/// the write controls from what this command returns (D1.5).
 ///
 /// # Errors
 ///
-/// `validation` for an id this household's collection does not hold, or for a blank id. A rabbit of
-/// another household is reported the same way and never resolved: RAB-3 forbids presenting a rabbit
-/// of one household as a rabbit of another.
+/// `validation` for a blank or unknown id, for a rabbit this device holds only as a tombstone, and for
+/// an id that names a non-rabbit item; `unknown` with the unknown-content key when the row's content
+/// is not on this device (D1.16). A rabbit of another household is reported the same way and never
+/// resolved: RAB-3 forbids presenting a rabbit of one household as a rabbit of another. A read carries
+/// no operation identity, so every failure answers `request_id: None`.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_rabbit(rabbit_id: RabbitId) -> Result<Rabbit, CommandError> {
-    let _ = rabbit_id;
-
-    Err(CommandError::not_implemented(None))
+pub async fn get_rabbit(
+    rabbit_id: RabbitId,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Rabbit, CommandError> {
+    read_rabbit(state.inner(), rabbit_id).await
 }
 
 /// Replace the editable fields of an active rabbit's profile (RAB-5, WT-7).
@@ -1157,6 +1174,156 @@ mod tests {
                 assert!(!error.retryable, "{blank:?}");
                 assert_eq!(error.request_id, None, "{blank:?}");
             }
+        }
+    }
+
+    /// DASH-6, RAB-1's read side: the profile is answered from this device's copy, field for field,
+    /// and the read never probes the service (SYNC-3).
+    #[test]
+    fn a_profile_is_read_from_the_local_copy_and_never_probes_the_service() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service.clone());
+        let calls_before = service.calls();
+
+        let read = block_on_ready(read_rabbit(&state, rabbit.id.clone()))
+            .expect("the rabbit is in this device's copy");
+
+        assert_eq!(read, rabbit, "every RAB-1 field is carried unchanged");
+        assert_eq!(
+            service.calls(),
+            calls_before,
+            "a read never probes the service"
+        );
+    }
+
+    /// D1.5, RAB-8, DASH-6: an archived rabbit is readable, so its read-only profile and dashboard can
+    /// load; archived is not a refusal for a read.
+    #[test]
+    fn an_archived_rabbit_is_readable() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit(service);
+
+        let read = block_on_ready(read_rabbit(&state, rabbit.id.clone()))
+            .expect("an archived rabbit is readable");
+
+        assert!(read.is_archived);
+        assert_eq!(read, rabbit);
+    }
+
+    /// D1.16: a live row whose content this device cannot describe refuses the addressed read with the
+    /// unknown-content key, never a partial profile or the placeholder state.
+    #[test]
+    fn a_read_of_a_row_with_unknown_content_is_refused() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let state = state_with_a_held_household(service.clone());
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                collection_with_unknown(&one, "rabbit-1"),
+                Instant("2026-10-22T09:31:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+        let calls_before = service.calls();
+
+        let error = block_on_ready(read_rabbit(&state, RabbitId("rabbit-1".to_owned())))
+            .expect_err("the row's content is not on this device");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_ne!(error.message_key, "error.unknown");
+        assert_ne!(
+            error.message_key,
+            crate::ipc::failure::NOT_IMPLEMENTED_MESSAGE_KEY
+        );
+        assert_eq!(error.request_id, None);
+        assert_eq!(service.calls(), calls_before, "the refusal sends nothing");
+    }
+
+    /// D1.17, RAB-10: a tombstone names a rabbit that is already removed, so it is not readable. The
+    /// removal is answered as an unknown rabbit (`validation`), not as unknown content.
+    #[test]
+    fn a_tombstoned_rabbit_is_refused() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let state = state_with_a_held_household(service);
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![CollectionItem {
+                        item_id: ItemId("rabbit-1".to_owned()),
+                        updated_at: Instant("2026-10-22T10:00:00Z".to_owned()),
+                        deleted: true,
+                        payload: None,
+                    }],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T10:01:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        let error = block_on_ready(read_rabbit(&state, RabbitId("rabbit-1".to_owned())))
+            .expect_err("a tombstone is not readable");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, None);
+    }
+
+    /// A blank id names no rabbit, so the read refuses as `validation` with no operation identity
+    /// (D0.14) — never an empty profile or the placeholder state.
+    #[test]
+    fn a_blank_rabbit_id_is_refused() {
+        let state = AppState::new(Arc::new(ScriptedService::new()), None);
+
+        for blank in ["", "   "] {
+            let error = block_on_ready(read_rabbit(&state, RabbitId(blank.to_owned())))
+                .expect_err("a blank id names no rabbit");
+
+            assert_eq!(error.cause, SaveCause::Validation, "{blank:?}");
+            assert_eq!(error.message_key, "error.validation", "{blank:?}");
+            assert!(!error.retryable, "{blank:?}");
+            assert_eq!(error.request_id, None, "{blank:?}");
+        }
+    }
+
+    /// DASH-6: an absent id and an id that names a non-rabbit item name no profile, so both are
+    /// `validation` with no operation identity.
+    #[test]
+    fn an_absent_or_non_rabbit_id_is_refused() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_one_rabbit(service);
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                HouseholdCollection {
+                    household_id: one.clone(),
+                    items: vec![
+                        rabbit_row(&rabbit, "2026-10-22T09:31:00Z"),
+                        weight_entry_row(&rabbit, "entry-1"),
+                    ],
+                    source: CollectionSource::Service,
+                    loaded_at: None,
+                },
+                Instant("2026-10-22T09:32:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+
+        for id in ["rabbit-unknown", "entry-1"] {
+            let error = block_on_ready(read_rabbit(&state, RabbitId(id.to_owned())))
+                .expect_err("that id names no rabbit");
+
+            assert_eq!(error.cause, SaveCause::Validation, "{id}");
+            assert_eq!(error.request_id, None, "{id}");
         }
     }
 
