@@ -194,7 +194,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   that row's rabbit, as a directly visible touchable control within the row (DASH-9, WT-2, NFR-9).
 - [ ] 4.8 [frontend-ui] Build the quick-entry control with a rabbit picker that opens the same weight
   form bound to the chosen rabbit (WT-2).
-- [ ] 4.9 [frontend-ui] Build the weight entry form: value in the preferred display unit with **no
+- [x] 4.9 [frontend-ui] Build the weight entry form: value in the preferred display unit with **no
   unit picker**, editable timestamp defaulting to now, optional note, non-positive rejection and the
   out-of-bound confirmation (WT-1, WT-3, WT-4).
 - [ ] 4.10 [frontend-ui] Build the weight entry detail view: display-unit value, timestamp, full

@@ -817,3 +817,69 @@
   display: flex;
   justify-content: flex-start;
 }
+
+/*
+ * The weight entry form (task 4.9; WT-1, WT-3, WT-4).
+ *
+ * It replaces the surface that opened it, exactly as the rabbit form does, so it
+ * keeps the same form measure and the same stack rhythm inside the card. The
+ * card is the grouped surface; these rules add only what the weight fields own.
+ *
+ * **The unit is a suffix, not a control** (D1.2). The wrapper is the positioning
+ * box, the input keeps its full width and reserves the trailing space the symbol
+ * needs, and the symbol itself is decorative — the field's accessible name
+ * already says the unit, so a reader hears it once while the visual reader sees
+ * it beside the digits. No interactive element is added: a picker here could
+ * reinterpret the number that is already typed.
+ *
+ * **The confirmation is the frozen `Notice`**, so its warning surface, border,
+ * icon and text colours are the component tokens; only the two-button row is
+ * the form's. The controls wrap rather than shrink below the 44 pt baseline at
+ * 390 px or a large preferred text size, and the primary answer stays last, as
+ * in every other action row.
+ */
+.bs-weight-form {
+  width: 100%;
+  max-width: var(--layout-form-max);
+  margin-inline: auto;
+}
+
+.bs-weight-form__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-lg);
+  margin-block-start: var(--card-gap);
+}
+
+.bs-weight-form__value {
+  position: relative;
+}
+
+.bs-weight-form__value-input {
+  padding-inline-end: var(--space-12);
+}
+
+.bs-weight-form__unit {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: var(--input-padding-inline);
+  color: var(--color-text-tertiary);
+  font-size: var(--input-font-size);
+  line-height: var(--input-line-height);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.bs-weight-form__confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.bs-weight-form__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
