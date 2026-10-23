@@ -30,11 +30,19 @@
  * `SaveFailureSurface` (SYNC-2, NFR-8), exactly as the profile and form flows
  * do, and is not presented a second time here.
  *
- * **The empty state is announced when it replaces rows.** The zero-row state
- * appears after a restore or a permanent deletion, so the caller wraps it in
- * `role="status"` — `EmptyState` deliberately sets no live role itself, because
- * a region that mounts with the screen would talk over its title. When the
- * screen is first opened on an already-empty list there is nothing to announce.
+ * **The empty state is announced when it replaces rows.** A `role="status"`
+ * region is mounted with this screen and kept empty while rows are present, so
+ * it exists before the content changes; when the rows go to zero after a restore
+ * or a permanent deletion, the empty state's copy is written into it (the
+ * pattern `ConnectivityRequiredScreen` uses). `EmptyState` deliberately sets no
+ * live role of its own. Opening the screen on an already-empty list writes
+ * nothing, because that is the initial state rather than a replacement.
+ *
+ * **Focus survives the row that leaves.** After a restore or a confirmed
+ * deletion the action's own control is unmounted with its row, so the screen
+ * moves focus to the row that took its place (its Restore control) or, when the
+ * last row leaves, to the Back control. The dialog is told not to restore focus
+ * to a trigger that is being removed.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Badge } from '../../../components/ui/Badge';
@@ -65,6 +73,8 @@ export function ArchivedRabbitList({ onClose }: ArchivedRabbitListProps) {
   const householdId = useActiveHousehold().data?.id;
   const containerRef = useRef<HTMLDivElement>(null);
   const hadRows = useRef(false);
+  const leavingIndex = useRef<number | null>(null);
+  const [announcement, setAnnouncement] = useState('');
 
   // The entry point unmounts with the dashboard list, so the new surface takes
   // focus instead of dropping it on `<body>`.
@@ -75,30 +85,82 @@ export function ArchivedRabbitList({ onClose }: ArchivedRabbitListProps) {
   /*
    * The transition to zero rows is what the empty state announces: before it,
    * this screen held at least one archived rabbit, so the empty state replaced
-   * content rather than being the initial state.
+   * content rather than being the initial state. A later non-empty read clears
+   * the region, so the next transition is a change again.
    */
   useEffect(() => {
-    if (archived.data !== undefined && archived.data.length > 0) {
+    if (archived.data === undefined) {
+      return;
+    }
+
+    if (archived.data.length > 0) {
       hadRows.current = true;
+      setAnnouncement('');
+      return;
+    }
+
+    if (hadRows.current) {
+      setAnnouncement(
+        `${t('rabbit.archivedList.title')}. ${t('rabbit.archivedList.empty')}`,
+      );
     }
   }, [archived.data]);
 
-  const announceEmpty =
-    hadRows.current &&
-    archived.data !== undefined &&
-    archived.data.length === 0;
+  /*
+   * The row's own control is unmounted with it, so focus moves to the row that
+   * took its place — or to Back when the last row left. This runs on the
+   * confirming re-read, after the list has actually changed.
+   */
+  useEffect(() => {
+    if (leavingIndex.current === null || archived.data === undefined) {
+      return;
+    }
+
+    const index = leavingIndex.current;
+
+    leavingIndex.current = null;
+
+    const cards =
+      containerRef.current?.querySelectorAll<HTMLElement>('.bs-archived__card');
+
+    if (cards !== undefined && cards.length > 0) {
+      cards[Math.min(index, cards.length - 1)]
+        ?.querySelector<HTMLButtonElement>('.bs-archived__restore')
+        ?.focus();
+      return;
+    }
+
+    containerRef.current
+      ?.querySelector<HTMLButtonElement>('.bs-archived__back')
+      ?.focus();
+  }, [archived.data]);
 
   return (
     <div className="bs-archived" ref={containerRef}>
+      {/*
+       * Mounted before any content can replace rows, and empty until then: a
+       * region that appears with the replacement announces nothing. It is
+       * visually hidden on the region itself (out of flow), so an empty region
+       * does not add a gap step to the column.
+       */}
+      <div
+        className="bs-visually-hidden"
+        data-announcement="archived"
+        role="status"
+      >
+        {announcement}
+      </div>
       <div className="bs-archived__actions-row">
-        <Button onClick={onClose} variant="plain">
+        <Button className="bs-archived__back" onClick={onClose} variant="plain">
           {t('settings.back')}
         </Button>
       </div>
       <ArchivedContent
-        announceEmpty={announceEmpty}
         error={archived.error}
         householdId={householdId}
+        onLeaving={(index) => {
+          leavingIndex.current = index;
+        }}
         onRetry={() => {
           void archived.refetch();
         }}
@@ -114,15 +176,15 @@ export function ArchivedRabbitList({ onClose }: ArchivedRabbitListProps) {
  * the empty state's own heading does not duplicate a screen heading above it.
  */
 function ArchivedContent({
-  announceEmpty,
   error,
   householdId,
+  onLeaving,
   onRetry,
   rabbits,
 }: {
-  announceEmpty: boolean;
   error: RabbitListFailure | null;
   householdId: string | undefined;
+  onLeaving: (index: number) => void;
   onRetry: () => void;
   rabbits: RabbitSummary[] | undefined;
 }) {
@@ -146,11 +208,9 @@ function ArchivedContent({
 
   if (rabbits.length === 0) {
     return (
-      <div role={announceEmpty ? 'status' : undefined}>
-        <EmptyState title={t('rabbit.archivedList.title')}>
-          {t('rabbit.archivedList.empty')}
-        </EmptyState>
-      </div>
+      <EmptyState title={t('rabbit.archivedList.title')}>
+        {t('rabbit.archivedList.empty')}
+      </EmptyState>
     );
   }
 
@@ -160,9 +220,14 @@ function ArchivedContent({
         {t('rabbit.archivedList.title')}
       </Heading>
       <ul className="bs-archived__rows">
-        {rabbits.map((rabbit) => (
+        {rabbits.map((rabbit, index) => (
           <li key={rabbit.id}>
-            <ArchivedRabbit householdId={householdId} rabbit={rabbit} />
+            <ArchivedRabbit
+              householdId={householdId}
+              index={index}
+              onLeaving={onLeaving}
+              rabbit={rabbit}
+            />
           </li>
         ))}
       </ul>
@@ -177,14 +242,35 @@ function ArchivedContent({
  */
 function ArchivedRabbit({
   householdId,
+  index,
+  onLeaving,
   rabbit,
 }: {
   householdId: string | undefined;
+  /** Position in the list, so focus can land where the row was. */
+  index: number;
+  /** The row is about to leave; the list hands focus on after the re-read. */
+  onLeaving: (index: number) => void;
   rabbit: RabbitSummary;
 }) {
   const restore = useRestoreRabbit();
   const remove = useDeleteRabbit();
   const [confirming, setConfirming] = useState(false);
+  const notifiedRestore = useRef(false);
+
+  /*
+   * A confirmed restore unmounts this row. The list needs to know where it was
+   * so focus can follow the confirming re-read, and this component must not try
+   * to keep focus on a control that is about to disappear.
+   */
+  useEffect(() => {
+    if (!restore.isSuccess || notifiedRestore.current) {
+      return;
+    }
+
+    notifiedRestore.current = true;
+    onLeaving(index);
+  }, [restore.isSuccess, index, onLeaving]);
 
   /*
    * A confirmed deletion closes the dialog. A non-validation failure closes it
@@ -198,9 +284,10 @@ function ArchivedRabbit({
       return;
     }
 
+    onLeaving(index);
     setConfirming(false);
     remove.reset();
-  }, [remove.isSuccess, remove.reset]);
+  }, [remove.isSuccess, remove.reset, index, onLeaving]);
 
   useEffect(() => {
     if (remove.error === null) {
@@ -252,6 +339,7 @@ function ArchivedRabbit({
       )}
       <div className="bs-archived__actions">
         <Button
+          className="bs-archived__restore"
           loading={restore.isPending}
           onClick={() => {
             restore.mutate(restoreRabbit(rabbit.id));
@@ -286,6 +374,7 @@ function ArchivedRabbit({
           onConfirm={confirmDelete}
           pending={remove.isPending}
           rabbitName={rabbit.name}
+          restoreFocus={!remove.isSuccess}
         />
       ) : null}
     </Card>

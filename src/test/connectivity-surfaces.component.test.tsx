@@ -339,7 +339,21 @@ describeAtBothBaselines('Connectivity surfaces (SYNC-3)', () => {
         await screen.findByRole('heading', { name: HOME.name }),
       ).toBeVisible();
 
-      const notice = await screen.findByRole('status');
+      /*
+       * Located by its own copy, not by a bare `role="status"`: the dashboard
+       * mounts a persistent, empty polite region for its empty-state
+       * announcement (a live region must exist before its content changes), so
+       * the first `status` is that announcer, not this notice. The copy is
+       * unique on the screen and the announcer is always empty here, so the
+       * text match cannot land on the wrong region — and the enclosing status
+       * region is asserted, so the notice cannot stop being a polite status.
+       */
+      const copy = await screen.findByText(LOCAL_COPY);
+      const notice = copy.closest<HTMLElement>('[role="status"]');
+
+      if (notice === null) {
+        throw new Error('the local-copy notice is not inside a status region');
+      }
 
       expect(notice).toHaveTextContent(LOCAL_COPY);
 

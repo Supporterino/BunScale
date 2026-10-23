@@ -32,7 +32,7 @@
  * and closing the dialog would hide the outcome of an irreversible action. The
  * confirm control is disabled and busy for the same reason.
  */
-import { type KeyboardEvent, useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { Heading } from '../../../components/ui/Heading';
 import { Notice } from '../../../components/ui/Notice';
@@ -49,6 +49,13 @@ export type DeleteRabbitDialogProps = {
    * other cause is the route shell's failure surface, not this one.
    */
   errorMessage?: string;
+  /**
+   * Whether closing returns focus to the control that opened the dialog.
+   * `false` when a confirmed deletion removes that control with its row: the
+   * caller then hands focus on to whatever replaced the row instead of leaving
+   * it on `<body>`.
+   */
+  restoreFocus?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 };
@@ -57,6 +64,7 @@ export function DeleteRabbitDialog({
   rabbitName,
   pending,
   errorMessage,
+  restoreFocus = true,
   onCancel,
   onConfirm,
 }: DeleteRabbitDialogProps) {
@@ -64,13 +72,17 @@ export function DeleteRabbitDialog({
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const opener = useRef<Element | null>(null);
+  const restoreFocusRef = useRef(restoreFocus);
+
+  /*
+   * Read at cleanup time rather than captured at mount: the confirmed deletion
+   * flips `restoreFocus` off in the render before this dialog unmounts.
+   */
+  restoreFocusRef.current = restoreFocus;
 
   /*
    * The safe action takes focus, and the control that opened the dialog gets it
-   * back on close. The opener is captured before the focus move, and only
-   * restored while it is still connected: the archived row may have been
-   * removed by the confirmed deletion, in which case the browser's next focus
-   * target is the honest one.
+   * back on close — unless that control is the row being removed.
    */
   useEffect(() => {
     opener.current = document.activeElement;
@@ -81,7 +93,11 @@ export function DeleteRabbitDialog({
     return () => {
       const previous = opener.current;
 
-      if (previous instanceof HTMLElement && previous.isConnected) {
+      if (
+        restoreFocusRef.current &&
+        previous instanceof HTMLElement &&
+        previous.isConnected
+      ) {
         previous.focus();
       }
     };
@@ -98,48 +114,81 @@ export function DeleteRabbitDialog({
     }
   }, [pending]);
 
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape') {
-      if (!pending) {
-        event.preventDefault();
-        onCancel();
+  /*
+   * The keyboard contract is bound to the document, not the panel. A click on
+   * the scrim can hand focus to `<body>` in WebKit, and a panel-scoped listener
+   * would then never see Tab or Escape again; from the document, Escape always
+   * cancels (while idle) and Tab always either cycles the panel's controls or
+   * pulls an escaped focus back into them.
+   */
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        if (!pending) {
+          event.preventDefault();
+          onCancel();
+        }
+
+        return;
       }
 
-      return;
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const panel = panelRef.current;
+
+      if (panel === null) {
+        return;
+      }
+
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>('button:not([disabled])'),
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (first === undefined || last === undefined) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      /*
+       * The panel itself can hold focus (it does after a pending write settles
+       * into a validation refusal). It is not a control, so it is an endpoint
+       * too: forward Tab goes to the first control, Shift+Tab to the last.
+       */
+      if (document.activeElement === panel) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+
+      if (!panel.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
-    if (event.key !== 'Tab') {
-      return;
-    }
+    document.addEventListener('keydown', handleKeyDown);
 
-    const panel = panelRef.current;
-
-    if (panel === null) {
-      return;
-    }
-
-    const focusable = Array.from(
-      panel.querySelectorAll<HTMLElement>('button:not([disabled])'),
-    );
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (first === undefined || last === undefined) {
-      event.preventDefault();
-      return;
-    }
-
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-
-    if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [pending, onCancel]);
 
   return (
     <div className="bs-delete-dialog">
@@ -149,7 +198,6 @@ export function DeleteRabbitDialog({
         aria-labelledby={titleId}
         aria-modal="true"
         className="bs-delete-dialog__panel"
-        onKeyDown={handleKeyDown}
         ref={panelRef}
         role="alertdialog"
         tabIndex={-1}

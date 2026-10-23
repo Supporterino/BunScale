@@ -346,15 +346,24 @@
 }
 
 /*
- * The active half of the dashboard. It is a wrapper so the shell can put the
- * empty state's `role="status"` around the content `RabbitList` owns (the list
- * itself is a primitive-composed feature surface, not the live region's owner),
- * and it keeps the screen's stack rhythm that the wrapper would otherwise hide.
+ * The dashboard's active content: the archived entry point plus the form /
+ * detail / rabbit list it leads to. The outer `.bs-dashboard__surface` is the
+ * box that carries `hidden` while the archived list is open; it deliberately has
+ * no `display` rule, so the attribute is not overridden, and only grows as a
+ * flex item to keep the nothing-loaded intro centred. The inner wrapper keeps
+ * the screen's stack rhythm.
  */
-.bs-dashboard__active {
+.bs-dashboard__surface {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.bs-dashboard__content {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--spacing-stack-md);
+  min-height: 0;
 }
 
 /*

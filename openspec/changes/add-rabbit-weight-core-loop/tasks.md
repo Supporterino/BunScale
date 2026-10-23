@@ -178,7 +178,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   (D1.14) and adoption date, with inline blank-name rejection (RAB-1, RAB-2, RAB-4).
 - [ ] 4.4 [frontend-ui] Build the rabbit profile detail with a directly visible edit control and the
   pre-filled edit form covering every field including the weight-drop threshold (RAB-5).
-- [ ] 4.5 [frontend-ui] Build the archive control, the archived-rabbit list entry point, and the
+- [x] 4.5 [frontend-ui] Build the archive control, the archived-rabbit list entry point, and the
   restore and permanent-delete controls; the permanent-delete control lives on the archived list and
   in the archived rabbit's read-only surface and is absent from an active rabbit's profile, deleting
   requires a confirmation stating the consequence, and archiving does not (RAB-6, RAB-7, RAB-10,

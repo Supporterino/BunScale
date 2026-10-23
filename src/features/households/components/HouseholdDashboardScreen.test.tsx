@@ -19,7 +19,7 @@
 import { RouterProvider } from '@tanstack/react-router';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
@@ -177,12 +177,19 @@ async function launchDashboard() {
 
   await screen.findByRole('main');
 
-  return router;
+  return { client, router };
 }
 
 /** The Add control currently on the dashboard, by its visible label. */
 function addControl(): HTMLElement {
   return screen.getByRole('button', { name: t('rabbit.add') });
+}
+
+/** The dashboard's always-present polite region. */
+function dashboardAnnouncement(): string {
+  return (
+    document.querySelector('[data-announcement="dashboard"]')?.textContent ?? ''
+  );
 }
 
 describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
@@ -343,6 +350,14 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
       await screen.findByRole('heading', { name: t('dashboard.emptyTitle') }),
     ).toBeVisible();
 
+    // A first arrival on an empty dashboard is not a replacement: the polite
+    // region exists but says nothing, and being visually hidden on itself it is
+    // not a flex item adding a gap (finding 1).
+    expect(dashboardAnnouncement()).toBe('');
+    expect(
+      document.querySelector('[data-announcement="dashboard"]'),
+    ).toHaveClass('bs-visually-hidden');
+
     const user = userEvent.setup();
 
     await user.click(
@@ -374,6 +389,132 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
     expect(
       screen.queryByRole('heading', { name: t('dashboard.emptyTitle') }),
     ).toBeNull();
+  });
+
+  it('keeps the archived entry point reachable from the create form and preserves its draft', async () => {
+    answerDashboard();
+
+    await launchDashboard();
+
+    expect(
+      await screen.findByRole('heading', { name: t('dashboard.emptyTitle') }),
+    ).toBeVisible();
+
+    const user = userEvent.setup();
+
+    await user.click(addControl());
+
+    expect(
+      await screen.findByRole('heading', {
+        name: t('rabbit.form.createTitle'),
+      }),
+    ).toBeVisible();
+
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'Bramble');
+
+    const entry = screen.getByRole('button', {
+      name: t('rabbit.archivedList.title'),
+    });
+
+    // Present in the form state, and opening it must not unmount the form.
+    await user.click(entry);
+
+    expect(
+      await screen.findByRole('heading', {
+        name: t('rabbit.archivedList.title'),
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: t('rabbit.form.createTitle') }),
+    ).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: t('settings.back') }));
+
+    // The same form is back, with its unsaved draft rather than a blank one.
+    expect(
+      await screen.findByRole('heading', {
+        name: t('rabbit.form.createTitle'),
+      }),
+    ).toBeVisible();
+    expect(screen.getByRole('textbox', { name: /^Name/ })).toHaveValue(
+      'Bramble',
+    );
+    expect(entry).toHaveFocus();
+  });
+
+  it('keeps the archived entry point reachable from the rabbit detail', async () => {
+    rows = [CREATED_ROW];
+    answerDashboard();
+
+    await launchDashboard();
+
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText(CREATED.name));
+
+    expect(
+      await screen.findByRole('heading', { name: CREATED.name }),
+    ).toBeVisible();
+
+    const entry = screen.getByRole('button', {
+      name: t('rabbit.archivedList.title'),
+    });
+
+    await user.click(entry);
+
+    expect(
+      await screen.findByRole('heading', {
+        name: t('rabbit.archivedList.title'),
+      }),
+    ).toBeVisible();
+
+    // The detail is hidden, not unmounted.
+    expect(screen.queryByRole('heading', { name: CREATED.name })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: t('settings.back') }));
+
+    expect(
+      await screen.findByRole('heading', { name: CREATED.name }),
+    ).toBeVisible();
+    expect(entry).toHaveFocus();
+  });
+
+  it('does not announce the active list emptying while the archived list is presented', async () => {
+    rows = [CREATED_ROW];
+    archivedRows = [
+      {
+        id: 'rabbit-willow',
+        name: 'Willow',
+        thumbnail_ref: null,
+        is_archived: true,
+      },
+    ];
+    answerDashboard();
+
+    const { client } = await launchDashboard();
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole('button', { name: t('rabbit.archivedList.title') }),
+    );
+
+    expect(await screen.findByText('Willow')).toBeVisible();
+    expect(dashboardAnnouncement()).toBe('');
+
+    /*
+     * The active rows now reach zero while the archived list is on screen —
+     * the shape a `rabbit:changed` refresh has. The dashboard's region must
+     * stay silent instead of reading its empty state over the archived screen
+     * (finding 3).
+     */
+    rows = [];
+
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    expect(dashboardAnnouncement()).toBe('');
+    expect(screen.getByText('Willow')).toBeVisible();
   });
 
   it('archives the last rabbit back to an announced empty state', async () => {
@@ -411,11 +552,12 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
     ).toBeVisible();
     expect(screen.queryByText(CREATED.name)).toBeNull();
 
-    // The empty state replaced content after an action, so it is inside the
-    // polite status region (EmptyState's contract).
-    expect(
-      within(screen.getByRole('status')).getByText(t('dashboard.emptyTitle')),
-    ).toBeVisible();
+    // The empty state replaced content after an action, and its copy was
+    // written into the region that was mounted before the change.
+    await waitFor(() => {
+      expect(dashboardAnnouncement()).toContain(t('dashboard.emptyTitle'));
+    });
+    expect(dashboardAnnouncement()).toContain(t('dashboard.emptyBody'));
 
     // The entry point survives the transition, and the rabbit is reachable.
     const entry = screen.getByRole('button', {

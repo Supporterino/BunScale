@@ -57,12 +57,15 @@
  * pending read, zero rows, rows, the create form and the profile all carry the
  * way in: a household whose rabbits are all archived is not trapped behind "No
  * rabbits yet", because that empty state belongs to the active list (DASH-8,
- * design.md D1.6). Closing the archived list returns focus to the row.
+ * design.md D1.6). Opening the archived list hides the dashboard content rather
+ * than unmounting it, so an unsaved create or edit draft survives the visit;
+ * closing the list returns focus to the entry point.
  *
- * **An archive that empties the list is announced.** The active list sits inside
- * a wrapper that carries `role="status"` once this dashboard has held rows and
- * then held none, so the empty state that replaces them is announced as replaced
- * content rather than as the screen's initial state (`EmptyState`'s contract).
+ * **An archive that empties the list is announced through a region that already
+ * exists.** A `role="status"` region is mounted with the dashboard and kept
+ * empty while rows are present; on the rows→zero transition the empty state's
+ * copy is written into it, because a live region created at the moment of the
+ * replacement announces nothing.
  *
  * **Focus follows the swap in both directions.** The Add control unmounts when
  * the form takes its place, so the form focuses its first field on mount; on
@@ -110,6 +113,7 @@ export function HouseholdDashboardScreen({
   const [creatingRabbit, setCreatingRabbit] = useState(false);
   const [openRabbitId, setOpenRabbitId] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [emptyAnnouncement, setEmptyAnnouncement] = useState('');
   const wasCreating = useRef(false);
   const wasOpen = useRef(false);
   const wasArchived = useRef(false);
@@ -219,21 +223,40 @@ export function HouseholdDashboardScreen({
   /*
    * An archive can leave the active list at zero rows, and the empty state then
    * replaces content rather than being the screen's initial state (DASH-8's
-   * contract in `EmptyState`). The region only carries `role="status"` once the
-   * dashboard has held rows in this mount, so first arrival on an all-archived
-   * household announces nothing. The active rows are read here at the shell's
-   * level because the list owns no live region of its own.
+   * contract in `EmptyState`). A `role="status"` region is mounted with the
+   * dashboard and stays empty while rows are present, so the region exists
+   * before the replacement; the empty state's copy is written into it on the
+   * rows→zero transition. First arrival on an all-archived household writes
+   * nothing. A later non-empty read clears it, so the next transition is a
+   * change again.
+   *
+   * While the archived list is presented the active list is off screen: a
+   * rows→zero change arriving then must not announce the dashboard's empty
+   * state over that screen, so the region is cleared and left silent. It is
+   * re-evaluated when the dashboard is shown again.
    */
   useEffect(() => {
-    if (dashboardRows.data !== undefined && dashboardRows.data.length > 0) {
-      hadActiveRows.current = true;
+    if (archivedOpen) {
+      setEmptyAnnouncement('');
+      return;
     }
-  }, [dashboardRows.data]);
 
-  const announceEmpty =
-    hadActiveRows.current &&
-    dashboardRows.data !== undefined &&
-    dashboardRows.data.length === 0;
+    if (dashboardRows.data === undefined) {
+      return;
+    }
+
+    if (dashboardRows.data.length > 0) {
+      hadActiveRows.current = true;
+      setEmptyAnnouncement('');
+      return;
+    }
+
+    if (hadActiveRows.current) {
+      setEmptyAnnouncement(
+        `${t('dashboard.emptyTitle')}. ${t('dashboard.emptyBody')}`,
+      );
+    }
+  }, [dashboardRows.data, archivedOpen]);
 
   /*
    * One destination, because P0 has one product route for the shell. Its label
@@ -263,18 +286,32 @@ export function HouseholdDashboardScreen({
         }
       />
       <Screen className="bs-dashboard">
+        {/*
+         * Mounted before anything can replace rows, and empty until then: a
+         * region that appears with the replacement announces nothing. It is
+         * visually hidden on the region itself (out of flow), so an empty
+         * region does not add a gap step to the content column.
+         */}
+        <div
+          className="bs-visually-hidden"
+          data-announcement="dashboard"
+          role="status"
+        >
+          {emptyAnnouncement}
+        </div>
         {activeHousehold.data === undefined ||
         activeHousehold.data === null ? null : (
           <LocalCopyNotice householdId={activeHousehold.data.id} />
         )}
-        {archivedOpen ? (
-          <ArchivedRabbitList
-            onClose={() => {
-              setArchivedOpen(false);
-            }}
-          />
-        ) : (
-          <>
+        {/*
+         * The dashboard stays mounted while the archived list is open: opening
+         * it from the create form or the detail's edit form must not unmount
+         * them and discard a draft. `hidden` is on a wrapper with no `display`
+         * of its own, so the attribute is not overridden; the inner wrapper
+         * keeps the screen's stack rhythm.
+         */}
+        <div className="bs-dashboard__surface" hidden={archivedOpen}>
+          <div className="bs-dashboard__content">
             {/*
              * RAB-6's entry point, present in every dashboard state — the
              * pending read, zero rows, rows, the form and the detail. Without
@@ -304,31 +341,33 @@ export function HouseholdDashboardScreen({
                 rabbitId={openRabbitId}
               />
             ) : (
-              <div
-                className="bs-dashboard__active"
-                role={announceEmpty ? 'status' : undefined}
-              >
-                <RabbitList
-                  fallback={
-                    <div className="bs-dashboard__intro">
-                      <span aria-hidden="true" className="bs-dashboard__mark">
-                        <GlyphHousehold />
-                      </span>
-                      <Text tone="secondary">{t('dashboard.body')}</Text>
-                    </div>
-                  }
-                  onAddRabbit={
-                    activeHousehold.data === undefined ||
-                    activeHousehold.data === null
-                      ? undefined
-                      : () => setCreatingRabbit(true)
-                  }
-                  onOpenRabbit={setOpenRabbitId}
-                />
-              </div>
+              <RabbitList
+                fallback={
+                  <div className="bs-dashboard__intro">
+                    <span aria-hidden="true" className="bs-dashboard__mark">
+                      <GlyphHousehold />
+                    </span>
+                    <Text tone="secondary">{t('dashboard.body')}</Text>
+                  </div>
+                }
+                onAddRabbit={
+                  activeHousehold.data === undefined ||
+                  activeHousehold.data === null
+                    ? undefined
+                    : () => setCreatingRabbit(true)
+                }
+                onOpenRabbit={setOpenRabbitId}
+              />
             )}
-          </>
-        )}
+          </div>
+        </div>
+        {archivedOpen ? (
+          <ArchivedRabbitList
+            onClose={() => {
+              setArchivedOpen(false);
+            }}
+          />
+        ) : null}
       </Screen>
     </AppShell>
   );
