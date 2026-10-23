@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DesignPreviewRouteImport } from './routes/design-preview'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as RabbitsRabbitIdRouteImport } from './routes/rabbits.$rabbitId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RabbitsRabbitIdRoute = RabbitsRabbitIdRouteImport.update({
+  id: '/rabbits/$rabbitId',
+  path: '/rabbits/$rabbitId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/design-preview': typeof DesignPreviewRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/design-preview': typeof DesignPreviewRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,22 @@ export interface FileRoutesById {
   '/design-preview': typeof DesignPreviewRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/design-preview' | '/onboarding' | '/settings'
+  fullPaths:
+    '/' | '/design-preview' | '/onboarding' | '/settings' | '/rabbits/$rabbitId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/design-preview' | '/onboarding' | '/settings'
-  id: '__root__' | '/' | '/design-preview' | '/onboarding' | '/settings'
+  to:
+    '/' | '/design-preview' | '/onboarding' | '/settings' | '/rabbits/$rabbitId'
+  id:
+    | '__root__'
+    | '/'
+    | '/design-preview'
+    | '/onboarding'
+    | '/settings'
+    | '/rabbits/$rabbitId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +84,7 @@ export interface RootRouteChildren {
   DesignPreviewRoute: typeof DesignPreviewRoute
   OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
+  RabbitsRabbitIdRoute: typeof RabbitsRabbitIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +117,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/rabbits/$rabbitId': {
+      id: '/rabbits/$rabbitId'
+      path: '/rabbits/$rabbitId'
+      fullPath: '/rabbits/$rabbitId'
+      preLoaderRoute: typeof RabbitsRabbitIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +132,7 @@ const rootRouteChildren: RootRouteChildren = {
   DesignPreviewRoute: DesignPreviewRoute,
   OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
+  RabbitsRabbitIdRoute: RabbitsRabbitIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

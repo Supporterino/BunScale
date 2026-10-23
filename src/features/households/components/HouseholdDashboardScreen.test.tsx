@@ -159,6 +159,18 @@ function answerDashboard(): void {
     id: String(args.rabbitId),
     name: String(args.rabbitId) === 'rabbit-hazel-2' ? 'Hazel 2' : CREATED.name,
   }));
+  /*
+   * The rabbit dashboard's two reads (task 4.11). Opening a row now mounts the
+   * trend and the History section, so a screen spec that opens one must answer
+   * them; the answers are empty and the requested window is echoed, which keeps
+   * the composition assertions about the surface rather than about a series.
+   */
+  handlers.set('get_display_weight_unit', () => 'grams');
+  handlers.set('get_weight_entries', (args) => ({
+    range: args.range,
+    points: [],
+    drop_threshold_percent: CREATED.weight_drop_threshold_percent,
+  }));
   handlers.set('load_household', () => ({
     household_id: HOUSEHOLD.id,
     items: [],
@@ -251,6 +263,41 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
       screen.queryByRole('heading', { name: t('rabbit.form.createTitle') }),
     ).toBeNull();
     expect(addControl()).toHaveFocus();
+  });
+
+  it("opens the selected rabbit's weight dashboard (DASH-6, DASH-7)", async () => {
+    rows = [CREATED_ROW];
+    answerDashboard();
+
+    await launchDashboard();
+
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText(CREATED.name));
+
+    // The row's control now leads to the rabbit dashboard: the profile plus the
+    // trend and the History section, not the profile alone (task 4.11).
+    expect(
+      await screen.findByRole('region', { name: t('weight.trend.title') }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('region', { name: t('weight.history.title') }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: t('weight.history.open') }),
+    ).toBeVisible();
+
+    // The trend asked the read for this rabbit at the route's default window.
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (call) =>
+            call.command === 'get_weight_entries' &&
+            call.args.rabbitId === CREATED.id &&
+            call.args.range === 'days_30',
+        ),
+      ).toBe(true);
+    });
   });
 
   it('returns focus to the row that opened the detail when two names share a prefix', async () => {

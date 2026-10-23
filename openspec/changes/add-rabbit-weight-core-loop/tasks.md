@@ -201,7 +201,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   untruncated note, the drop-alert marker when it applies, the entry's photos as a full-width pager
   when present and none when absent, plus Edit opening the pre-filled form and a confirmed Delete
   (WT-8).
-- [ ] 4.11 [frontend-ui] Build the rabbit dashboard: the weight trend chart with the 7d/30d/90d/all
+- [x] 4.11 [frontend-ui] Build the rabbit dashboard: the weight trend chart with the 7d/30d/90d/all
   range control and **no baseline or healthy-range band** (D5), and the History section contributing
   the weight-only history entry point with its own independent range control and the drop-alert marker
   on affected entries (DASH-6, DASH-7, WT-6, WT-7).
@@ -220,6 +220,13 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   the success value `loaded_at: null`, so it is its own state too (SYNC-3's explicit state), not an
   error and not the empty state. D1.16 requires the refusal surface exactly; a partial list must never
   read as a complete one. (NFR-8, SYNC-3, D1.16, DASH-1)
+- [x] 4.16 [frontend-logic] **Added mid-change (Q9).** Give the rabbit dashboard its route so
+  D1.4's range selection lives in **typed route search parameters** rather than screen state: a rabbit
+  route with `validateSearch: validateWeightRangeSearch` (3.3's schema), passing `trend`/`history` into
+  4.11's `RabbitDashboard`, and dropping the screen's `useState` for the two ranges. 4.11 built the
+  component to take them as props and left the wiring here because `src/routes/**` is outside
+  `frontend-ui`'s allow-list. Regenerate `src/routeTree.gen.ts` (gate stage 6) and keep the dashboard's
+  row control opening it. (DASH-6, WT-6, D1.4)
 
 ## 5. Tests
 

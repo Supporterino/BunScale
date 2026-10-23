@@ -44,12 +44,29 @@
  * in the pending and non-empty states, while the zero-row state uses its own
  * prompt (DASH-8); every dashboard state therefore leads here.
  *
- * **The profile detail is inline too (task 4.4; RAB-5).** `RabbitList` already
- * accepts `onOpenRabbit`; this screen supplies it, so each row becomes a real
- * control and a row replaces the list with `RabbitDetail` in the same scroll
- * region. That is the same swap the form uses, and the detail owns its own edit
- * state. Task 4.11 replaces this destination with the rabbit dashboard route;
- * until then the detail is the destination the row's control has.
+ * **The selected rabbit is the route's, not this screen's (task 4.16; DASH-6,
+ * DASH-7, WT-6, D1.4).** `RabbitList` accepts `onOpenRabbit`; this screen supplies
+ * it by navigating to the rabbit route, and the same screen is what that route
+ * mounts with `rabbitId` and the route's validated `search`. The row's control
+ * and the close behaviour are unchanged; the difference is that a reload or a
+ * deep link now selects the rabbit and its two windows, and neither window is a
+ * second source of the other.
+ *
+ * **The two range windows are the route's search parameters (task 4.16;
+ * WT-6, D1.4).** `search` arrives validated (`validateWeightRangeSearch`) from
+ * the rabbit route, and every change is a navigation that rewrites exactly one
+ * key, so the trend and the history stay independent. This screen holds no
+ * `useState` for them: one direction only, route → view. A range change replaces
+ * the history entry rather than pushing one, so Back leaves the rabbit
+ * dashboard instead of undoing a range selection.
+ *
+ * **Back returns focus to the row it was opened from (tasks 4.4/4.5, 4.16).**
+ * Navigating to the rabbit route unmounts this screen, so the ref-based swap
+ * focus logic cannot span the round trip. The rabbit route's Back carries the
+ * row's id in the history entry's state; on mount this screen reads it once the
+ * active list has settled and focuses that row, falling back to the archived
+ * entry point when the rabbit has since left the active list — the same two
+ * destinations 4.4/4.5 name.
  *
  * **The archived list is reached from here, in every state (task 4.5; RAB-6).**
  * A grouped list row above the content opens `ArchivedRabbitList` in the same
@@ -65,17 +82,21 @@
  * exists.** A `role="status"` region is mounted with the dashboard and kept
  * empty while rows are present; on the rows→zero transition the empty state's
  * copy is written into it, because a live region created at the moment of the
- * replacement announces nothing.
+ * replacement announces nothing. When the archive happens on the rabbit route,
+ * this screen is unmounted for the return: whether the list had rows travels in
+ * the history entry beside the focus target, so the fresh mount still announces
+ * the transition and a first arrival on an all-archived household stays silent.
  *
  * **Focus follows the swap in both directions.** The Add control unmounts when
  * the form takes its place, so the form focuses its first field on mount; on
  * cancel or a confirmed create the list returns and this screen puts focus back
- * on the Add control it was opened from. A row likewise unmounts when the detail
- * takes its place, and the detail's Back control returns focus to that row by
- * the rabbit's id, so a duplicate name or a rename before closing still lands on
+ * on the Add control it was opened from. A row's control leaves for the rabbit
+ * route, and Back returns focus to that row by the rabbit's id — not by its
+ * visible text — so a duplicate name or a rename before closing still lands on
  * the row that was opened. Without that, a keyboard or screen-reader user would
  * restart at the skip link after every swap.
  */
+import { useLocation, useNavigate } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { AppShell } from '../../../components/ui/AppShell';
 import { IconButton } from '../../../components/ui/IconButton';
@@ -86,6 +107,7 @@ import type { NavigationDestination } from '../../../components/ui/navigation';
 import { Screen } from '../../../components/ui/Screen';
 import { Text } from '../../../components/ui/Text';
 import { useAppEvents } from '../../app-events';
+import { RabbitDashboard } from '../../dashboard/components/RabbitDashboard';
 import { RabbitList } from '../../dashboard/components/RabbitList';
 import { useDashboardRows } from '../../dashboard/queries';
 import {
@@ -95,33 +117,66 @@ import {
 } from '../../design-preview/components/glyphs';
 import { t } from '../../i18n';
 import { ArchivedRabbitList } from '../../rabbits/components/ArchivedRabbitList';
-import { RabbitDetail } from '../../rabbits/components/RabbitDetail';
 import { RabbitForm } from '../../rabbits/components/RabbitForm';
 import { LocalCopyNotice } from '../../sync/components/LocalCopyNotice';
+import {
+  validateWeightRangeSearch,
+  type WeightRange,
+  type WeightRangeSearch,
+} from '../../weight/search';
 import { useActiveHousehold } from '../queries';
 
 export type HouseholdDashboardScreenProps = {
   /** Opens Settings & Profile as its own screen (SET-1). Required. */
   onOpenSettings: () => void;
+  /**
+   * The rabbit the rabbit route selects (DASH-6). Absent at the list route,
+   * where a row's control navigates to that route instead.
+   */
+  rabbitId?: string;
+  /**
+   * The rabbit route's two validated windows (WT-6, D1.4). The route supplies
+   * them; this screen never stores them.
+   */
+  search?: WeightRangeSearch;
 };
 
 export function HouseholdDashboardScreen({
   onOpenSettings,
+  rabbitId,
+  search,
 }: HouseholdDashboardScreenProps) {
   useAppEvents();
 
+  const navigate = useNavigate();
+  const location = useLocation();
+  const openRabbitId = rabbitId ?? null;
+  const rabbitReturn = rabbitReturnOf(location.state);
+  const focusRabbitId = rabbitReturn.focusRabbitId;
+
   const [creatingRabbit, setCreatingRabbit] = useState(false);
-  const [openRabbitId, setOpenRabbitId] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [emptyAnnouncement, setEmptyAnnouncement] = useState('');
   const wasCreating = useRef(false);
-  const wasOpen = useRef(false);
   const wasArchived = useRef(false);
-  const lastRabbitId = useRef<string | null>(null);
-  const hadActiveRows = useRef(false);
+  const restoredRowFocus = useRef(false);
+  /*
+   * Seeded from the route return so a Back from the rabbit dashboard does not
+   * lose the rows→zero transition: the archive happened while this screen was
+   * unmounted, and a fresh mount must still announce the list it emptied (the
+   * test in `HouseholdDashboardScreen.test.tsx` states the same rule).
+   */
+  const hadActiveRows = useRef(rabbitReturn.hadActiveRows);
 
   const activeHousehold = useActiveHousehold();
   const householdName = activeHousehold.data?.name ?? t('dashboard.title');
+
+  /*
+   * The route validates the windows, so this is only the list route's absent
+   * case — where nothing reads it. Keeping one value means the dashboard and a
+   * range change can never disagree.
+   */
+  const weightSearch = search ?? validateWeightRangeSearch({});
 
   /*
    * The screen is also an observer of the list read so the form swap has a
@@ -159,33 +214,29 @@ export function HouseholdDashboardScreen({
   }, [creatingRabbit, dashboardRows.isFetching]);
 
   /*
-   * The same swap for the detail: the row that opened it has been unmounted, so
-   * Back returns focus to that row by the rabbit's id, not by its visible text —
-   * two rabbits may share a name prefix ("Hazel" and "Hazel 2"). The read is
-   * waited on because the detail's own save invalidates the dashboard rows, and
-   * focusing a row the new read has not painted yet would land nowhere.
+   * A Back return from the rabbit route mounts this screen afresh, so the row
+   * that opened the dashboard is no longer in a ref. The id travels in the
+   * history entry's state; once the active list has settled, the row is found by
+   * that id rather than by its visible text — two rabbits may share a name
+   * prefix ("Hazel" and "Hazel 2"). The read is waited on because the dashboard
+   * was invalidated by the detail's own save, and focusing a row the new read
+   * has not painted yet would land nowhere.
    */
   useEffect(() => {
-    if (openRabbitId !== null) {
-      wasOpen.current = true;
-      lastRabbitId.current = openRabbitId;
+    if (restoredRowFocus.current || focusRabbitId === undefined) {
       return;
     }
 
-    if (!wasOpen.current || dashboardRows.isFetching) {
+    if (dashboardRows.data === undefined || dashboardRows.isFetching) {
       return;
     }
 
-    wasOpen.current = false;
+    restoredRowFocus.current = true;
 
-    const id = lastRabbitId.current;
     const scope = document.querySelector('[data-household-entry="household"]');
-    const row =
-      id === null
-        ? undefined
-        : Array.from(
-            scope?.querySelectorAll<HTMLElement>('[data-rabbit-id]') ?? [],
-          ).find((element) => element.dataset.rabbitId === id);
+    const row = Array.from(
+      scope?.querySelectorAll<HTMLElement>('[data-rabbit-id]') ?? [],
+    ).find((element) => element.dataset.rabbitId === focusRabbitId);
 
     /*
      * An archived rabbit is no longer an active row, so there is nothing to
@@ -198,7 +249,7 @@ export function HouseholdDashboardScreen({
         '.bs-dashboard__archived button',
       )
     )?.focus();
-  }, [openRabbitId, dashboardRows.isFetching]);
+  }, [focusRabbitId, dashboardRows.data, dashboardRows.isFetching]);
 
   /*
    * The archived list's entry point is unmounted while that screen is open, so
@@ -272,6 +323,79 @@ export function HouseholdDashboardScreen({
     },
   ];
 
+  /*
+   * A row opens the rabbit route, which mounts this same screen with the rabbit
+   * and the validated windows. The windows start at the shared default; the
+   * route validates them again, so an open never carries an unvalidated value.
+   */
+  function openRabbit(id: string): void {
+    void navigate({
+      to: '/rabbits/$rabbitId',
+      params: { rabbitId: id },
+      search: validateWeightRangeSearch({}),
+    });
+  }
+
+  /*
+   * Back is a route change, not a state reset: the id travels in the history
+   * entry so the row gets focus once the list has remounted. `replace` keeps the
+   * closed rabbit out of the back stack, so a browser Back does not reopen it.
+   */
+  function closeRabbit(): void {
+    if (openRabbitId === null) {
+      return;
+    }
+
+    void navigate({
+      to: '/',
+      replace: true,
+      state: (previous) => ({
+        ...previous,
+        focusRabbitId: openRabbitId,
+        hadActiveRows: hadActiveRows.current,
+      }),
+    });
+  }
+
+  /*
+   * One key per navigation (WT-6, D1.4): the updater receives the route's
+   * current pair and changes only the view that reported. `replace` keeps range
+   * browsing out of the back stack.
+   */
+  function changeTrend(trend: WeightRange): void {
+    if (openRabbitId === null) {
+      return;
+    }
+
+    void navigate({
+      to: '/rabbits/$rabbitId',
+      params: { rabbitId: openRabbitId },
+      replace: true,
+      search: (current) => ({
+        ...current,
+        trend,
+        history: current.history ?? weightSearch.history,
+      }),
+    });
+  }
+
+  function changeHistory(history: WeightRange): void {
+    if (openRabbitId === null) {
+      return;
+    }
+
+    void navigate({
+      to: '/rabbits/$rabbitId',
+      params: { rabbitId: openRabbitId },
+      replace: true,
+      search: (current) => ({
+        ...current,
+        trend: current.trend ?? weightSearch.trend,
+        history,
+      }),
+    });
+  }
+
   return (
     <AppShell
       destinations={destinations}
@@ -336,9 +460,12 @@ export function HouseholdDashboardScreen({
                 onSaved={() => setCreatingRabbit(false)}
               />
             ) : openRabbitId !== null ? (
-              <RabbitDetail
-                onClose={() => setOpenRabbitId(null)}
+              <RabbitDashboard
+                onClose={closeRabbit}
+                onHistoryRangeChange={changeHistory}
+                onTrendRangeChange={changeTrend}
                 rabbitId={openRabbitId}
+                search={weightSearch}
               />
             ) : (
               <RabbitList
@@ -356,7 +483,7 @@ export function HouseholdDashboardScreen({
                     ? undefined
                     : () => setCreatingRabbit(true)
                 }
-                onOpenRabbit={setOpenRabbitId}
+                onOpenRabbit={openRabbit}
               />
             )}
           </div>
@@ -371,4 +498,37 @@ export function HouseholdDashboardScreen({
       </Screen>
     </AppShell>
   );
+}
+
+/**
+ * What a Back return from the rabbit route carries in the history entry.
+ *
+ * Navigating to the rabbit route unmounts this screen, so the row-focus target
+ * and the "the active list had rows when the dashboard was shown" fact cannot
+ * live in a ref across the round trip. `location.state` is the router's opaque
+ * history state, so it is narrowed here rather than assumed: anything that is
+ * not the declared type is absent, and a missing value simply means nothing
+ * needs restoring.
+ */
+type RabbitReturn = {
+  focusRabbitId?: string;
+  hadActiveRows: boolean;
+};
+
+function rabbitReturnOf(state: unknown): RabbitReturn {
+  if (typeof state !== 'object' || state === null) {
+    return { hadActiveRows: false };
+  }
+
+  const candidate = state as {
+    focusRabbitId?: unknown;
+    hadActiveRows?: unknown;
+  };
+
+  return {
+    ...(typeof candidate.focusRabbitId === 'string'
+      ? { focusRabbitId: candidate.focusRabbitId }
+      : {}),
+    hadActiveRows: candidate.hadActiveRows === true,
+  };
 }
