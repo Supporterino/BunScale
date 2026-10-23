@@ -223,7 +223,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 
 ## 5. Tests
 
-- [ ] 5.1 [test-engineer] Rust tests for rabbit profiles — covers "A profile is created with the
+- [x] 5.1 [test-engineer] Rust tests for rabbit profiles — covers "A profile is created with the
   supplied identifying details", "Optional fields may be left unset", "Date of birth may be marked
   unknown", "A neutered and a spayed rabbit are recorded distinctly", "Sex and neuter status may each
   be recorded as unknown" (RAB-1), "An empty name is rejected", "A whitespace-only name is treated as
