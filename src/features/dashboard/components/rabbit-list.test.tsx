@@ -338,19 +338,54 @@ describeAtBothBaselines(
       expect(screen.queryByRole('list')).toBeNull();
     });
 
-    it('keeps the add control present but disabled before the form exists', async () => {
-      // Task 4.3 supplies the destination. Until then the control is honest
-      // about having nowhere to go rather than being a live no-op.
-      renderWithQueryClient(<RabbitList />);
+    it('opens the form from the add control on a non-empty dashboard', async () => {
+      // RAB-4's non-empty half: the control is not confined to the zero-row
+      // branch, so a household that already holds rabbits can add another.
+      answer = SORTED_ROWS;
 
-      expect(
-        await screen.findByRole('heading', {
-          name: t('dashboard.emptyTitle'),
-        }),
-      ).toBeVisible();
-      expect(
-        screen.getByRole('button', { name: t('rabbit.add') }),
-      ).toBeDisabled();
+      const onAddRabbit = vi.fn();
+
+      renderWithQueryClient(<RabbitList onAddRabbit={onAddRabbit} />);
+
+      await screen.findByText(HAZEL.name);
+
+      const add = screen.getByRole('button', { name: t('rabbit.add') });
+
+      expect(add).toBeEnabled();
+      fireEvent.click(add);
+
+      expect(onAddRabbit).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens the form while the read is still pending', async () => {
+      // RAB-4 says "whenever the dashboard is shown", which includes the
+      // moment before the first answer resolves.
+      answer = new Promise<DashboardRow[]>(() => {});
+
+      const onAddRabbit = vi.fn();
+
+      renderWithQueryClient(
+        <RabbitList
+          fallback={<p>{NO_ROWS_YET}</p>}
+          onAddRabbit={onAddRabbit}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(calls).toContain('get_dashboard');
+      });
+
+      // The fallback still says nothing about how many rabbits exist…
+      expect(screen.getByText(NO_ROWS_YET)).toBeVisible();
+      expect(screen.queryByText(t('dashboard.emptyTitle'))).toBeNull();
+
+      // …while the form stays reachable.
+      const add = screen.getByRole('button', { name: t('rabbit.add') });
+
+      expect(add).toBeEnabled();
+      fireEvent.click(add);
+
+      expect(onAddRabbit).toHaveBeenCalledTimes(1);
     });
 
     it('presents the list instead of the empty state once a rabbit exists', async () => {

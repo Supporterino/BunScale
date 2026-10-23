@@ -161,7 +161,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   `onAddRabbit` into `RabbitList`, render the add control outside the zero-row branch (RAB-4 wants it
   whether the household holds rabbits or none, including pending), and delete the failing test's
   "disabled interim" expectation at `rabbit-list.test.tsx:341` so that state cannot outlive the change.
-- [ ] 4.3 [frontend-ui] Build the rabbit-creation form reachable from the dashboard at all times:
+- [x] 4.3 [frontend-ui] Build the rabbit-creation form reachable from the dashboard at all times:
   name, optional photo, breed, date of birth with an "unknown" option, sex offered as exactly
   `male`/`female`/`unknown`, neuter status offered as exactly `intact`/`neutered`/`spayed`/`unknown`
   (D1.14) and adoption date, with inline blank-name rejection (RAB-1, RAB-2, RAB-4).

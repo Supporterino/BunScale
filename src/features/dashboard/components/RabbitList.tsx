@@ -16,6 +16,12 @@
  * DASH-8's empty state is therefore decided on `data.length === 0`, never on
  * the absence of data.
  *
+ * **The add control is outside the zero-row branch (task 4.3; RAB-4).** The
+ * empty state keeps its own prompt for the zero-row case, while a toolbar
+ * control is rendered for the pending and non-empty cases. Every state the
+ * dashboard can be in therefore carries a visible way into the creation form;
+ * without the toolbar the list only offered it once it had resolved to zero.
+ *
  * **The empty state is keyed on the active list.** `get_dashboard` carries the
  * household's non-archived rabbits only, so a household whose rabbits are all
  * archived resolves to zero rows here and presents the empty state, while the
@@ -36,7 +42,9 @@
  * guessed here and no control is rendered without a destination.
  */
 import type { ReactNode } from 'react';
+import { Button } from '../../../components/ui/Button';
 import { List } from '../../../components/ui/List';
+import { t } from '../../i18n';
 import { useDashboardRows } from '../queries';
 import { EmptyRabbitList } from './EmptyRabbitList';
 import { RabbitRow } from './RabbitRow';
@@ -51,9 +59,9 @@ export type RabbitListProps = {
   /** Opens a row's rabbit dashboard (DASH-6; task 4.11 supplies this). */
   onOpenRabbit?: (rabbitId: string) => void;
   /**
-   * Opens the rabbit-creation form from the empty state (RAB-4). Task 4.3's route
-   * supplies it; absent, the control renders disabled rather than pretending to
-   * have a destination.
+   * Opens the rabbit-creation form (RAB-4). Task 4.3's dashboard supplies it in
+   * both the empty state and the toolbar; absent, the control renders disabled
+   * rather than pretending to have a destination.
    */
   onAddRabbit?: () => void;
 };
@@ -74,29 +82,47 @@ export function RabbitList({
    */
   const data = rows.data;
 
-  if (data === undefined) {
-    return <>{fallback}</>;
-  }
-
-  if (data.length === 0) {
+  if (data !== undefined && data.length === 0) {
     return <EmptyRabbitList onAddRabbit={onAddRabbit} />;
   }
 
   return (
-    <List>
-      {data.map((row) => (
-        <RabbitRow
-          key={row.rabbit.id}
-          onOpen={
-            onOpenRabbit === undefined
-              ? undefined
-              : () => {
-                  onOpenRabbit(row.rabbit.id);
-                }
-          }
-          row={row}
-        />
-      ))}
-    </List>
+    <>
+      {/*
+       * RAB-4's non-zero-row half: present while the read is pending and while
+       * it holds rows, so the form is reachable in every dashboard state. It
+       * stays labelled but disabled when the caller supplies no destination,
+       * exactly as the empty state's action does.
+       */}
+      <div className="bs-dashboard__toolbar">
+        <Button
+          disabled={onAddRabbit === undefined}
+          onClick={onAddRabbit}
+          variant="secondary"
+        >
+          {t('rabbit.add')}
+        </Button>
+      </div>
+
+      {data === undefined ? (
+        fallback
+      ) : (
+        <List>
+          {data.map((row) => (
+            <RabbitRow
+              key={row.rabbit.id}
+              onOpen={
+                onOpenRabbit === undefined
+                  ? undefined
+                  : () => {
+                      onOpenRabbit(row.rabbit.id);
+                    }
+              }
+              row={row}
+            />
+          ))}
+        </List>
+      )}
+    </>
   );
 }
