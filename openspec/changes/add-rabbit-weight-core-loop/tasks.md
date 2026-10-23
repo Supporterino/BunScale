@@ -142,7 +142,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   removes the rabbit from the active list" is false as the person sees it until the next foreground
   refresh. P0's `household:changed` subscriber is the pattern. (RAB-5, RAB-6, RAB-7, RAB-10, WT-5,
   DASH-4)
-- [ ] 3.10 [frontend-logic] **Added mid-change (Q6).** Map a P1 **read** failure to its cause-specific
+- [x] 3.10 [frontend-logic] **Added mid-change (Q6).** Map a P1 **read** failure to its cause-specific
   copy without losing the surface key: `describeSaveFailure` deliberately discards `message_key`, so
   the dashboard, lists, profile, trend and detail would all render the operation-neutral `error.unknown`
   instead of D1.16's `error.household_content_unloaded`. Add the read-side mapper P0 lacks, so every P1
