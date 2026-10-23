@@ -4,10 +4,10 @@
 //! Five commands, frozen by task 1.1: [`create_weight_entry`], [`get_weight_entries`],
 //! [`get_weight_entry`], [`update_weight_entry`] and [`delete_weight_entry`].
 //! **[`create_weight_entry`] (task 2.9), [`update_weight_entry`] and [`delete_weight_entry`] (task
-//! 2.11) are implemented; the two reads are typed stubs returning
-//! [`CommandError::not_implemented`]**, which the tasks that own them replace — their signatures are
-//! what `src/bindings.ts` is generated from, so a stub is the contract rather than a placeholder to be
-//! reshaped.
+//! 2.11) and [`get_weight_entries`] (task 2.12) are implemented; [`get_weight_entry`] is a typed stub
+//! returning [`CommandError::not_implemented`]**, which the task that owns it replaces (2.15) — its
+//! signature is what `src/bindings.ts` is generated from, so a stub is the contract rather than a
+//! placeholder to be reshaped.
 //!
 //! The writing bodies take the app's state and, as every write does, a publication seam —
 //! `tauri::State` is how a command reaches the shared service, the account and this device's copy, and
@@ -137,7 +137,10 @@ async fn deleted_weight_entry(
 ///
 /// The value arrives in canonical grams and is stored as such; the rabbit's display unit plays no part
 /// here. `entry.timestamp` is `None` to record the moment of creation, or a supplied absolute instant —
-/// including one in the past — stored unchanged (WT-1, DM-6). The note is optional.
+/// including one in the past — stored unchanged (WT-1, DM-6). The note is optional. Beside the
+/// timestamp the entry records its own `created_at`, the operation's creation instant, even when the
+/// person supplied a reading moment: that is the ordering key WT-7's tie rule uses, and no draft field
+/// can set or move it (D1.12).
 ///
 /// A value of zero or less is refused. A value above [`PLAUSIBILITY_BOUND_GRAMS`] is a *confirmation*
 /// threshold rather than a rejection (D1.9): it is refused until `entry.outlier_confirmed` says the
@@ -163,6 +166,24 @@ pub async fn create_weight_entry(
     created_weight_entry(state.inner(), &app, rabbit_id, entry, request_id).await
 }
 
+/// The `get_weight_entries` body over the state alone.
+///
+/// It reads this device's copy and never the service, exactly as
+/// [`list_rabbits`](super::rabbit::list_rabbits) does, and reads the clock once at the edge for the
+/// window's upper edge (`now`); the lower edge is `now - N days`. Nothing is cached per range, so two
+/// calls with different ranges over the same rabbit each compute their own window (WT-6, D1.4).
+async fn read_weight_trend(
+    state: &crate::state::AppState,
+    rabbit_id: RabbitId,
+    range: WeightRange,
+) -> Result<WeightTrend, CommandError> {
+    state.weight_trend(
+        &rabbit_id,
+        range,
+        &crate::storage::AbsoluteInstant::now().to_wire(),
+    )
+}
+
 /// One rabbit's weight series for one window, with the threshold it is judged against (WT-6, WT-7).
 ///
 /// This one read serves **both** ranged surfaces: the rabbit dashboard's trend chart and the
@@ -170,24 +191,30 @@ pub async fn create_weight_entry(
 /// parameters and each calls this command with its own [`WeightRange`], so one cannot influence the
 /// other (D1.4, WT-6) — the backend holds no selected range.
 ///
-/// The window limits which points come back, **not** how the flags are derived: the alert is computed
-/// over the rabbit's full entry set, so the earliest point of a window may be flagged on the basis of
-/// an entry outside it (D1.13). Points are ordered oldest first, the order the previous-entry
-/// derivation uses (D1.12).
+/// A bounded range is `[now - N days, now]`, both edges inclusive; `all` is the unbounded full
+/// history (WT-6, D1.4). The window limits which points come back, **not** how the flags are derived:
+/// once task 2.13 derives the alert it is computed over the rabbit's full entry set, so the earliest
+/// point of a window may be flagged on the basis of an entry outside it (D1.13). Until then each
+/// point's `has_weight_drop_alert` is the constant `false` — the stored payload's value is not content
+/// and is ignored on every read (D1.16). Points are ordered oldest first by the one comparator,
+/// `(timestamp, created_at, id)`, the order the previous-entry derivation uses (D1.12).
+///
+/// An archived rabbit is readable: RAB-8 presents its timeline read-only, so the read does not refuse
+/// an archived target. Unreachability is a status fact, not a read failure (SYNC-3).
 ///
 /// # Errors
 ///
-/// `validation` for an unknown rabbit or a blank id. Unreachability is a status fact, not a read
-/// failure (SYNC-3); a local store that cannot answer is `unknown`.
+/// `validation` for an unknown rabbit, a blank id, or an id that names a non-rabbit item. `unknown`
+/// with the unknown-content key when the rabbit's row or a live row of its collection has no content
+/// this device can describe, and `unknown` for a local store that cannot answer (D1.16).
 #[tauri::command]
 #[specta::specta]
 pub async fn get_weight_entries(
     rabbit_id: RabbitId,
     range: WeightRange,
+    state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<WeightTrend, CommandError> {
-    let _ = (rabbit_id, range);
-
-    Err(CommandError::not_implemented(None))
+    read_weight_trend(state.inner(), rabbit_id, range).await
 }
 
 /// One entry's detail: value, timestamp, full note, derived alert and photo references (WT-8).
@@ -712,6 +739,7 @@ mod tests {
             rabbit_id: rabbit.id.clone(),
             value_grams: Grams(value),
             timestamp: at(timestamp),
+            created_at: at(timestamp),
             note: Some("morning".to_owned()),
             photo_refs: Vec::new(),
             has_weight_drop_alert: false,
@@ -951,6 +979,33 @@ mod tests {
         assert!(
             publisher.published().is_empty(),
             "a refusal never reports a weight change"
+        );
+    }
+
+    /// WT-6: the command body itself serves the held copy and answers the series — the adapter is
+    /// exercised, not only `AppState::weight_trend`, and `all` needs no injected clock.
+    #[test]
+    fn the_command_body_answers_the_rabbits_full_series() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit, _entry) = state_with_one_rabbit_and_entries(service);
+
+        let trend = block_on_ready(read_weight_trend(
+            &state,
+            rabbit.id.clone(),
+            WeightRange::All,
+        ))
+        .expect("the held copy is served");
+
+        assert_eq!(trend.range, WeightRange::All);
+        assert_eq!(trend.drop_threshold_percent, 5.0);
+        assert_eq!(
+            trend
+                .points
+                .iter()
+                .map(|point| (point.id.0.as_str(), point.value_grams))
+                .collect::<Vec<_>>(),
+            vec![("entry-1", Grams(1_800)), ("entry-2", Grams(1_700)),],
+            "oldest first, with the stored values"
         );
     }
 }

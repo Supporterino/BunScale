@@ -75,8 +75,11 @@ Range selection (7 days / 30 days / 90 days / full history) is a query window, n
 lives in the route's typed search parameters, so the trend on the rabbit dashboard and the weight-only
 history listing carry their own independent range and neither writes to the other. The server-side
 query takes the range and returns the entries inside the window plus the rabbit's threshold, which is
-what the alert derivation needs (D1.3). "Full history" is the absence of a lower bound, not a
-computed period, so a rabbit's whole record stays reachable without a magic number.
+what the alert derivation needs (D1.3). **A bounded range is `[now - N days, now]`, both edges
+inclusive; full history is unbounded on both sides**, so a rabbit's whole record stays reachable
+without a magic number. A timestamp from a device whose clock is ahead is therefore outside every
+bounded range until the reading device's clock passes it — the window is recomputed per call and `all`
+stays complete, so the entry appears as the clock catches up rather than being lost.
 
 ### D1.5 — Archived means immutable at the boundary, not merely unrendered (DM-4, RAB-8, RAB-9)
 
@@ -150,15 +153,94 @@ change with it. Consequence: **P1 requires no capability, CSP, scope or entitlem
 therefore has no `tauri-security` task; the first photo-library access in the reimplementation happens
 in P2, through `tauri-security`, and not here.
 
-### D1.12 — A tied timestamp resolves to the earlier-created entry (WT-7)
+### D1.12 — Creation order is stored with the entry, because nothing else records it (WT-7)
 
 WT-7 compares an entry against "the previous entry", and WT-1 lets a person set a timestamp, including
 one in the past, so two entries sharing a timestamp are reachable through entirely ordinary use (two
 readings logged for the same moment, or two entries back-dated to the same day). The alert basis is
-therefore ordered by **timestamp, and where two entries share a timestamp the earlier-created entry is
-the previous entry** for the later one. The rule depends only on stored data and is deterministic, so
-the entry flag (WT-7) and the dashboard flag (DASH-4) cannot disagree and the same data produces the
-same alert on every device; no entry is left without a basis because of a tie.
+ordered by **timestamp, and where two entries share a timestamp the earlier-created entry is the
+previous entry** for the later one.
+
+**Nothing this change stores records creation order today, and no existing fact can stand in for it.**
+Checked fact by fact:
+
+- `timestamp` is the tie key itself, and WT-1 makes it editable, so it cannot also carry creation
+  order.
+- The item's `updated_at` is the LWW **version marker** (`src-tauri/src/ipc/types.rs:341-344`). A
+  create mints it from the clock once per operation and memoizes it for retries
+  (`AppState::operation_marker`, `src-tauri/src/state.rs:1388-1417`), so on a create it *coincides*
+  with the creation moment — but an edit is a new operation with a new marker
+  (`update_weight_entry`, `state.rs:793`), so the instant an entry was created is overwritten by its
+  first correction and cannot be recovered. A rule reading it would order an edited entry as though
+  it had been created when it was last corrected, so WT-5's ordinary edit would silently re-order the
+  journal.
+- The item id is opaque and unordered: an entry's `item_id` **is** its create operation's id
+  (`src-tauri/src/domain/weight.rs:89-96`), and the frontend mints that from 128 random bits —
+  "WebCrypto is the source rather than a counter or a timestamp" (`src/lib/request-id.ts:71-89`). It
+  is deterministic and shared, so it is a sound *last resort*, but it carries no order.
+- The operation memo already holds a creation instant (`OperationMemo::entry_created_at`,
+  `state.rs:101-113,1419-1443`) — but only when the draft omitted the timestamp, only in memory, and
+  never in the payload, so no read and no other device can see it.
+- The row carries identity, version and tombstone only (`CollectionItem`, `types.rs:337-362`), the
+  feed decodes exactly those three plus the payload (`FeedRow`, `src-tauri/src/sync/read.rs:271-282`),
+  and the local copy is a `HashMap` keyed by item id (`src-tauri/src/storage/collection.rs:140-162`),
+  so neither arrival order nor a service sequence number is available.
+
+**Decision: the entry payload carries its creation instant.** `WeightEntry` gains
+`created_at: Instant` (shared-types table below). It is fixed when the entry is created, is **not** in
+`WeightEntryDraft`, and is copied from the stored entry on every edit — exactly as `id`, `rabbit_id`
+and `photo_refs` already are (`domain::weight::revise`, `weight.rs:245-254`) — so a correction changes
+the value, the note and the timestamp and leaves the entry's recorded creation order unchanged. It is
+stored rather than derived **because it is not derivable**: this is the one value in the change that must be
+recorded at creation or lost forever, so the "no derived value is persisted" rule of *State and
+boundaries* does not reach it — it is primary data like the timestamp, not a function of other stored
+data. The alert itself stays derived (D1.3, D1.13); only its ordering input is stored.
+
+The value is minted once per create operation by the memo that already exists
+(`AppState::entry_created_at`), which is what keeps a retried create byte-identical (D0.14,
+`state.rs:1419-1443`): a supplied timestamp keeps the operation's instant for `created_at` while
+`timestamp` stays the person's value, and the two coincide when the person leaves the timestamp alone.
+The write path is the enforcement point in both directions — the draft has no creation field, so no
+form can set or move it, and `revise` / `save_body` (`weight.rs:419-442`) carry the stored value into
+the row unchanged.
+
+**The total order is `(timestamp, created_at, item_id)`, one comparator.** Two entries can still be
+created within the same recorded instant (the clock is read once per operation, at whatever resolution
+the platform gives), so the item id closes the order — that is the entry's `id`, which is the item id
+it is stored under (`weight.rs:89-96`) — and since it is shared through the collection and unique, even
+the last-resort comparison is deterministic across devices. Where `created_at` differs the id is never
+consulted.
+
+Consequences:
+
+- **2.13** orders the rabbit's **full** entry set (I3) by this one comparator and takes the
+  predecessor from it — never from `updated_at`, never from the id alone, and never from the window a
+  caller happened to select. `created_at` is an ordering key only, never a displayed value.
+- **2.12**'s `trend` sorts by `(timestamp, id)` today (`weight.rs:326-330`). It changes to the same
+  shared comparator, so the order a person sees and the predecessor an alert is derived from cannot
+  disagree; `WeightEntrySummary` still exposes no `created_at`.
+- **5.5** can assert the scenario as written: two entries at one timestamp with different
+  `created_at`, the later-created one lower, flagged against the earlier-created one — plus the
+  discriminating case, the earlier-created entry edited *after* the later one, which an `updated_at`
+  rule would flip and `created_at` does not. A create-path test asserts `created_at` survives an edit
+  and is re-sent unchanged by a retry.
+- **Bindings and stored data.** `WeightEntry` is exported, so `src/bindings.ts` gains one field on
+  regeneration — a deliberate bindings diff, not drift; every command, event and other type keeps its
+  shape, and every literal `WeightEntry` in Rust and in the frontend gains the field (the compiler
+  finds them). The field is required, with no `#[serde(default)]`: a default would invent a creation
+  order, and a payload without it is content this version cannot describe (D1.16's unknown content,
+  answered under `error.household_content_unloaded`). That is acceptable only because **P1 has not
+  shipped** — no household holds an entry payload — and it is the one accepted consequence: a
+  pre-release entry payload written before this field existed reads as unknown content and cannot be
+  repaired by an edit (a write needs the content first), so a pre-release household is re-created.
+  This amends D1.16's sentence that `WeightEntry` keeps its frozen shape.
+- **Residual risk.** `created_at` is the **writing device's** clock, as `updated_at` and a defaulted
+  `timestamp` already are (DM-6, `src-tauri/src/storage/instant.rs:108-118`). A badly set clock can
+  order two creations wrongly, but the value is recorded once, so every device agrees on the resulting
+  order — which is what WT-7's "same data yields the same flag on every device" requires. A
+  server-assigned creation column would move that trust to the service, and the feed carries no such
+  field (`read.rs:271-282`), so it would be a service and feed change with nothing in this repository
+  able to verify it (R10's class).
 
 ### D1.13 — The drop alert is a pure derivation over the current entry set (WT-7; confirms D1.3)
 
@@ -369,7 +451,9 @@ writes no behaviour):
   row" is a visible value rather than an omission, and the generated binding is
   `payload: ItemPayload | null`.
 - Nothing else changes: the thirteen commands, both events, `CommandError`, `SaveCause`, `Instant`,
-  `Grams`, `Rabbit` and `WeightEntry` keep their frozen names and shapes; no dependency is added.
+  `Grams`, `Rabbit` and `WeightEntry` keep their frozen names and shapes (D1.12 adds one field to
+  `WeightEntry` — its recorded creation instant — for WT-7's tie rule, and nothing else); no
+  dependency is added.
 
 ### D1.17 — A removal is a tombstone write, and `deleted` is its own top-level argument (RAB-10; D1.8, D1.16)
 
@@ -625,8 +709,8 @@ later).
 | `RabbitProfile` | the editable field set of `Rabbit`: everything except `id`, `household_id`, `is_archived` | input to `create_rabbit` and `update_rabbit` |
 | `RabbitSummary` | `{ id, name, thumbnail_ref?, is_archived }` | dashboard rows and the quick-entry picker |
 | `DashboardRow` | `{ rabbit: RabbitSummary, last_weighed_at?, never_weighed: bool, has_weight_drop_alert: bool }` | both flags derived, never stored (D1.3) |
-| `WeightEntry` | `{ id, rabbit_id, value_grams: Grams, timestamp, note?, photo_refs, has_weight_drop_alert: bool }` | **no unit field** (DM-1); the flag is derived (see I2) |
-| `WeightEntryDraft` | `{ value_grams: Grams, timestamp?, note?, outlier_confirmed: bool }` | input to create and update; grams only (see I4). `timestamp: None` means "now" on create and **"keep the entry's existing timestamp" on update** — an edit never restamps a back-dated entry |
+| `WeightEntry` | `{ id, rabbit_id, value_grams: Grams, timestamp, created_at, note?, photo_refs, has_weight_drop_alert: bool }` | **no unit field** (DM-1); the flag is derived (see I2); `created_at` is the entry's recorded creation instant — the drop derivation's tie key, never editable and never displayed (D1.12) |
+| `WeightEntryDraft` | `{ value_grams: Grams, timestamp?, note?, outlier_confirmed: bool }` | input to create and update; grams only (see I4). `timestamp: None` means "now" on create and **"keep the entry's existing timestamp" on update** — an edit never restamps a back-dated entry. It carries **no creation instant**: creation order is recorded, never submitted (D1.12) |
 | `WeightEntrySummary` | `{ id, value_grams: Grams, timestamp, has_weight_drop_alert }` | trend points and history rows |
 | `WeightRange` | `days_7 \| days_30 \| days_90 \| all` | WT-6; one enum serves both independent ranges; spelled per variant so serde cannot produce `days7` |
 | `WeightTrend` | `{ range: WeightRange, points: WeightEntrySummary[], drop_threshold_percent }` | oldest first; threshold travels with the series (D1.3, R2) |

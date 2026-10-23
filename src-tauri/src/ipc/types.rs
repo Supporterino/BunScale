@@ -616,6 +616,15 @@ pub struct WeightEntry {
     /// The entry's timestamp, absolute (DM-6). Defaults to the creation moment when the draft omits
     /// it, and is otherwise stored unchanged, including in the past (WT-1).
     pub timestamp: Instant,
+    /// The entry's recorded creation instant (WT-7, D1.12).
+    ///
+    /// It is fixed once per create operation and never edited: [`WeightEntryDraft`] has no creation
+    /// field, so no form can move it, and a correction preserves the stored value exactly as it
+    /// preserves the identity. It is the tie key for WT-7's "the earlier-created entry is the previous
+    /// entry", and it is an ordering key only — never displayed. It is **required, with no serde
+    /// default**: an entry payload without it is content this version cannot describe (D1.16), because
+    /// a default would invent a creation order.
+    pub created_at: Instant,
     /// The full note, or `None`. Never truncated by the contract (WT-8).
     pub note: Option<String>,
     /// References to the entry's photos, in presentation order; empty when it has none (WT-8).
@@ -713,9 +722,11 @@ pub enum WeightRange {
 /// derivation (R2). [`WeightTrend::points`] is ordered **oldest first** — the order the previous-entry
 /// derivation uses (D1.12) — and a view that presents newest first reverses it.
 ///
-/// The window limits which points are returned, **not** how the flags are derived: a flag is computed
-/// over the rabbit's full entry set, so the earliest point of a window can be flagged on the basis of
-/// an entry outside it (D1.13). A derivation that re-based at the window edge would make the same
+/// The window limits which points are returned, **not** how the flags are derived: once task 2.13
+/// derives the flag, it is computed over the rabbit's full entry set, so the earliest point of a
+/// window can be flagged on the basis of an entry outside it (D1.13). Until then each point's
+/// `has_weight_drop_alert` is the constant `false` — the payload's stored value is not content and is
+/// ignored on every read (D1.16). A derivation that re-based at the window edge would make the same
 /// entry disagree with the dashboard flag as soon as a range was selected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct WeightTrend {
@@ -772,6 +783,7 @@ mod tests {
             rabbit_id: RabbitId("item-1".to_owned()),
             value_grams: Grams(1_250),
             timestamp: Instant("2026-10-20T09:00:00Z".to_owned()),
+            created_at: Instant("2026-10-20T09:00:00Z".to_owned()),
             note: None,
             photo_refs: Vec::new(),
             has_weight_drop_alert: false,

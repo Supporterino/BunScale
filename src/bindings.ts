@@ -414,7 +414,10 @@ export const commands = {
 	 * 
 	 *  The value arrives in canonical grams and is stored as such; the rabbit's display unit plays no part
 	 *  here. `entry.timestamp` is `None` to record the moment of creation, or a supplied absolute instant —
-	 *  including one in the past — stored unchanged (WT-1, DM-6). The note is optional.
+	 *  including one in the past — stored unchanged (WT-1, DM-6). The note is optional. Beside the
+	 *  timestamp the entry records its own `created_at`, the operation's creation instant, even when the
+	 *  person supplied a reading moment: that is the ordering key WT-7's tie rule uses, and no draft field
+	 *  can set or move it (D1.12).
 	 * 
 	 *  A value of zero or less is refused. A value above [`PLAUSIBILITY_BOUND_GRAMS`] is a *confirmation*
 	 *  threshold rather than a rejection (D1.9): it is refused until `entry.outlier_confirmed` says the
@@ -438,15 +441,22 @@ export const commands = {
 	 *  parameters and each calls this command with its own [`WeightRange`], so one cannot influence the
 	 *  other (D1.4, WT-6) — the backend holds no selected range.
 	 * 
-	 *  The window limits which points come back, **not** how the flags are derived: the alert is computed
-	 *  over the rabbit's full entry set, so the earliest point of a window may be flagged on the basis of
-	 *  an entry outside it (D1.13). Points are ordered oldest first, the order the previous-entry
-	 *  derivation uses (D1.12).
+	 *  A bounded range is `[now - N days, now]`, both edges inclusive; `all` is the unbounded full
+	 *  history (WT-6, D1.4). The window limits which points come back, **not** how the flags are derived:
+	 *  once task 2.13 derives the alert it is computed over the rabbit's full entry set, so the earliest
+	 *  point of a window may be flagged on the basis of an entry outside it (D1.13). Until then each
+	 *  point's `has_weight_drop_alert` is the constant `false` — the stored payload's value is not content
+	 *  and is ignored on every read (D1.16). Points are ordered oldest first by the one comparator,
+	 *  `(timestamp, created_at, id)`, the order the previous-entry derivation uses (D1.12).
+	 * 
+	 *  An archived rabbit is readable: RAB-8 presents its timeline read-only, so the read does not refuse
+	 *  an archived target. Unreachability is a status fact, not a read failure (SYNC-3).
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an unknown rabbit or a blank id. Unreachability is a status fact, not a read
-	 *  failure (SYNC-3); a local store that cannot answer is `unknown`.
+	 *  `validation` for an unknown rabbit, a blank id, or an id that names a non-rabbit item. `unknown`
+	 *  with the unknown-content key when the rabbit's row or a live row of its collection has no content
+	 *  this device can describe, and `unknown` for a local store that cannot answer (D1.16).
 	 */
 	getWeightEntries: (rabbitId: RabbitId, range: WeightRange) => typedError<WeightTrend, CommandError>(__TAURI_INVOKE("get_weight_entries", { rabbitId, range })),
 	/**
@@ -1257,6 +1267,17 @@ export type WeightEntry = {
 	 *  it, and is otherwise stored unchanged, including in the past (WT-1).
 	 */
 	timestamp: Instant,
+	/**
+	 *  The entry's recorded creation instant (WT-7, D1.12).
+	 * 
+	 *  It is fixed once per create operation and never edited: [`WeightEntryDraft`] has no creation
+	 *  field, so no form can move it, and a correction preserves the stored value exactly as it
+	 *  preserves the identity. It is the tie key for WT-7's "the earlier-created entry is the previous
+	 *  entry", and it is an ordering key only — never displayed. It is **required, with no serde
+	 *  default**: an entry payload without it is content this version cannot describe (D1.16), because
+	 *  a default would invent a creation order.
+	 */
+	created_at: Instant,
 	/**  The full note, or `None`. Never truncated by the contract (WT-8). */
 	note: string | null,
 	/**  References to the entry's photos, in presentation order; empty when it has none (WT-8). */
@@ -1353,9 +1374,11 @@ export type WeightRange =
  *  derivation (R2). [`WeightTrend::points`] is ordered **oldest first** — the order the previous-entry
  *  derivation uses (D1.12) — and a view that presents newest first reverses it.
  * 
- *  The window limits which points are returned, **not** how the flags are derived: a flag is computed
- *  over the rabbit's full entry set, so the earliest point of a window can be flagged on the basis of
- *  an entry outside it (D1.13). A derivation that re-based at the window edge would make the same
+ *  The window limits which points are returned, **not** how the flags are derived: once task 2.13
+ *  derives the flag, it is computed over the rabbit's full entry set, so the earliest point of a
+ *  window can be flagged on the basis of an entry outside it (D1.13). Until then each point's
+ *  `has_weight_drop_alert` is the constant `false` — the payload's stored value is not content and is
+ *  ignored on every read (D1.16). A derivation that re-based at the window edge would make the same
  *  entry disagree with the dashboard flag as soon as a range was selected.
  */
 export type WeightTrend = {

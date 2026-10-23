@@ -95,7 +95,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   `false` — it is re-derived on read, never carried in (D1.16). Both commands call
   `AppState::writable_rabbit` after resolving the entry's rabbit, with a **command-level** test that
   each is refused for an archived rabbit with nothing written.
-- [ ] 2.12 [rust-backend] Implement the weight trend and history read: a `WeightRange` window of
+- [x] 2.12 [rust-backend] Implement the weight trend and history read: a `WeightRange` window of
   7/30/90/all returning the entries inside it, the rabbit's threshold alongside, and the two ranges
   served independently so one query cannot influence the other (WT-6).
 - [ ] 2.13 [rust-backend] Implement the drop-alert derivation: order a rabbit's entries by timestamp

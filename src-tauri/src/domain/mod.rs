@@ -60,15 +60,22 @@
 //! the display unit is applied at the frontend boundary (DM-1, WT-3) — the timestamp is the supplied
 //! moment or the operation's creation instant, and the note is optional and kept whole (WT-1). An
 //! entry's identity is its create operation's identity, so a retried create is the same row (D0.14),
-//! and the derived drop-alert flag is written `false` rather than persisted (D1.16, D1.3). The value
+//! and the derived drop-alert flag is written `false` rather than persisted (D1.16, D1.3). Each entry
+//! also records its `created_at` once, from the operation's memo, and preserves it across an edit —
+//! WT-7's tie rule needs a creation order that the editable timestamp and the LWW marker cannot carry
+//! (D1.12); one comparator, `(timestamp, created_at, id)`, orders every read. The value
 //! rules of WT-4 are applied where the draft becomes a record: a value of zero or less is refused, and
 //! a value above the plausibility bound is refused until the draft confirms it — the bound is a
 //! confirmation threshold, so a confirmed outlier is stored at its true value (D1.9). An edit replaces
 //! the editable set of the stored entry, keeps its identity and — when the draft omits the timestamp —
 //! its stored instant, and is written as the whole item so every member resolves the correction
 //! (WT-5); a deletion is the write path's tombstone, keeping the row's identity and content (D1.17).
-//! Both are alert-affecting operations whose re-derivation is the read's (D1.13); the reads and the
-//! derivation are the tasks that follow.
+//! Both are alert-affecting operations whose re-derivation is the read's (D1.13). The trend/history
+//! read is a window over the current entry set: [`weight::trend`] selects the entries inside a
+//! `WeightRange` and carries the rabbit's threshold beside them, and because the window is applied on
+//! the read alone the trend and the weight-only history can hold different ranges over the same rabbit
+//! without one influencing the other (WT-6, D1.4). The drop-alert derivation and the entry-detail read
+//! are the tasks that follow (2.13–2.15).
 //!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.

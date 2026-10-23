@@ -70,6 +70,10 @@ function entry(overrides: Partial<WeightEntry> = {}): WeightEntry {
     rabbit_id: RABBIT_ID,
     value_grams: 1200,
     timestamp: '2026-10-01T09:00:00Z',
+    // The default create leaves `timestamp: null`, so the row is created and
+    // recorded at one instant; a spec that back-dates the timestamp keeps this
+    // as the save's own instant.
+    created_at: '2026-10-01T09:00:00Z',
     note: null,
     photo_refs: [],
     has_weight_drop_alert: false,

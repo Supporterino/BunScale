@@ -80,7 +80,7 @@ use crate::domain::{
 use crate::ipc::types::{
     AccountUserId, CollectionSource, CommandError, Household, HouseholdCollection, HouseholdId,
     HouseholdSummary, Instant, ItemPayload, MemberId, Rabbit, RabbitId, RabbitProfile, RequestId,
-    WeightEntry, WeightEntryDraft, WeightEntryId,
+    WeightEntry, WeightEntryDraft, WeightEntryId, WeightRange, WeightTrend,
 };
 use crate::storage::{
     AbsoluteInstant, BoundaryRefusal, CollectionStore, CollectionStoreError, DeviceSnapshot,
@@ -107,9 +107,10 @@ const SERVICE_ORIGIN: &str = "";
 struct OperationMemo {
     /// The version marker last-write-wins compares, written as the item's `updated_at`.
     marker: Instant,
-    /// The weight entry's creation instant, once an entry create defaulted one from the clock. It is
-    /// `None` until then, so an operation that supplied its own timestamp — or is not an entry create
-    /// at all — never reads the clock for one (WT-1).
+    /// The weight entry's creation instant, once an entry create needed one from the clock. It is
+    /// `None` until then, so an operation that is not an entry create never reads the clock for one
+    /// (WT-1). An entry create always needs it — it is the entry's `created_at`, recorded even when
+    /// the person supplied a timestamp (WT-7, D1.12).
     entry_created_at: Option<Instant>,
 }
 
@@ -897,6 +898,58 @@ impl AppState {
         Ok((household_id, rabbit_id))
     }
 
+    /// One rabbit's weight entries inside a range window, with its threshold alongside (WT-6, WT-7;
+    /// D1.4, D1.16, D1.17).
+    ///
+    /// The read is resolved against **this device's copy** and never refreshes: like
+    /// [`list_rabbits`](super::ipc::commands::rabbit::list_rabbits), the copy is what the frontend
+    /// renders from, while the collection read owns the refresh (SYNC-3). An archived rabbit is
+    /// readable — RAB-8/DASH-7 present its timeline read-only — so archived is not a refusal.
+    ///
+    /// The window comes from `now`, which the caller reads at the edge. It is a pure read-side filter
+    /// over the collection: nothing is stored per range and no state is shared between calls, so the
+    /// trend and the weight-only history can each ask for their own range over the same rabbit (WT-6,
+    /// D1.4).
+    ///
+    /// **A tombstone never makes the read refuse.** A permanently deleted rabbit is `validation`
+    /// (unknown rabbit), and a tombstoned entry is excluded before its content is considered
+    /// (D1.17). A **live** row whose content is not on this device refuses with the unknown-content
+    /// key, because the rabbit's threshold or the entry set could be incomplete (D1.16).
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank or unknown rabbit id and for an id that names a non-rabbit item;
+    /// `unknown` with the unknown-content key when the rabbit's row or a live row of its collection has
+    /// no content this device can describe (D1.16); and `unknown` when a stored timestamp or creation
+    /// instant is not an absolute instant. A read carries no operation identity, so every failure
+    /// answers `request_id: None`.
+    pub fn weight_trend(
+        &self,
+        rabbit_id: &RabbitId,
+        range: WeightRange,
+        now: &Instant,
+    ) -> Result<WeightTrend, CommandError> {
+        if rabbit_id.0.trim().is_empty() {
+            return Err(CommandError::validation(None));
+        }
+
+        let Some((household_id, stored)) = self.stored_rabbit(rabbit_id) else {
+            return Err(CommandError::validation(None));
+        };
+
+        let rabbit = match stored.payload {
+            // Archived is readable: RAB-8 presents an archived rabbit's timeline read-only (DASH-7).
+            Some(ItemPayload::Rabbit { rabbit }) => rabbit,
+            None => return Err(CommandError::household_content_unloaded(None)),
+            // The identity names an item that is not a rabbit, so there is no weight series.
+            Some(ItemPayload::WeightEntry { .. }) => return Err(CommandError::validation(None)),
+        };
+
+        let collection = crate::sync::ReadPath::shared().serve_local(self, &household_id);
+
+        domain::weight::trend(&collection, &rabbit, range, now)
+    }
+
     /// Archive a rabbit: a reversible soft delete that discards nothing (RAB-6, RAB-9; D1.16).
     ///
     /// The write is the **whole item**. This device's copy of the household collection supplies the
@@ -1365,14 +1418,15 @@ impl AppState {
     }
 
     /// The creation instant for the weight entry `request_id` creates: the one already minted for the
-    /// operation, or a fresh one recorded now (WT-1, D0.14).
+    /// operation, or a fresh one recorded now (WT-1, WT-7, D1.12; D0.14).
     ///
-    /// [`WeightEntryDraft::timestamp`] is `None` when the person did not change the timestamp, and the
-    /// recorded value is then "the moment of creation" — minted once per operation for the same reason
+    /// The entry's `created_at` is always this value, so every create calls this method — including
+    /// one that supplied its own timestamp, where `created_at` and `timestamp` deliberately differ.
+    /// When the draft left the timestamp alone the two coincide, because the defaulted timestamp is
+    /// this same instant. It is minted once per operation for the same reason
     /// [`AppState::operation_marker`] is: a retry re-issues the same [`RequestId`], and the service
-    /// refuses the same key with a different payload, so the defaulted instant has to be the first
-    /// attempt's on every later one. A supplied timestamp never reaches this method: it is the person's
-    /// value and is re-sent unchanged, so the operation's memo stays `None` for it.
+    /// refuses the same key with a different payload, so both recorded instants have to be the first
+    /// attempt's on every later one.
     ///
     /// It shares the operation's memo with the version marker rather than a parallel map: same key,
     /// same mint, same process lifetime.
@@ -1641,7 +1695,7 @@ mod tests {
     use super::*;
     use crate::ipc::types::{
         CollectionItem, Grams, ItemId, NeuterStatus, PLAUSIBILITY_BOUND_GRAMS, RabbitId,
-        RabbitProfile, SaveCause, Sex, WeightEntry, WeightEntryId,
+        RabbitProfile, SaveCause, Sex, WeightEntry, WeightEntryId, WeightRange,
     };
     use crate::sync::double::ScriptedService;
     use crate::sync::double::test_support::block_on_ready;
@@ -1772,6 +1826,7 @@ mod tests {
                     rabbit_id: rabbit.id.clone(),
                     value_grams: Grams(1_800),
                     timestamp: at("2026-10-20T09:00:00Z"),
+                    created_at: at("2026-10-20T09:00:00Z"),
                     note: Some("morning".to_owned()),
                     photo_refs: Vec::new(),
                     has_weight_drop_alert: false,
@@ -1792,6 +1847,7 @@ mod tests {
                     rabbit_id: rabbit.id.clone(),
                     value_grams: Grams(value),
                     timestamp: at(timestamp),
+                    created_at: at(timestamp),
                     note: Some("morning".to_owned()),
                     photo_refs: Vec::new(),
                     has_weight_drop_alert: false,
@@ -1905,6 +1961,10 @@ mod tests {
             retried.timestamp, first.timestamp,
             "the defaulted instant is the operation's, not a fresh clock read"
         );
+        assert_eq!(
+            retried.created_at, first.created_at,
+            "the recorded creation instant is re-sent unchanged by a retry (WT-7, D1.12)"
+        );
 
         let bodies = write_bodies(&service);
         assert_eq!(
@@ -1918,8 +1978,9 @@ mod tests {
         );
     }
 
-    /// WT-1's supplied timestamp through the state: the write carries the person's moment, so the
-    /// operation's defaulted-instant path is never consulted for it (the default would be "now").
+    /// WT-1, WT-7 through the state: the supplied moment is kept as the timestamp and the operation's
+    /// own instant is recorded separately as `created_at` — `record` consults the memo unconditionally,
+    /// because every create records a creation order even when the person chose the reading moment.
     #[test]
     fn a_supplied_timestamp_is_written_unchanged_and_never_defaulted() {
         let (service, state, rabbit) = state_with_one_rabbit();
@@ -1936,6 +1997,10 @@ mod tests {
         .expect("the double accepted the write");
 
         assert_eq!(created.timestamp, supplied, "the past moment is kept");
+        assert_ne!(
+            created.created_at, supplied,
+            "creation order is the operation's instant, not the supplied reading moment"
+        );
         let body = write_bodies(&service)
             .pop()
             .expect("the entry write reached the transport");
@@ -1943,6 +2008,11 @@ mod tests {
             body["payload"]["weight_entry"]["timestamp"],
             json!(supplied.0),
             "the stored payload carries the supplied moment"
+        );
+        assert_eq!(
+            body["payload"]["weight_entry"]["created_at"],
+            json!(created.created_at.0),
+            "the stored payload carries the recorded creation instant beside it"
         );
     }
 
@@ -3743,6 +3813,11 @@ mod tests {
             revised.timestamp, stored_timestamp,
             "an omitted timestamp keeps the entry's stored instant"
         );
+        assert_eq!(
+            revised.created_at,
+            at("2026-10-21T09:00:00Z"),
+            "an edit preserves the entry's recorded creation instant (WT-7, D1.12)"
+        );
 
         // One added write: the entry's existing item, whole, in the household's collection (HS-8).
         let bodies = write_bodies(&service);
@@ -3759,6 +3834,11 @@ mod tests {
             body["payload"]["weight_entry"]["timestamp"],
             json!(stored_timestamp.0),
             "the stored payload carries the kept instant, not a restamp"
+        );
+        assert_eq!(
+            body["payload"]["weight_entry"]["created_at"],
+            json!("2026-10-21T09:00:00Z"),
+            "the stored payload carries the entry's original creation instant (D1.12)"
         );
         assert_eq!(
             body["payload"]["weight_entry"]["has_weight_drop_alert"],
@@ -4192,6 +4272,307 @@ mod tests {
         }
 
         assert!(service.calls().is_empty(), "nothing was probed or sent");
+    }
+
+    /// A state whose copy holds one rabbit (optionally archived) and one entry row per
+    /// `(id, value, timestamp)` — the state the trend/history read resolves from this device's copy
+    /// (WT-6).
+    fn state_with_weight_series(
+        rabbit_archived: bool,
+        entries: &[(&str, i32, &str)],
+    ) -> (AppState, Rabbit) {
+        let (_service, state, rabbit) = state_with_one_rabbit();
+        let one = household("household-1");
+        let rabbit = Rabbit {
+            is_archived: rabbit_archived,
+            ..rabbit
+        };
+        let mut items = vec![row_with_rabbit(
+            &rabbit.id.0,
+            "2026-10-22T09:30:00Z",
+            &rabbit,
+        )];
+        items.extend(
+            entries
+                .iter()
+                .map(|(id, value, timestamp)| row_with_entry(id, &rabbit, *value, timestamp)),
+        );
+
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, items),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        (state, rabbit)
+    }
+
+    /// The entry ids of a read, in the order it returned them.
+    fn point_ids(trend: &WeightTrend) -> Vec<&str> {
+        trend
+            .points
+            .iter()
+            .map(|point| point.id.0.as_str())
+            .collect()
+    }
+
+    /// WT-6, "Selecting a range limits the trend to that window": a six-month series read at 30 days
+    /// yields only the last 30 days, oldest first, through the real state read.
+    #[test]
+    fn a_thirty_day_window_limits_the_trend_to_that_window_through_the_read() {
+        let (state, rabbit) = state_with_weight_series(
+            false,
+            &[
+                ("entry-1", 1_500, "2026-04-23T00:00:00Z"),
+                ("entry-2", 1_600, "2026-09-23T00:00:00Z"),
+                ("entry-3", 1_700, "2026-10-01T00:00:00Z"),
+                ("entry-4", 1_800, "2026-10-17T00:00:00Z"),
+                ("entry-5", 1_900, "2026-10-22T00:00:00Z"),
+            ],
+        );
+
+        let trend = state
+            .weight_trend(&rabbit.id, WeightRange::Days30, &at("2026-10-23T00:00:00Z"))
+            .expect("the series is readable");
+
+        assert_eq!(trend.range, WeightRange::Days30);
+        assert_eq!(trend.drop_threshold_percent, 5.0);
+        assert_eq!(
+            point_ids(&trend),
+            vec!["entry-2", "entry-3", "entry-4", "entry-5"],
+            "the April entry is outside the window and the rest are oldest first"
+        );
+    }
+
+    /// WT-6, "The full-history range presents every entry": `All` returns the rabbit's whole series.
+    #[test]
+    fn the_full_history_range_presents_every_entry_through_the_read() {
+        let (state, rabbit) = state_with_weight_series(
+            false,
+            &[
+                ("entry-1", 1_500, "2026-01-01T00:00:00Z"),
+                ("entry-2", 1_700, "2026-10-01T00:00:00Z"),
+                ("entry-3", 1_900, "2026-10-22T00:00:00Z"),
+            ],
+        );
+
+        let trend = state
+            .weight_trend(&rabbit.id, WeightRange::All, &at("2026-10-23T00:00:00Z"))
+            .expect("the series is readable");
+
+        assert_eq!(
+            point_ids(&trend),
+            vec!["entry-1", "entry-2", "entry-3"],
+            "the full history has no lower bound"
+        );
+    }
+
+    /// WT-6, "The weight history range is independent of the trend range": two ranges over the same
+    /// rabbit answer their own windows and neither changes the other.
+    #[test]
+    fn the_trend_and_history_ranges_are_independent_through_the_read() {
+        let (state, rabbit) = state_with_weight_series(
+            false,
+            &[
+                ("entry-1", 1_500, "2026-08-01T00:00:00Z"),
+                ("entry-2", 1_600, "2026-10-01T00:00:00Z"),
+                ("entry-3", 1_800, "2026-10-21T00:00:00Z"),
+            ],
+        );
+        let now = at("2026-10-23T00:00:00Z");
+
+        let trend = state
+            .weight_trend(&rabbit.id, WeightRange::Days30, &now)
+            .expect("the series is readable");
+        let history = state
+            .weight_trend(&rabbit.id, WeightRange::Days7, &now)
+            .expect("the series is readable");
+        let trend_again = state
+            .weight_trend(&rabbit.id, WeightRange::Days30, &now)
+            .expect("the series is readable");
+
+        assert_eq!(point_ids(&trend), vec!["entry-2", "entry-3"]);
+        assert_eq!(point_ids(&history), vec!["entry-3"]);
+        assert_eq!(
+            trend_again.points, trend.points,
+            "the earlier range is unchanged by the later read"
+        );
+    }
+
+    /// WT-6's boundary: the cut-off is inclusive. Exactly seven days before `now` is inside; one
+    /// second earlier is outside.
+    #[test]
+    fn an_entry_exactly_at_the_seven_day_cutoff_is_inside() {
+        let (state, rabbit) = state_with_weight_series(
+            false,
+            &[
+                ("entry-early", 1_500, "2026-10-15T23:59:59Z"),
+                ("entry-edge", 1_600, "2026-10-16T00:00:00Z"),
+                ("entry-late", 1_700, "2026-10-22T00:00:00Z"),
+            ],
+        );
+
+        let trend = state
+            .weight_trend(&rabbit.id, WeightRange::Days7, &at("2026-10-23T00:00:00Z"))
+            .expect("the series is readable");
+
+        assert_eq!(
+            point_ids(&trend),
+            vec!["entry-edge", "entry-late"],
+            "the entry at the cut-off is inside; the one a second earlier is outside"
+        );
+    }
+
+    /// DASH-7, RAB-8: an archived rabbit's weight series is still readable, so archived is not a
+    /// refusal here.
+    #[test]
+    fn an_archived_rabbits_weight_series_is_readable() {
+        let (state, rabbit) =
+            state_with_weight_series(true, &[("entry-1", 1_800, "2026-10-22T00:00:00Z")]);
+
+        let trend = state
+            .weight_trend(&rabbit.id, WeightRange::All, &at("2026-10-23T00:00:00Z"))
+            .expect("an archived rabbit's timeline is viewable");
+
+        assert_eq!(point_ids(&trend), vec!["entry-1"]);
+    }
+
+    /// WT-6: an unknown rabbit has no series; the read refuses as `validation` and carries no
+    /// operation identity.
+    #[test]
+    fn an_unknown_rabbit_is_refused_as_validation() {
+        let (_service, state, _rabbit) = state_with_one_rabbit();
+
+        let error = state
+            .weight_trend(
+                &RabbitId("rabbit-unknown".to_owned()),
+                WeightRange::All,
+                &at("2026-10-23T00:00:00Z"),
+            )
+            .expect_err("no rabbit has that identity");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.request_id, None);
+    }
+
+    /// D1.16: a live row whose content is not on this device could be one of this rabbit's entries,
+    /// so the read refuses rather than answering a partial set.
+    #[test]
+    fn a_live_row_with_unknown_content_refuses_the_weight_read() {
+        let (state, rabbit) =
+            state_with_weight_series(false, &[("entry-1", 1_800, "2026-10-22T00:00:00Z")]);
+        let one = household("household-1");
+        let mut items = vec![row_with_rabbit(
+            &rabbit.id.0,
+            "2026-10-22T09:30:00Z",
+            &rabbit,
+        )];
+        items.push(row_with_entry(
+            "entry-1",
+            &rabbit,
+            1_800,
+            "2026-10-22T00:00:00Z",
+        ));
+        items.push(wire("entry-unknown", "2026-10-22T00:00:00Z"));
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, items),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let error = state
+            .weight_trend(&rabbit.id, WeightRange::All, &at("2026-10-23T00:00:00Z"))
+            .expect_err("an unreadable row leaves the entry set partial");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_eq!(error.request_id, None);
+    }
+
+    /// D1.16: the returned threshold and every derived value come from the rabbit row, so a live row
+    /// whose content is not on this device refuses the read even when every entry is known.
+    #[test]
+    fn a_rabbit_row_with_unknown_content_refuses_the_weight_read() {
+        let (_service, state, rabbit) = state_with_one_rabbit();
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire(&rabbit.id.0, "2026-10-22T09:30:00Z")]),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let error = state
+            .weight_trend(&rabbit.id, WeightRange::All, &at("2026-10-23T00:00:00Z"))
+            .expect_err("the rabbit's content is not on this device");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_eq!(error.request_id, None);
+    }
+
+    /// WT-6: an id that names a live item which is not a rabbit names no weight series, so the read
+    /// refuses as `validation` with no operation identity.
+    #[test]
+    fn an_id_that_names_a_non_rabbit_item_is_refused_as_validation() {
+        let (_service, state, rabbit) = state_with_one_rabbit();
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![row_with_weight_entry("rabbit-1", &rabbit)]),
+                at("2026-10-22T09:32:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let error = state
+            .weight_trend(
+                &RabbitId("rabbit-1".to_owned()),
+                WeightRange::All,
+                &at("2026-10-23T00:00:00Z"),
+            )
+            .expect_err("that item is an entry, not a rabbit");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.request_id, None);
+    }
+
+    /// D1.17: a tombstoned entry is excluded before the content check, so it neither appears in the
+    /// trend nor refuses the read.
+    #[test]
+    fn a_tombstoned_entry_is_excluded_from_the_trend() {
+        let (state, rabbit) =
+            state_with_weight_series(false, &[("entry-1", 1_800, "2026-10-22T00:00:00Z")]);
+        let one = household("household-1");
+        let items = vec![
+            row_with_rabbit(&rabbit.id.0, "2026-10-22T09:30:00Z", &rabbit),
+            row_with_entry("entry-1", &rabbit, 1_800, "2026-10-22T00:00:00Z"),
+            tombstone("entry-2", "2026-10-22T09:00:00Z"),
+        ];
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, items),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        let trend = state
+            .weight_trend(&rabbit.id, WeightRange::All, &at("2026-10-23T00:00:00Z"))
+            .expect("a tombstone is not unreadable content");
+
+        assert_eq!(point_ids(&trend), vec!["entry-1"]);
     }
 
     /// A fresh directory under the process's temporary area, unique per call.

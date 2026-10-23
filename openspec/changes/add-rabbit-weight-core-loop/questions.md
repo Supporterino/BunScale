@@ -90,6 +90,29 @@ produced that:
 task 4.15 (frontend-ui) renders the failure state with a refresh on every P1 screen a failed read can
 reach. No design change — D1.16 already required the behaviour.
 
+## Q7 — WT-7 orders tied entries by creation, which nothing stored (found in task 2.12)
+
+**Status: settled — the orchestrator approved one additive field.** Raised 2026-10-23.
+
+WT-7's scenario "Entries sharing a timestamp are ordered by creation" needs a creation order. Nothing
+stored it: `WeightEntry` carries the *reading* timestamp (editable into the past, so it cannot double as
+creation), `updated_at` is the LWW version marker and moves on every correction, and the entry's item id
+is 128 random bits, unordered. Task 2.12 therefore broke ties by id — deterministic but arbitrary, which
+would let 5.5's scenario pass while testing nothing.
+
+**Options:** (a) store creation order on the entry, chosen; (b) derive it from an existing field, rejected
+because a single WT-5 correction falsifies every candidate; (c) restate WT-7 in terms of what is
+observable, rejected because the requirement's purpose is cross-device determinism.
+
+**Resolution:** `design.md` D1.12 now adds `created_at: Instant` to `WeightEntry`, required (no serde
+default — a default would invent an order), set once at create from the memo that already existed,
+preserved across edits like `id`/`rabbit_id`/`photo_refs`. Total order is `(timestamp, created_at, id)`.
+This is an **additive change to a type frozen in task 1.1**; the orchestrator approved it because the
+spec wins over the frozen snapshot and no data exists yet (pre-release), and recorded the ripple: the
+bindings change deliberately, 2.12 adopts one comparator, 2.13 orders the full set with it, and 5.5 must
+assert the discriminating case (earlier-created entry edited *after* the later one).
+
+
 
 
 

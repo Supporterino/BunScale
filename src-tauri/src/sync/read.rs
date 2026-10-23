@@ -167,9 +167,10 @@ impl ReadPath {
     /// data. No copy is created by this read: the value is produced by the storage type that owns
     /// the never-loaded representation.
     ///
-    /// The method is `pub(crate)` for the one local-set caller, `list_rabbits`, which answers from the
-    /// copy without attempting a refresh; it performs its own blank-id validation, exactly as
-    /// [`ReadPath::load`] does, so reaching the copy directly does not bypass that refusal. P6's
+    /// The method is `pub(crate)` for the local-set callers that answer from the copy without
+    /// attempting a refresh: `list_rabbits`, and the weight trend/history read
+    /// ([`crate::state::AppState::weight_trend`]). Each performs its own blank-id validation, exactly
+    /// as [`ReadPath::load`] does, so reaching the copy directly does not bypass that refusal. P6's
     /// progressive render will be the next such caller.
     pub(crate) fn serve_local(
         &self,
@@ -1021,12 +1022,32 @@ mod tests {
                     "rabbit_id": "item-1",
                     "value_grams": 1250,
                     "timestamp": "2026-10-20T09:00:00Z",
+                    "created_at": "2026-10-20T09:00:00Z",
                     "note": null,
                     "photo_refs": [],
                     "has_weight_drop_alert": false,
                 },
             }))),
             Provenance::Known(ItemPayload::WeightEntry { .. })
+        ));
+
+        // D1.12's consequence: `created_at` is required, so an otherwise complete weight-entry
+        // payload written before the field existed is content this version cannot describe — never
+        // a value with an invented creation order.
+        assert!(matches!(
+            classify(Some(json!({
+                "kind": "weight_entry",
+                "weight_entry": {
+                    "id": "entry-1",
+                    "rabbit_id": "item-1",
+                    "value_grams": 1250,
+                    "timestamp": "2026-10-20T09:00:00Z",
+                    "note": null,
+                    "photo_refs": [],
+                    "has_weight_drop_alert": false,
+                },
+            }))),
+            Provenance::UnknownContent
         ));
 
         // A kind this version models whose content did not decode: unknown content, still stored.

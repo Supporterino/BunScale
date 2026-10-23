@@ -30,6 +30,11 @@
 //!   the rabbit's threshold and the entry set on every read (D1.3, D1.13, D1.16). Persisting a derived
 //!   value would let it disagree with the threshold it came from, which is the snapshot the derivation
 //!   forbids.
+//! * **Creation order is recorded, not derived.** [`record`] sets `created_at` once from the
+//!   operation's creation instant — even when the person supplied the reading timestamp — and
+//!   [`revise`] carries the stored value unchanged, because WT-1's editable timestamp and the LWW
+//!   `updated_at` cannot stand in for it (WT-7, D1.12). [`ordered`] is the one comparator every reader
+//!   uses: `(timestamp, created_at, id)`, oldest first.
 //!
 //! **Nothing here touches Tauri, and nothing here writes storage.** One item write — [`save_weight_entry`]
 //! — goes through P0's reachability-gated [`SaveGate`]: an entry exists once the shared service has
@@ -46,19 +51,32 @@
 //!
 //! **An edit replaces the editable set and keeps the target's identity.** [`revise`] takes the stored
 //! entry and the submitted draft: the value, note and timestamp are replaced, an omitted timestamp
-//! keeping the stored instant rather than restamping a back-dated entry, while the identity, rabbit
-//! and photo references come from the stored entry. The derived alert flag is `false` on the revised
-//! value, because it is re-derived on read rather than carried (WT-5, D1.13, D1.16).
+//! keeping the stored instant rather than restamping a back-dated entry, while the identity, rabbit,
+//! photo references and `created_at` come from the stored entry — a correction never changes its
+//! recorded creation order (WT-7). The derived alert flag is `false` on the revised value, because it
+//! is re-derived on read rather than carried (WT-5, D1.13, D1.16).
 //!
-//! **What this module does not decide.** Duplicate-entry detection, the reads and the drop-alert
-//! derivation belong to tasks 2.12–2.15; a deletion is the write path's tombstone (D1.17).
+//! **The trend/history read is a window over the current entry set.** [`trend`] selects the entries
+//! inside a [`WeightRange`] and carries the rabbit's threshold beside them. The window is applied
+//! here, on the read, and never stored, so the trend and the weight-only history can hold different
+//! ranges over the same rabbit without one influencing the other (WT-6, D1.4). Points are ordered by
+//! [`ordered`], tombstones are excluded before the content check, and a live row whose content this
+//! device cannot describe refuses the whole read rather than answering a partial set (D1.16, D1.17).
+//!
+//! **What this module does not decide.** Duplicate-entry detection, the drop-alert derivation and
+//! the entry-detail read belong to tasks 2.13–2.15; a deletion is the write path's tombstone (D1.17).
+//! [`trend`] answers each point's `has_weight_drop_alert` as the constant `false` — the stored value
+//! is ignored on every read (D1.16) — and task 2.13 replaces the constant with the derived value.
 
 use serde_json::{Value, json};
+use time::format_description::well_known::Rfc3339;
+use time::{Duration, OffsetDateTime};
 
 use super::rabbit::SAVE_ITEM_RPC;
 use crate::ipc::types::{
-    CommandError, Grams, HouseholdId, Instant, ItemId, ItemPayload, MemberId,
-    PLAUSIBILITY_BOUND_GRAMS, RabbitId, RequestId, WeightEntry, WeightEntryDraft, WeightEntryId,
+    CommandError, Grams, HouseholdCollection, HouseholdId, Instant, ItemId, ItemPayload, MemberId,
+    PLAUSIBILITY_BOUND_GRAMS, Rabbit, RabbitId, RequestId, WeightEntry, WeightEntryDraft,
+    WeightEntryId, WeightEntrySummary, WeightRange, WeightTrend,
 };
 use crate::storage::AbsoluteInstant;
 use crate::sync::{SaveGate, SaveRequest, SharedService};
@@ -120,16 +138,18 @@ pub fn validate_value(
 ///
 /// The supplied value is recorded in canonical grams exactly as it stands (D1.2, DM-1). The timestamp
 /// is the supplied instant stored as that moment — never clamped to the present, so a back-dated
-/// entry keeps its date (WT-1) — or `creation_instant` when the draft omitted it. The note is optional
-/// and recorded whole. The two facts creation fixes are the entry's identity ([`entry_id`], the
-/// operation's identity) and `has_weight_drop_alert: false`, because the alert is derived on read and
-/// is never content (D1.16, D1.3). The entry has no photos yet: choosing one is PHOTO-2 in P2 (D1.11)
-/// and [`WeightEntryDraft`] has no photo field.
+/// entry keeps its date (WT-1) — or `creation_instant` when the draft omitted it. `created_at` is
+/// **always** `creation_instant`, even when the person supplied a timestamp: it is the entry's
+/// recorded creation order, which the editable timestamp cannot carry (WT-7, D1.12). The note is
+/// optional and recorded whole. The three facts creation fixes are the entry's identity ([`entry_id`],
+/// the operation's identity), its `created_at`, and `has_weight_drop_alert: false`, because the alert
+/// is derived on read and is never content (D1.16, D1.3). The entry has no photos yet: choosing one is
+/// PHOTO-2 in P2 (D1.11) and [`WeightEntryDraft`] has no photo field.
 ///
 /// `creation_instant` is the caller's, not this module's: reading the clock is the write path's job,
 /// and minting it once per operation is what keeps a retried create byte-identical (D0.14). It is
-/// called **only** when the draft omitted the timestamp, so a supplied instant never touches the
-/// operation's memo.
+/// called unconditionally, because every create records a `created_at`; the memo supplies the
+/// operation's first instant on a retry whether or not the person supplied a timestamp.
 ///
 /// # Errors
 ///
@@ -158,6 +178,11 @@ pub fn record(
 
     validate_value(value_grams, outlier_confirmed, request_id)?;
 
+    // The creation instant is minted unconditionally: it is the entry's `created_at`, the ordering
+    // key WT-7 needs even when the person supplied a timestamp of their own (D1.12). The caller
+    // memoises it per operation, so a retried create re-sends the same value (D0.14).
+    let created_at = creation_instant();
+
     let timestamp = match timestamp {
         // The moment is the point: an explicit past instant is a valid record of that moment and is
         // never moved. The storage boundary normalises the offset to UTC, as it does for every
@@ -165,7 +190,9 @@ pub fn record(
         Some(supplied) => AbsoluteInstant::parse(&supplied)
             .map_err(|_| CommandError::validation(Some(request_id.clone())))?
             .to_wire(),
-        None => creation_instant(),
+        // The defaulted timestamp is the creation moment itself; the two coincide, but they remain
+        // two recorded facts so a correction can move one without moving the other.
+        None => created_at.clone(),
     };
 
     Ok(WeightEntry {
@@ -173,6 +200,7 @@ pub fn record(
         rabbit_id,
         value_grams,
         timestamp,
+        created_at,
         note,
         photo_refs: Vec::new(),
         has_weight_drop_alert: false,
@@ -183,9 +211,10 @@ pub fn record(
 ///
 /// [`WeightEntryDraft`] is the whole editable set — the value, the timestamp and the optional note —
 /// and it is submitted whole by the pre-filled form, so this function replaces all three and needs no
-/// "unchanged" versus "cleared" sentinel. Three facts come from the **target** instead: the identity,
-/// the rabbit and the photo references. An edit may not move an entry to another rabbit or another
-/// item, and [`WeightEntryDraft`] has no photo field (choosing one is PHOTO-2 in P2, D1.11).
+/// "unchanged" versus "cleared" sentinel. Four facts come from the **target** instead: the identity,
+/// the rabbit, the photo references and `created_at`. An edit may not move an entry to another rabbit
+/// or another item, may not change when it was created (WT-7, D1.12), and [`WeightEntryDraft`] has no
+/// photo or creation field (choosing a photo is PHOTO-2 in P2, D1.11).
 ///
 /// **`timestamp: None` keeps the stored instant.** The frozen draft uses `None` for "now" on create
 /// and "the entry's existing timestamp" on update, so an edit of a back-dated entry never restamps it
@@ -235,11 +264,179 @@ pub fn revise(
         rabbit_id: stored.rabbit_id.clone(),
         value_grams,
         timestamp,
+        // Creation order is recorded once and never moves: WT-5's correction changes what was
+        // measured and when it happened, not when the entry was made (WT-7, D1.12).
+        created_at: stored.created_at.clone(),
         note,
         photo_refs: stored.photo_refs.clone(),
         // Derived on read, never content: the write boundary states the constant (D1.16).
         has_weight_drop_alert: false,
     })
+}
+
+/// The one total order WT-7 uses for a rabbit's entries: `(timestamp, created_at, id)` (D1.12).
+///
+/// It lives here, beside the entry model, so the order a reader presents and the order a future
+/// derivation takes a predecessor from cannot drift into two rules. `created_at` is the tie key; the
+/// entry id closes a same-instant tie and is never consulted when the creation instants differ.
+///
+/// A stored instant that does not parse is corrupt content, so building a key refuses rather than
+/// silently sorting by its wire text.
+pub fn entry_order(entry: &WeightEntry) -> Result<EntryOrder, CommandError> {
+    Ok(EntryOrder {
+        timestamp: parse_instant(&entry.timestamp)?,
+        created_at: parse_instant(&entry.created_at)?,
+        id: entry.id.0.clone(),
+    })
+}
+
+/// Order `entries` by the one comparator ([`entry_order`], D1.12), oldest first.
+///
+/// Every reader that presents or derives from an ordered series uses this function, so the trend and
+/// the drop-alert derivation of task 2.13 cannot disagree about which entry precedes which. All keys
+/// are built before anything is reordered, so a corrupt instant refuses without a partial order.
+pub fn ordered(entries: Vec<WeightEntry>) -> Result<Vec<WeightEntry>, CommandError> {
+    let mut keyed = Vec::with_capacity(entries.len());
+
+    for entry in entries {
+        keyed.push((entry_order(&entry)?, entry));
+    }
+
+    keyed.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    Ok(keyed.into_iter().map(|(_, entry)| entry).collect())
+}
+
+/// The sort key [`ordered`] uses, with the field order that is the total order (D1.12).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EntryOrder {
+    /// The entry's reading timestamp.
+    timestamp: OffsetDateTime,
+    /// The entry's recorded creation instant, which an edit never moves.
+    created_at: OffsetDateTime,
+    /// The entry id, closing a same-instant tie deterministically across devices.
+    id: String,
+}
+
+/// One rabbit's weight entries inside a range window, oldest first, with the rabbit's threshold
+/// alongside (WT-6, WT-7; D1.4, D1.16, D1.17).
+///
+/// **The window is read-side only.** It is `[now - N days, now]` for a bounded [`WeightRange`], both
+/// edges inclusive, and unbounded on both sides for `All` — the full history is not a computed period
+/// (D1.4). Nothing is stored per range and this function holds no state, so two calls with different
+/// ranges over the same rabbit cannot influence each other.
+///
+/// **Both edges are meaningful.** An entry whose timestamp is exactly `now - N days` is inside the
+/// window and one a second earlier is outside; an entry stamped after `now` is outside too, because
+/// WT-6 presents "the entries of the last 30 days", not every entry that is merely not old enough
+/// (the write path accepts any parseable instant, so a future timestamp is reachable). `All` has no
+/// bounds at all, so the full history includes an entry stamped in the future (D1.4).
+///
+/// The points are ordered by [`ordered`] — `(timestamp, created_at, id)`, the one comparator the
+/// previous-entry derivation also uses (D1.12) — oldest first. A tombstone is excluded **before** the
+/// content check, so a removed entry never becomes an unreadable row (D1.17). A live row whose content
+/// is not on this device refuses the read with the unknown-content key: it could be one of this
+/// rabbit's entries (or an entry that precedes one of them), and a subset is not the rabbit's set
+/// (D1.16).
+///
+/// Each point's `has_weight_drop_alert` is the constant `false`: the stored payload's flag is ignored
+/// on every read (D1.16), and the derived flag is task 2.13's.
+///
+/// # Errors
+///
+/// `unknown` with the unknown-content key when a live row of the collection has no content this
+/// device can describe (D1.16), and `unknown` when a stored timestamp or creation instant is not an
+/// absolute instant. A read carries no operation identity, so both answer `request_id: None`.
+pub fn trend(
+    collection: &HouseholdCollection,
+    rabbit: &Rabbit,
+    range: WeightRange,
+    now: &Instant,
+) -> Result<WeightTrend, CommandError> {
+    let (lower_bound, upper_bound) = window(range, now)?;
+    let mut entries = Vec::new();
+
+    for item in &collection.items {
+        // A tombstone names a removed entry, so it is not in any window. Its retained content is
+        // never read as an entry (D1.17).
+        if item.deleted {
+            continue;
+        }
+
+        match &item.payload {
+            Some(ItemPayload::WeightEntry { weight_entry })
+                if weight_entry.rabbit_id == rabbit.id =>
+            {
+                let at = parse_instant(&weight_entry.timestamp)?;
+
+                if inside(at, lower_bound, upper_bound) {
+                    entries.push(weight_entry.clone());
+                }
+            }
+            // A rabbit row — this one or another — is not an entry of this series.
+            Some(_) => {}
+            None => return Err(CommandError::household_content_unloaded(None)),
+        }
+    }
+
+    let points = ordered(entries)?
+        .into_iter()
+        .map(|entry| WeightEntrySummary {
+            id: entry.id,
+            value_grams: entry.value_grams,
+            timestamp: entry.timestamp,
+            // The payload's flag is not content and is ignored on read (D1.16); task 2.13 replaces
+            // this constant with the derived value (WT-7).
+            has_weight_drop_alert: false,
+        })
+        .collect();
+
+    Ok(WeightTrend {
+        range,
+        points,
+        drop_threshold_percent: rabbit.weight_drop_threshold_percent,
+    })
+}
+
+/// The two bounds of a range window, either of which may be absent (WT-6, D1.4).
+///
+/// A bounded range is `[now - N days, now]`, both edges inclusive. `All` is `(None, None)`: the full
+/// history is the absence of a window, not a computed period, so it includes a future-dated entry.
+/// Returning the upper edge is what keeps a future timestamp out of 7/30/90 — "the entries of the last
+/// N days" (WT-6) and "only the entries within that range" (DASH-7) are not satisfied by a lower bound
+/// alone, and the write path accepts any parseable instant.
+fn window(
+    range: WeightRange,
+    now: &Instant,
+) -> Result<(Option<OffsetDateTime>, Option<OffsetDateTime>), CommandError> {
+    let days = match range {
+        WeightRange::Days7 => 7,
+        WeightRange::Days30 => 30,
+        WeightRange::Days90 => 90,
+        WeightRange::All => return Ok((None, None)),
+    };
+    let now = parse_instant(now)?;
+
+    Ok((Some(now - Duration::days(days)), Some(now)))
+}
+
+/// Whether `at` lies inside the window's bounds; an absent bound is unbounded on that side.
+fn inside(
+    at: OffsetDateTime,
+    lower_bound: Option<OffsetDateTime>,
+    upper_bound: Option<OffsetDateTime>,
+) -> bool {
+    lower_bound.is_none_or(|bound| at >= bound) && upper_bound.is_none_or(|bound| at <= bound)
+}
+
+/// Parse a stored or supplied instant for window arithmetic.
+///
+/// [`AbsoluteInstant`] is the boundary's canonical representation, but comparison against a computed
+/// cut-off needs the underlying moment; a value the formatter could read is therefore parsed a second
+/// time here. A stored timestamp that does not parse is a corrupt row, so it refuses the read rather
+/// than being silently treated as outside the window.
+fn parse_instant(text: &Instant) -> Result<OffsetDateTime, CommandError> {
+    OffsetDateTime::parse(&text.0, &Rfc3339).map_err(|_| CommandError::unknown(None))
 }
 
 /// Write one recorded weight entry as an item of its household's shared collection (WT-1, D1.1).
@@ -578,6 +775,7 @@ mod tests {
         assert_eq!(
             keys,
             vec![
+                "created_at",
                 "has_weight_drop_alert",
                 "id",
                 "note",
@@ -880,5 +1078,583 @@ mod tests {
 
         assert_eq!(error.cause, crate::ipc::types::SaveCause::Validation);
         assert_eq!(error.request_id, Some(operation));
+    }
+
+    /// The rabbit a trend is read for, with the default 5% threshold (RAB-1, WT-7).
+    fn stored_rabbit() -> Rabbit {
+        Rabbit {
+            id: rabbit("rabbit-1"),
+            household_id: household("household-1"),
+            name: "Pebble".to_owned(),
+            photo_ref: None,
+            breed: None,
+            dob: None,
+            dob_unknown: true,
+            sex: crate::ipc::types::Sex::Female,
+            neuter_status: crate::ipc::types::NeuterStatus::Spayed,
+            adoption_date: None,
+            is_archived: false,
+            weight_drop_threshold_percent: 5.0,
+        }
+    }
+
+    /// One stored entry of `rabbit` at the instant and value given, created at that same instant.
+    fn stored_entry(rabbit: &Rabbit, id: &str, value: i32, timestamp: &str) -> WeightEntry {
+        created_entry(rabbit, id, value, timestamp, timestamp)
+    }
+
+    /// One stored entry with its reading timestamp and its recorded creation instant stated
+    /// separately — the tie case WT-7's order exists for (D1.12).
+    fn created_entry(
+        rabbit: &Rabbit,
+        id: &str,
+        value: i32,
+        timestamp: &str,
+        created_at: &str,
+    ) -> WeightEntry {
+        WeightEntry {
+            id: WeightEntryId(id.to_owned()),
+            rabbit_id: rabbit.id.clone(),
+            value_grams: Grams(value),
+            timestamp: at(timestamp),
+            created_at: at(created_at),
+            note: None,
+            photo_refs: Vec::new(),
+            has_weight_drop_alert: false,
+        }
+    }
+
+    /// One live row carrying the entry's content (D1.16).
+    fn entry_row(entry: &WeightEntry) -> crate::ipc::types::CollectionItem {
+        row_at(entry, &entry.timestamp)
+    }
+
+    /// One live entry row whose LWW `updated_at` is stated separately from the entry's content, so a
+    /// test can show that version marker plays no part in ordering (D1.12).
+    fn row_at(entry: &WeightEntry, updated_at: &Instant) -> crate::ipc::types::CollectionItem {
+        crate::ipc::types::CollectionItem {
+            item_id: ItemId(entry.id.0.clone()),
+            updated_at: updated_at.clone(),
+            deleted: false,
+            payload: Some(ItemPayload::WeightEntry {
+                weight_entry: entry.clone(),
+            }),
+        }
+    }
+
+    /// The collection one rabbit and its entry rows form.
+    fn collection(
+        rabbit: &Rabbit,
+        items: Vec<crate::ipc::types::CollectionItem>,
+    ) -> HouseholdCollection {
+        HouseholdCollection {
+            household_id: rabbit.household_id.clone(),
+            items,
+            source: crate::ipc::types::CollectionSource::Local,
+            loaded_at: None,
+        }
+    }
+
+    /// WT-6, "Selecting a range limits the trend to that window": entries spanning six months yield
+    /// only the entries of the last 30 days, oldest first.
+    #[test]
+    fn a_thirty_day_window_returns_only_the_entries_inside_it_oldest_first() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-1", 1_500, "2026-04-23T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_600, "2026-09-23T00:00:00Z"),
+            stored_entry(&rabbit, "entry-3", 1_700, "2026-10-01T00:00:00Z"),
+            stored_entry(&rabbit, "entry-4", 1_800, "2026-10-17T00:00:00Z"),
+            stored_entry(&rabbit, "entry-5", 1_900, "2026-10-22T00:00:00Z"),
+        ];
+        let rows = entries.iter().map(entry_row).collect();
+        let collection = collection(&rabbit, rows);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::Days30,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(trend.range, WeightRange::Days30);
+        assert_eq!(
+            trend
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-2", "entry-3", "entry-4", "entry-5"],
+            "the April entry is outside the 30-day window and the rest are oldest first"
+        );
+    }
+
+    /// WT-6, "The full-history range presents every entry": `All` is the absence of a lower bound, so
+    /// every entry of the rabbit is returned.
+    #[test]
+    fn the_full_history_range_returns_every_entry() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-1", 1_500, "2026-01-01T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_700, "2026-10-01T00:00:00Z"),
+            stored_entry(&rabbit, "entry-3", 1_900, "2026-10-22T00:00:00Z"),
+        ];
+        let rows = entries.iter().map(entry_row).collect();
+        let collection = collection(&rabbit, rows);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(trend.points.len(), 3);
+        assert_eq!(trend.points[0].id.0, "entry-1");
+        assert_eq!(trend.points[2].id.0, "entry-3");
+    }
+
+    /// WT-7, D1.12: a supplied reading timestamp does not stand in for creation order, so the entry
+    /// records the operation's creation instant beside it.
+    #[test]
+    fn an_entry_records_its_creation_instant_even_when_the_timestamp_is_supplied() {
+        let supplied = at("2026-01-02T03:04:05Z");
+        let entry = record_with(
+            WeightEntryDraft {
+                timestamp: Some(supplied.clone()),
+                ..draft()
+            },
+            request_id("operation-1"),
+        )
+        .expect("the draft records an entry");
+
+        assert_eq!(entry.timestamp, supplied, "the reading moment is kept");
+        assert_eq!(
+            entry.created_at,
+            creation_instant(),
+            "creation order is the operation's instant, not the supplied timestamp"
+        );
+        assert_ne!(entry.created_at, entry.timestamp);
+    }
+
+    /// WT-5, WT-7, D1.12: a correction replaces the editable set and leaves the entry's place in the
+    /// journal alone — `created_at` comes from the target, exactly as the identity does.
+    #[test]
+    fn a_correction_preserves_the_recorded_creation_instant() {
+        let rabbit = stored_rabbit();
+        let stored = created_entry(
+            &rabbit,
+            "entry-1",
+            1_800,
+            "2026-10-01T00:00:00Z",
+            "2026-09-01T00:00:00Z",
+        );
+
+        let revised = revise(
+            &stored,
+            WeightEntryDraft {
+                value_grams: Grams(1_700),
+                timestamp: Some(at("2026-10-02T00:00:00Z")),
+                ..draft()
+            },
+            &request_id("operation-2"),
+        )
+        .expect("the revision is accepted");
+
+        assert_eq!(revised.timestamp, at("2026-10-02T00:00:00Z"));
+        assert_eq!(
+            revised.created_at, stored.created_at,
+            "an edit moves the value and timestamp, never the creation order"
+        );
+    }
+
+    /// WT-7, D1.12: two entries sharing a timestamp are ordered by their recorded creation instant,
+    /// not by the id — the ids here sort opposite to creation order on purpose.
+    #[test]
+    fn entries_sharing_a_timestamp_are_ordered_by_creation_instant() {
+        let rabbit = stored_rabbit();
+        let earlier = created_entry(
+            &rabbit,
+            "entry-z",
+            1_900,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T09:00:00Z",
+        );
+        let later = created_entry(
+            &rabbit,
+            "entry-a",
+            1_800,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T10:00:00Z",
+        );
+        let collection = collection(&rabbit, vec![entry_row(&later), entry_row(&earlier)]);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(
+            trend
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-z", "entry-a"],
+            "the earlier-created entry precedes the later one even though its id sorts later"
+        );
+    }
+
+    /// WT-7, D1.12's discriminating case: the earlier-created entry was corrected *after* the later
+    /// one, so its LWW `updated_at` is the newest of the two. Creation order is not `updated_at`, so
+    /// the order is unchanged.
+    #[test]
+    fn a_correction_after_the_later_entry_does_not_reorder_the_series() {
+        let rabbit = stored_rabbit();
+        let earlier = created_entry(
+            &rabbit,
+            "entry-z",
+            1_900,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T09:00:00Z",
+        );
+        let later = created_entry(
+            &rabbit,
+            "entry-a",
+            1_800,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T10:00:00Z",
+        );
+        let rows = vec![
+            // `entry-z` was edited most recently; an `updated_at` rule would put it last.
+            row_at(&earlier, &at("2026-10-23T12:00:00Z")),
+            row_at(&later, &at("2026-10-22T10:05:00Z")),
+        ];
+        let collection = collection(&rabbit, rows);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(
+            trend
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-z", "entry-a"],
+            "creation order survives a correction made after the later entry"
+        );
+    }
+
+    /// WT-7, D1.12: when the timestamp and the creation instant are both equal, the id closes the
+    /// order. The rows are inserted in descending id order so an unsorted or insertion-ordered result
+    /// would fail; `entry-a` must come first.
+    #[test]
+    fn equal_timestamps_and_creation_instants_are_ordered_by_id() {
+        let rabbit = stored_rabbit();
+        let later_id = created_entry(
+            &rabbit,
+            "entry-z",
+            1_900,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T09:00:00Z",
+        );
+        let earlier_id = created_entry(
+            &rabbit,
+            "entry-a",
+            1_800,
+            "2026-10-22T00:00:00Z",
+            "2026-10-22T09:00:00Z",
+        );
+        let collection = collection(&rabbit, vec![entry_row(&later_id), entry_row(&earlier_id)]);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(
+            trend
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-a", "entry-z"],
+            "a same-instant tie falls back to the entry id, never to insertion order"
+        );
+    }
+
+    /// WT-6's 90-day window is exercised directly, so a wrong day count in that arm cannot pass the
+    /// suite. `2026-07-25T00:00:00Z` is exactly 90 days before `2026-10-23T00:00:00Z`.
+    #[test]
+    fn the_ninety_day_window_has_its_own_cutoff() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-early", 1_500, "2026-07-24T23:59:59Z"),
+            stored_entry(&rabbit, "entry-edge", 1_600, "2026-07-25T00:00:00Z"),
+            stored_entry(&rabbit, "entry-late", 1_700, "2026-10-22T00:00:00Z"),
+        ];
+        let rows = entries.iter().map(entry_row).collect();
+        let collection = collection(&rabbit, rows);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::Days90,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(
+            trend
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-edge", "entry-late"],
+            "90 days, inclusive at the cut-off; 89 days and 23:59:59 is outside"
+        );
+    }
+
+    /// WT-6, DASH-7: a bounded range presents "the entries of the last N days", so an entry stamped in
+    /// the future is outside it. `All` has no upper bound and still presents that entry (D1.4).
+    #[test]
+    fn a_future_timestamp_is_outside_a_bounded_range_but_inside_the_full_history() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-now", 1_800, "2026-10-23T00:00:00Z"),
+            stored_entry(&rabbit, "entry-future", 1_700, "2026-12-01T00:00:00Z"),
+        ];
+        let rows = entries.iter().map(entry_row).collect();
+        let collection = collection(&rabbit, rows);
+        let now = at("2026-10-23T00:00:00Z");
+
+        let thirty = trend(&collection, &rabbit, WeightRange::Days30, &now)
+            .expect("the collection is readable");
+        let all = trend(&collection, &rabbit, WeightRange::All, &now)
+            .expect("the collection is readable");
+
+        assert_eq!(
+            thirty
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-now"],
+            "the upper edge is `now`; the future entry is not in the last 30 days"
+        );
+        assert_eq!(
+            all.points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-now", "entry-future"],
+            "the full history has no upper bound"
+        );
+    }
+
+    /// WT-6, "The weight history range is independent of the trend range": two reads over the same
+    /// rabbit, with different ranges, each answer their own window and neither changes the other.
+    #[test]
+    fn two_ranges_over_the_same_rabbit_answer_independently() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-1", 1_500, "2026-08-01T00:00:00Z"),
+            stored_entry(&rabbit, "entry-2", 1_600, "2026-10-01T00:00:00Z"),
+            stored_entry(&rabbit, "entry-3", 1_800, "2026-10-21T00:00:00Z"),
+        ];
+        let rows = entries.iter().map(entry_row).collect();
+        let collection = collection(&rabbit, rows);
+        let now = at("2026-10-23T00:00:00Z");
+
+        let thirty = trend(&collection, &rabbit, WeightRange::Days30, &now)
+            .expect("the collection is readable");
+        let seven = trend(&collection, &rabbit, WeightRange::Days7, &now)
+            .expect("the collection is readable");
+        let thirty_again = trend(&collection, &rabbit, WeightRange::Days30, &now)
+            .expect("the collection is readable");
+
+        assert_eq!(
+            thirty
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-2", "entry-3"],
+            "the 30-day read keeps its own window"
+        );
+        assert_eq!(
+            seven
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-3"],
+            "the 7-day read is not narrowed or widened by the other"
+        );
+        assert_eq!(
+            thirty_again.points, thirty.points,
+            "the earlier range is unchanged by the later read"
+        );
+    }
+
+    /// WT-6's boundary: the cut-off is inclusive. An entry exactly seven days before `now` is inside
+    /// the window; an entry one second earlier is outside.
+    #[test]
+    fn an_entry_exactly_at_the_seven_day_cutoff_is_inside_and_a_second_earlier_is_outside() {
+        let rabbit = stored_rabbit();
+        let entries = [
+            stored_entry(&rabbit, "entry-early", 1_500, "2026-10-15T23:59:59Z"),
+            stored_entry(&rabbit, "entry-edge", 1_600, "2026-10-16T00:00:00Z"),
+            stored_entry(&rabbit, "entry-late", 1_700, "2026-10-22T00:00:00Z"),
+        ];
+        let rows = entries.iter().map(entry_row).collect();
+        let collection = collection(&rabbit, rows);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::Days7,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(
+            trend
+                .points
+                .iter()
+                .map(|point| point.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entry-edge", "entry-late"],
+            "the entry exactly at the cut-off is inside; one second earlier is outside"
+        );
+    }
+
+    /// D1.17: a tombstone is excluded before the content check, so a removed entry neither appears nor
+    /// refuses the read even though its retained content was dropped at decode.
+    #[test]
+    fn a_tombstoned_entry_is_excluded_before_the_content_check() {
+        let rabbit = stored_rabbit();
+        let live = stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z");
+        let rows = vec![
+            entry_row(&live),
+            crate::ipc::types::CollectionItem {
+                item_id: ItemId("entry-2".to_owned()),
+                updated_at: at("2026-10-22T00:00:00Z"),
+                deleted: true,
+                payload: None,
+            },
+        ];
+        let collection = collection(&rabbit, rows);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("a tombstone is not unreadable content");
+
+        assert_eq!(trend.points.len(), 1);
+        assert_eq!(trend.points[0].id.0, "entry-1");
+    }
+
+    /// D1.16: a live row whose content is not on this device could be an entry of this rabbit (or its
+    /// predecessor), so the read refuses rather than answering a subset.
+    #[test]
+    fn a_live_row_with_unknown_content_refuses_the_read() {
+        let rabbit = stored_rabbit();
+        let live = stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z");
+        let rows = vec![
+            entry_row(&live),
+            crate::ipc::types::CollectionItem {
+                item_id: ItemId("entry-2".to_owned()),
+                updated_at: at("2026-10-22T00:00:00Z"),
+                deleted: false,
+                payload: None,
+            },
+        ];
+        let collection = collection(&rabbit, rows);
+
+        let error = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect_err("an unreadable row leaves the entry set partial");
+
+        assert_eq!(error.cause, crate::ipc::types::SaveCause::Unknown);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_eq!(error.request_id, None);
+    }
+
+    /// WT-7, D1.3, D1.16: the rabbit's threshold travels with the series so a point is judged against
+    /// the same number, and the point's flag is the constant `false` — a non-normalised stored `true`
+    /// is ignored on read, because the derived flag is task 2.13's.
+    #[test]
+    fn the_trend_carries_the_rabbits_threshold_and_the_constant_alert() {
+        let rabbit = Rabbit {
+            weight_drop_threshold_percent: 8.5,
+            ..stored_rabbit()
+        };
+        let entry = WeightEntry {
+            has_weight_drop_alert: true,
+            ..stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z")
+        };
+        let collection = collection(&rabbit, vec![entry_row(&entry)]);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(trend.drop_threshold_percent, 8.5);
+        assert!(
+            !trend.points[0].has_weight_drop_alert,
+            "the stored flag is ignored on read; the point carries the constant"
+        );
+    }
+
+    /// Only the named rabbit's entries are in its series; another rabbit's entry in the same
+    /// collection is not a point of this trend.
+    #[test]
+    fn another_rabbits_entry_is_not_part_of_the_series() {
+        let rabbit = stored_rabbit();
+        let mut other = stored_rabbit();
+        other.id = RabbitId("rabbit-2".to_owned());
+        let mine = stored_entry(&rabbit, "entry-1", 1_800, "2026-10-22T00:00:00Z");
+        let theirs = stored_entry(&other, "entry-2", 1_600, "2026-10-22T00:00:00Z");
+        let collection = collection(&rabbit, vec![entry_row(&mine), entry_row(&theirs)]);
+
+        let trend = trend(
+            &collection,
+            &rabbit,
+            WeightRange::All,
+            &at("2026-10-23T00:00:00Z"),
+        )
+        .expect("the collection is readable");
+
+        assert_eq!(trend.points.len(), 1);
+        assert_eq!(trend.points[0].id.0, "entry-1");
     }
 }
