@@ -868,12 +868,22 @@
   transition: var(--control-transition);
 }
 
-.bs-list-row__target:active {
+/*
+ * Pressed and hover are affordances, so only a real control paints them. The
+ * `--interactive` modifier is set by `ListRow` on its link and button branches
+ * (and by a feature row composing these classes for a control); the static
+ * `<span>` branch never carries it. Without that split a static row lit up on
+ * tap and under a fine pointer while doing nothing, which is the affordance
+ * `ListRow`'s static mode exists to rule out (design-system global convention 8,
+ * decision 7). The split is a class rather than `button`/`a` selectors because
+ * `ui.css` names no HTML element outside `base.css`.
+ */
+.bs-list-row__target--interactive:active {
   background: var(--list-row-background-pressed);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .bs-list-row__target:hover {
+  .bs-list-row__target--interactive:hover {
     background: var(--list-row-background-pressed);
   }
 }

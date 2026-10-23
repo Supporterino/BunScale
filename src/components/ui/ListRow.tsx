@@ -22,9 +22,12 @@ import { classNames } from './class-names';
  *
  * `selected` is the app's own idea of the current item in a set (the active
  * household) and is exposed as `aria-current`, so the state is announced and not
- * only drawn. Every row is at least 44 pt tall with an 8 pt gap to the next
- * (the separators are decorative and drawn by the stylesheet), and the pressed
- * state exists on touch — hover is a fine-pointer enhancement only.
+ * only drawn. Every row is at least 44 pt tall, with a hairline separator drawn
+ * by the stylesheet. The pressed and hover surfaces belong to the link and
+ * button branches only: the static mode renders no affordance at all — including
+ * no painted press — because a row that lights up and does nothing is the
+ * invented affordance decision 7 rules out (global convention 8). The
+ * stylesheet's hook for that is the `--interactive` modifier below.
  *
  * The accessory marks are drawn here rather than demanded from the caller
  * because they are part of the row's contract; they are `aria-hidden`, since
@@ -32,6 +35,15 @@ import { classNames } from './class-names';
  */
 
 export type ListRowAccessory = 'none' | 'chevron' | 'checkmark';
+
+/**
+ * The target's class contract. `--interactive` is what marks a real control for
+ * the stylesheet's pressed and hover rules; the static mode renders without it,
+ * so it cannot paint an affordance. A feature row that composes these classes
+ * for its own control sets the same modifier (see `RabbitRow`).
+ */
+const TARGET_CLASS = 'bs-list-row__target';
+const INTERACTIVE_TARGET_CLASS = `${TARGET_CLASS} ${TARGET_CLASS}--interactive`;
 
 export type ListRowProps = {
   title: string;
@@ -92,7 +104,7 @@ export function ListRow({
       <li className={classes}>
         <Link
           activeProps={{ 'aria-current': 'page' }}
-          className="bs-list-row__target"
+          className={INTERACTIVE_TARGET_CLASS}
           to={to}
         >
           {content}
@@ -106,7 +118,7 @@ export function ListRow({
       <li className={classes}>
         <button
           aria-current={current}
-          className="bs-list-row__target"
+          className={INTERACTIVE_TARGET_CLASS}
           onClick={onClick}
           type="button"
         >
@@ -118,7 +130,7 @@ export function ListRow({
 
   return (
     <li aria-current={current} className={classes}>
-      <span className="bs-list-row__target">{content}</span>
+      <span className={TARGET_CLASS}>{content}</span>
     </li>
   );
 }

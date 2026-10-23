@@ -188,5 +188,17 @@ describeAtBothBaselines('design-system primitives', () => {
     expect(staticRow).toBeNull();
     expect(row).toBeEnabled();
     expect(screen.getByText('Our warren')).toBeVisible();
+
+    /*
+     * The pressed and hover surfaces are the stylesheet's `--interactive`
+     * target: the button carries it, the static span does not, which is what
+     * stops a static row from lighting up as a control that does nothing
+     * (global convention 8, decision 7). The paint itself is E2E's — jsdom
+     * loads no app stylesheet.
+     */
+    expect(row).toHaveClass('bs-list-row__target--interactive');
+    expect(
+      screen.getByText('Our warren').closest('.bs-list-row__target'),
+    ).not.toHaveClass('bs-list-row__target--interactive');
   });
 });

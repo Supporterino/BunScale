@@ -91,6 +91,49 @@
 }
 
 /*
+ * The dashboard rabbit list (task 4.1; DASH-1 … DASH-3).
+ *
+ * The rows are P0's list row — `ListRow`'s height, separators and pressed state
+ * — composed in `RabbitRow`; only the leading thumbnail is the row's own. It is
+ * a fixed 44 pt square (the touch baseline, which is also a legible thumbnail
+ * size at both baselines) on the sunken surface, clipped to a small radius;
+ * the photo fills it and `object-fit` keeps a non-square source from stretching.
+ * Nothing here is conditional on phone vs desktop: the list takes the content
+ * column's width, which is the shell's adaptive decision (16 px gutters at
+ * 390 px, 32 px gutters and an 880 px measure at 1280 px).
+ */
+.bs-rabbit-row__thumbnail {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-touch-target);
+  height: var(--size-touch-target);
+  overflow: hidden;
+  border-radius: var(--radius-8);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-tertiary);
+}
+
+.bs-rabbit-row__photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * The placeholder is the row's only visual fallback, and it is `role="img"` with
+ * `rabbit.thumbnailPlaceholder` as its name — a thumbnail-sized box with a
+ * decorative glyph in it, not an empty tinted square.
+ */
+.bs-rabbit-row__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
  * Settings & Profile (task 4.3). The screen's direct children are grouped
  * sections, so the content column's stack rhythm is widened to the section
  * distance; everything inside a section keeps the shared component rhythm.

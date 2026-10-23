@@ -4,9 +4,10 @@
  * This is the P0 shell, not the P1 dashboard. It composes the adaptive app frame
  * — the same route tree, rendered as a bottom tab bar at 390×844 and as a
  * sidebar at 1280×800 — and it carries SET-1's gear control in the navigation
- * bar. P0 has no rabbit data, so the content area states what the household is
- * and nothing more; rabbit cards, empty states and quick-weigh belong to
- * DASH-1..DASH-9 in P1 (design.md R8) and are deliberately not invented here.
+ * bar. Task 4.1 mounted the rabbit list in the content area (DASH-1 … DASH-3);
+ * P0's "what this household is" intro is that list's fallback while it has no
+ * rows to show. The empty state (DASH-8, task 4.2), the row control (DASH-9,
+ * 4.7) and the drop flag (DASH-4, 4.12) remain later tasks.
  *
  * **The gear.** It is an `IconButton` (44×44, required label) with the system's
  * gear glyph, its accessible name is `dashboard.settings` ("Open Settings &
@@ -39,6 +40,7 @@ import type { NavigationDestination } from '../../../components/ui/navigation';
 import { Screen } from '../../../components/ui/Screen';
 import { Text } from '../../../components/ui/Text';
 import { useAppEvents } from '../../app-events';
+import { RabbitList } from '../../dashboard/components/RabbitList';
 import {
   GlyphDashboard,
   GlyphHousehold,
@@ -93,12 +95,16 @@ export function HouseholdDashboardScreen({
         activeHousehold.data === null ? null : (
           <LocalCopyNotice householdId={activeHousehold.data.id} />
         )}
-        <div className="bs-dashboard__intro">
-          <span aria-hidden="true" className="bs-dashboard__mark">
-            <GlyphHousehold />
-          </span>
-          <Text tone="secondary">{t('dashboard.body')}</Text>
-        </div>
+        <RabbitList
+          fallback={
+            <div className="bs-dashboard__intro">
+              <span aria-hidden="true" className="bs-dashboard__mark">
+                <GlyphHousehold />
+              </span>
+              <Text tone="secondary">{t('dashboard.body')}</Text>
+            </div>
+          }
+        />
       </Screen>
     </AppShell>
   );

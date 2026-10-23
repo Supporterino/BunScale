@@ -150,7 +150,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 
 ## 4. Frontend UI
 
-- [ ] 4.1 [frontend-ui] Build the dashboard rabbit list: name, thumbnail with placeholder fallback,
+- [x] 4.1 [frontend-ui] Build the dashboard rabbit list: name, thumbnail with placeholder fallback,
   last-weighed date or never-weighed indication, sorted with never-weighed last; laid out for 390×844
   first and 1280×800 second (DASH-1, DASH-2, DASH-3).
 - [ ] 4.2 [frontend-ui] Build the dashboard empty state prompting the person to add their first
