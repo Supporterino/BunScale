@@ -103,7 +103,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   an entry when its drop against that previous entry exceeds the rabbit's threshold (default 5%);
   derive on read over the current entry set so a threshold change, an edit or a deletion re-evaluates
   the entries around it without rewriting stored entries (D1.13, WT-7).
-- [ ] 2.14 [rust-backend] Implement the dashboard read model: non-archived rabbits with name,
+- [x] 2.14 [rust-backend] Implement the dashboard read model: non-archived rabbits with name,
   thumbnail reference, last-weighed timestamp or never-weighed indication, sorted by most recent
   weigh-in with never-weighed rabbits last, and the derived weight-drop flag per row (DASH-1, DASH-2,
   DASH-3, DASH-4). The drop flag comes from `domain::weight::alerts` over the rabbit's **full** entry

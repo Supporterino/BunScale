@@ -72,12 +72,18 @@
 //! device holds afterwards is its **copy of the shared collection**, filled by the read path (SYNC-3)
 //! — never by this module writing it.
 
+use std::cmp::Ordering;
+use std::collections::HashSet;
+
 use serde_json::{Value, json};
 
+use crate::domain::weight::{alerts, ordered};
 use crate::ipc::types::{
-    CommandError, HouseholdCollection, HouseholdId, Instant, ItemId, ItemPayload, MemberId,
-    NeuterStatus, Rabbit, RabbitId, RabbitProfile, RabbitSummary, RequestId, Sex, WeightEntry,
+    CommandError, DashboardRow, HouseholdCollection, HouseholdId, Instant, ItemId, ItemPayload,
+    MemberId, NeuterStatus, Rabbit, RabbitId, RabbitProfile, RabbitSummary, RequestId, Sex,
+    WeightEntry,
 };
+use crate::storage::AbsoluteInstant;
 use crate::sync::{SaveGate, SaveRequest, SharedService};
 
 /// The shared-service function one rabbit item write calls (ADR 0002 criterion 3).
@@ -837,6 +843,135 @@ pub fn summaries(
     }
 
     Ok(summaries)
+}
+
+/// One household's dashboard rows: its non-archived rabbits, newest weigh-in first (DASH-1 … DASH-4).
+///
+/// The read model and not a ninth table (D1.3): every row is built from the rabbit's own content and
+/// the weight entries of the same collection, and nothing derived — `never_weighed`,
+/// `last_weighed_at` or `has_weight_drop_alert` — is stored. An entry edit, a deletion or a threshold
+/// edit reaches the dashboard by re-reading this function, never by rewriting a row.
+///
+/// **The active selection only.** A rabbit whose `is_archived` is set contributes no row (DASH-1);
+/// its entries are retained in the collection but contribute no date or flag to any row (RAB-9). A
+/// tombstone is excluded **before** the content check (D1.17), so a removed rabbit or entry is never a
+/// row and never an unreadable one.
+///
+/// **The row's last weigh-in is the greatest `(timestamp, created_at, id)` entry**, the one comparator
+/// every weight read uses (D1.12). A rabbit with no entry in the collection is `never_weighed` with no
+/// date (DASH-2); it sorts below every weighed rabbit regardless of creation order (DASH-3).
+///
+/// **The tie rule between two equally recent rabbits is the rabbit's id, ascending.** Two rows whose
+/// last weigh-ins name the same moment are ordered by `RabbitId`, the rabbit's stable opaque identity,
+/// so the list is deterministic on every device and independent of collection order. It is the same
+/// final key the entry order uses (D1.12), and it is compared on the parsed moments, so two equal
+/// instants written with different offsets still tie.
+///
+/// **The drop flag is [`alerts`]'s result over the rabbit's full entry set**, asked only whether any
+/// entry is flagged — never a second derivation, never the stored payload flag and never a range
+/// window (WT-7; D1.3, D1.13, I2). A threshold edit therefore clears or raises the row's flag on the
+/// next read (DASH-4).
+///
+/// # Errors
+///
+/// `unknown` with the unknown-content key when a live row has no content this version can describe
+/// (D1.16). A row could be one of this household's rabbits or one of its entries, and omitting it
+/// would present a partial list as the complete household — so the read refuses instead. `unknown`
+/// when a stored timestamp cannot be ordered (DM-6). A read carries no operation identity, so both
+/// answer `request_id: None`.
+pub fn dashboard(collection: &HouseholdCollection) -> Result<Vec<DashboardRow>, CommandError> {
+    let mut rabbits: Vec<&Rabbit> = Vec::new();
+
+    // First pass: the active rabbits, and the unknown-content refusal every live row owes. Entries are
+    // not collected yet, because only those of an active rabbit are ever needed.
+    for item in &collection.items {
+        // A tombstone names a removed item, so no row describes it. The check is before the content
+        // case because a tombstone's content need not be on this device (D1.17).
+        if item.deleted {
+            continue;
+        }
+
+        match &item.payload {
+            Some(ItemPayload::Rabbit { rabbit }) => {
+                if !rabbit.is_archived {
+                    rabbits.push(rabbit);
+                }
+            }
+            Some(ItemPayload::WeightEntry { .. }) => {}
+            None => return Err(CommandError::household_content_unloaded(None)),
+        }
+    }
+
+    // The active ids are built once, so the second pass never clones or rescans an archived rabbit's
+    // entries and each active rabbit's set is one filter over entries it actually owns.
+    let active: HashSet<&RabbitId> = rabbits.iter().map(|rabbit| &rabbit.id).collect();
+    let mut entries: Vec<WeightEntry> = Vec::new();
+
+    for item in &collection.items {
+        if item.deleted {
+            continue;
+        }
+
+        if let Some(ItemPayload::WeightEntry { weight_entry }) = &item.payload
+            && active.contains(&weight_entry.rabbit_id)
+        {
+            entries.push(weight_entry.clone());
+        }
+    }
+
+    let mut rows: Vec<(Option<AbsoluteInstant>, DashboardRow)> = Vec::with_capacity(rabbits.len());
+
+    for rabbit in rabbits {
+        let rabbit_entries: Vec<WeightEntry> = entries
+            .iter()
+            .filter(|entry| entry.rabbit_id == rabbit.id)
+            .cloned()
+            .collect();
+
+        // One derivation over the rabbit's full entry set, used only as "is any entry flagged".
+        let has_weight_drop_alert = alerts(&rabbit_entries, rabbit.weight_drop_threshold_percent)?
+            .iter()
+            .any(|alert| alert.has_weight_drop_alert);
+
+        let last_weighed_at = ordered(rabbit_entries)?.pop().map(|entry| entry.timestamp);
+
+        // Ordering compares moments, so two equal instants written with different offsets tie.
+        let last_moment = last_weighed_at
+            .as_ref()
+            .map(AbsoluteInstant::parse)
+            .transpose()
+            .map_err(|_| CommandError::unknown(None))?;
+
+        rows.push((
+            last_moment,
+            DashboardRow {
+                rabbit: RabbitSummary {
+                    id: rabbit.id.clone(),
+                    name: rabbit.name.clone(),
+                    thumbnail_ref: rabbit.photo_ref.clone(),
+                    is_archived: false,
+                },
+                never_weighed: last_weighed_at.is_none(),
+                last_weighed_at,
+                has_weight_drop_alert,
+            },
+        ));
+    }
+
+    rows.sort_by(|(left_moment, left), (right_moment, right)| {
+        match (left_moment.as_ref(), right_moment.as_ref()) {
+            // DASH-3: the most recent weigh-in first. The rabbit's id is the deterministic tie key.
+            (Some(left_moment), Some(right_moment)) => right_moment
+                .cmp(left_moment)
+                .then_with(|| left.rabbit.id.0.cmp(&right.rabbit.id.0)),
+            // A never-weighed rabbit is below every weighed one, whatever the creation order.
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => left.rabbit.id.0.cmp(&right.rabbit.id.0),
+        }
+    });
+
+    Ok(rows.into_iter().map(|(_, row)| row).collect())
 }
 
 /// The body the shared service's `save_item` receives for one rabbit item (ADR 0002 criterion 3).
@@ -1884,6 +2019,245 @@ mod tests {
                 .expect("a tombstone is skipped")
                 .is_empty()
         );
+    }
+
+    /// One weight-entry row at a stated value and moment, so the dashboard tests can order and flag
+    /// several entries of one rabbit.
+    fn weighed_entry(
+        item_id: &str,
+        rabbit_id: &RabbitId,
+        value: i32,
+        timestamp: &str,
+    ) -> CollectionItem {
+        CollectionItem {
+            item_id: crate::ipc::types::ItemId(item_id.to_owned()),
+            updated_at: at(timestamp),
+            deleted: false,
+            payload: Some(ItemPayload::WeightEntry {
+                weight_entry: WeightEntry {
+                    id: WeightEntryId(item_id.to_owned()),
+                    rabbit_id: rabbit_id.clone(),
+                    value_grams: Grams(value),
+                    timestamp: at(timestamp),
+                    created_at: at(timestamp),
+                    note: None,
+                    photo_refs: Vec::new(),
+                    has_weight_drop_alert: false,
+                },
+            }),
+        }
+    }
+
+    /// DASH-1: both non-archived rabbits are rows with their name, thumbnail and last weighed date,
+    /// and the archived rabbit is not a row.
+    #[test]
+    fn the_dashboard_lists_both_active_rabbits_with_their_details_and_not_the_archived_one() {
+        let pebble = stored_rabbit("rabbit-1", "Pebble", false);
+        let clover = stored_rabbit("rabbit-2", "Clover", false);
+        let archived = stored_rabbit("rabbit-3", "Moss", true);
+        let copy = collection(vec![
+            rabbit_row(&pebble, "2026-10-22T09:30:00Z"),
+            rabbit_row(&clover, "2026-10-22T09:31:00Z"),
+            rabbit_row(&archived, "2026-10-22T09:32:00Z"),
+            weighed_entry("entry-1", &pebble.id, 1_900, "2026-10-20T09:00:00Z"),
+            weighed_entry("entry-2", &clover.id, 2_100, "2026-10-21T09:00:00Z"),
+            weighed_entry("entry-3", &archived.id, 2_200, "2026-10-22T09:00:00Z"),
+        ]);
+
+        let rows = dashboard(&copy).expect("every content is known");
+
+        assert_eq!(rows.len(), 2, "the archived rabbit contributes no row");
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.rabbit.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Clover", "Pebble"],
+            "the most recent weigh-in sorts first"
+        );
+        assert_eq!(rows[0].rabbit.thumbnail_ref, Some("photo-1".to_owned()));
+        assert_eq!(rows[0].last_weighed_at, Some(at("2026-10-21T09:00:00Z")));
+        assert_eq!(rows[1].last_weighed_at, Some(at("2026-10-20T09:00:00Z")));
+        assert!(!rows[0].never_weighed, "Clover has an entry");
+        assert!(rows.iter().all(|row| !row.rabbit.is_archived));
+    }
+
+    /// DASH-2: a rabbit with no entry at all is marked never weighed and presents no date.
+    #[test]
+    fn a_rabbit_with_no_entries_is_marked_never_weighed() {
+        let pebble = stored_rabbit("rabbit-1", "Pebble", false);
+        let copy = collection(vec![rabbit_row(&pebble, "2026-10-22T09:30:00Z")]);
+
+        let rows = dashboard(&copy).expect("every content is known");
+
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].never_weighed, "DASH-2's explicit indication");
+        assert_eq!(rows[0].last_weighed_at, None, "there is no date to present");
+        assert!(
+            !rows[0].has_weight_drop_alert,
+            "a single rabbit has no entry to flag"
+        );
+    }
+
+    /// DASH-3: the most recent weigh-in sorts first and every never-weighed rabbit follows every
+    /// weighed one, even when it was created first. The back-dated entry proves the order is the entry
+    /// timestamp, not the collection's or the rabbit's creation order (WT-1, R6): its rabbit row is
+    /// deliberately the **latest** marker, so a sort on the rows would put it first and fail.
+    #[test]
+    fn the_most_recently_weighed_rabbit_sorts_first_and_a_never_weighed_one_sorts_last() {
+        let never = stored_rabbit("rabbit-1", "Never", false);
+        let backdated = stored_rabbit("rabbit-2", "Backdated", false);
+        let recent = stored_rabbit("rabbit-3", "Recent", false);
+        let copy = collection(vec![
+            rabbit_row(&never, "2026-10-22T09:30:00Z"),
+            rabbit_row(&backdated, "2026-10-22T09:59:00Z"),
+            rabbit_row(&recent, "2026-10-22T09:32:00Z"),
+            weighed_entry("entry-1", &backdated.id, 1_800, "2026-10-01T08:00:00Z"),
+            weighed_entry("entry-2", &recent.id, 1_900, "2026-10-22T08:00:00Z"),
+        ]);
+
+        let rows = dashboard(&copy).expect("every content is known");
+
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.rabbit.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Recent", "Backdated", "Never"],
+            "a back-dated entry cannot outrank a newer one, and never-weighed is last"
+        );
+        assert!(rows[2].never_weighed);
+    }
+
+    /// DASH-3's tie rule: two rabbits whose last weigh-in names the same moment are ordered by their
+    /// stable rabbit id, so the list does not depend on the collection's order. The two entries are
+    /// the same instant written with different offsets, and must still tie.
+    #[test]
+    fn two_rabbits_weighed_at_the_same_moment_are_ordered_by_rabbit_id() {
+        let second = stored_rabbit("rabbit-b", "Second", false);
+        let first = stored_rabbit("rabbit-a", "First", false);
+        let copy = collection(vec![
+            rabbit_row(&second, "2026-10-22T09:30:00Z"),
+            rabbit_row(&first, "2026-10-22T09:31:00Z"),
+            weighed_entry("entry-1", &second.id, 1_800, "2026-10-21T12:00:00+02:00"),
+            weighed_entry("entry-2", &first.id, 1_900, "2026-10-21T10:00:00Z"),
+        ]);
+
+        let rows = dashboard(&copy).expect("every content is known");
+
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.rabbit.id.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rabbit-a", "rabbit-b"],
+            "the rabbit id is the deterministic tie key, and equal moments tie across offsets"
+        );
+    }
+
+    /// DASH-4, WT-7: a row is flagged when any of its entries carries a drop alert and is not flagged
+    /// when none does; raising the threshold above the existing drop clears the flag on the next read,
+    /// because the derivation runs over the same entry set (D1.3, D1.13).
+    #[test]
+    fn a_flagged_row_is_flagged_and_the_flag_clears_when_the_threshold_is_raised() {
+        let flagged = stored_rabbit("rabbit-1", "Flagged", false);
+        let quiet = stored_rabbit("rabbit-2", "Quiet", false);
+        let copy = collection(vec![
+            rabbit_row(&flagged, "2026-10-22T09:30:00Z"),
+            rabbit_row(&quiet, "2026-10-22T09:31:00Z"),
+            // A 10% drop: beyond the 5% default, so this rabbit's row is flagged.
+            weighed_entry("entry-1", &flagged.id, 2_000, "2026-10-01T08:00:00Z"),
+            weighed_entry("entry-2", &flagged.id, 1_800, "2026-10-02T08:00:00Z"),
+            // A 2.5% drop: inside the threshold, so this rabbit's row is not flagged.
+            weighed_entry("entry-3", &quiet.id, 2_000, "2026-10-01T08:00:00Z"),
+            weighed_entry("entry-4", &quiet.id, 1_950, "2026-10-02T08:00:00Z"),
+        ]);
+
+        let rows = dashboard(&copy).expect("every content is known");
+        assert!(
+            rows.iter()
+                .find(|row| row.rabbit.id == flagged.id)
+                .expect("the flagged rabbit is a row")
+                .has_weight_drop_alert,
+            "a drop beyond 5% flags the row"
+        );
+        assert!(
+            !rows
+                .iter()
+                .find(|row| row.rabbit.id == quiet.id)
+                .expect("the quiet rabbit is a row")
+                .has_weight_drop_alert,
+            "a drop inside the threshold does not flag the row"
+        );
+
+        // Raising the threshold above the 10% drop re-derives the same entries and clears the flag.
+        let raised = Rabbit {
+            weight_drop_threshold_percent: 15.0,
+            ..flagged.clone()
+        };
+        let mut raised_copy = copy;
+        raised_copy.items[0] = rabbit_row(&raised, "2026-10-22T09:33:00Z");
+
+        let rows = dashboard(&raised_copy).expect("every content is known");
+        assert!(
+            rows.iter().all(|row| !row.has_weight_drop_alert),
+            "the flag clears when the threshold is raised (DASH-4)"
+        );
+    }
+
+    /// D1.16: a live row whose content this device cannot describe could be one of the household's
+    /// rabbits or one of their entries, so the dashboard refuses rather than presenting a partial list
+    /// as complete.
+    #[test]
+    fn the_dashboard_refuses_when_a_live_row_has_unknown_content() {
+        let pebble = stored_rabbit("rabbit-1", "Pebble", false);
+
+        for unknown in [
+            CollectionItem {
+                item_id: crate::ipc::types::ItemId("rabbit-2".to_owned()),
+                updated_at: at("2026-10-22T09:31:00Z"),
+                deleted: false,
+                payload: None,
+            },
+            CollectionItem {
+                item_id: crate::ipc::types::ItemId("entry-9".to_owned()),
+                updated_at: at("2026-10-22T09:32:00Z"),
+                deleted: false,
+                payload: None,
+            },
+        ] {
+            let copy = collection(vec![rabbit_row(&pebble, "2026-10-22T09:30:00Z"), unknown]);
+
+            let error =
+                dashboard(&copy).expect_err("a row whose content is unknown refuses the set");
+
+            assert_eq!(error.cause, SaveCause::Unknown);
+            assert!(!error.retryable);
+            assert_eq!(
+                error.message_key,
+                crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+            );
+            assert_ne!(error.message_key, "error.unknown");
+            assert_eq!(error.request_id, None);
+        }
+    }
+
+    /// D1.17: a tombstone is excluded before the content check, so a removed item whose content was
+    /// never read never refuses the dashboard.
+    #[test]
+    fn a_tombstoned_row_without_content_does_not_refuse_the_dashboard() {
+        let pebble = stored_rabbit("rabbit-1", "Pebble", false);
+        let copy = collection(vec![
+            rabbit_row(&pebble, "2026-10-22T09:30:00Z"),
+            CollectionItem {
+                item_id: crate::ipc::types::ItemId("entry-9".to_owned()),
+                updated_at: at("2026-10-22T09:31:00Z"),
+                deleted: true,
+                payload: None,
+            },
+        ]);
+
+        let rows = dashboard(&copy).expect("a tombstone is skipped before its content is examined");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].rabbit.name, "Pebble");
     }
 
     /// One weight-entry row of `rabbit` with its own item id, so the cascade can be told row from row.

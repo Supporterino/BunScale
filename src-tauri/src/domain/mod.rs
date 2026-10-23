@@ -79,7 +79,10 @@
 //! applied over the full entry set, so a threshold change, an edit or a deletion re-evaluates the
 //! surrounding entries without rewriting a stored one (WT-7; D1.3, D1.12, D1.13). The dashboard read
 //! (2.14) and the entry-detail read (2.15) call that same function for their flags rather than
-//! re-deriving the rule.
+//! re-deriving the rule. [`rabbit::dashboard`] is the read model built from both kinds: its rows are
+//! the non-archived rabbits, newest weigh-in first with never-weighed ones last and the stable rabbit
+//! id as the tie key, and a live row this device cannot describe refuses the whole list instead of
+//! leaving a partial one that reads as complete (DASH-1 … DASH-4; D1.16, D1.17).
 //!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.

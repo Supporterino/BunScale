@@ -25,16 +25,16 @@
 //! return. `error.not_implemented` is a surface state, and `error.household_content_unloaded` is the
 //! one documented second key for `unknown` (D1.16); see [`failure`](super::failure)'s module doc.
 //!
-//! **Three of the thirteen P1 bodies are stubs; `create_rabbit` (task 2.1), `update_rabbit` (task
+//! **Two of the thirteen P1 bodies are stubs; `create_rabbit` (task 2.1), `update_rabbit` (task
 //! 2.4), `list_rabbits` and `archive_rabbit` (task 2.5), `restore_rabbit` (task 2.6), `delete_rabbit`
 //! (task 2.7), `create_weight_entry` (task 2.9), `update_weight_entry` and `delete_weight_entry` (task
-//! 2.11) and `get_weight_entries` (task 2.12) are implemented.** Each remaining stub returns
-//! [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
+//! 2.11), `get_weight_entries` (task 2.12) and `get_dashboard` (task 2.14) are implemented.** Each
+//! remaining stub returns [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
 //! `error.not_implemented` — carrying `None` on the reading commands, so a frozen signature can never
 //! be mistaken for implemented behaviour. The remaining reads are `get_rabbit` (still awaiting an
-//! owner in `tasks.md`), `get_weight_entry` (2.15) and `get_dashboard` (2.14). Replacing a body needs
-//! no `src/bindings.ts` change — the state a command reaches the app through is a `tauri::State`
-//! parameter, which the exporter does not emit.
+//! owner in `tasks.md`) and `get_weight_entry` (2.15). Replacing a body needs no `src/bindings.ts`
+//! change — the state a command reaches the app through is a `tauri::State` parameter, which the
+//! exporter does not emit.
 //!
 //! **The frontend reaches these commands only through `src/features/*/api.ts`** — wrappers over the
 //! generated `src/bindings.ts` (project hard rule 2). No route, component or hook imports the
@@ -101,10 +101,6 @@ mod tests {
         WeightEntryId("entry-1".to_owned())
     }
 
-    fn household() -> HouseholdId {
-        HouseholdId("household-1".to_owned())
-    }
-
     /// The one placeholder failure shape (design I5): classified as `unknown` with its retry withheld,
     /// and named by the placeholder key rather than by `error.unknown`.
     fn assert_not_implemented(error: &CommandError, expected: Option<RequestId>) {
@@ -118,11 +114,11 @@ mod tests {
         assert_eq!(error.request_id, expected);
     }
 
-    /// The three remaining P1 read stubs are idempotent, so their failure carries no operation
-    /// identity (D0.14). `list_rabbits` left this list when task 2.5 implemented its body and
-    /// `get_weight_entries` left it when task 2.12 did; both are covered by their tasks' own tests.
-    /// The two write stubs left when task 2.11 implemented `update_weight_entry` and
-    /// `delete_weight_entry`.
+    /// The two remaining P1 read stubs are idempotent, so their failure carries no operation
+    /// identity (D0.14). `list_rabbits` left this list when task 2.5 implemented its body,
+    /// `get_weight_entries` when task 2.12 did, and `get_dashboard` when task 2.14 did; all three are
+    /// covered by their tasks' own tests. The two write stubs left when task 2.11 implemented
+    /// `update_weight_entry` and `delete_weight_entry`.
     ///
     /// Each body is polled once through the double's helper: a stub has nothing to wait for, so a
     /// future that is not immediately ready is itself the defect.
@@ -132,11 +128,9 @@ mod tests {
             block_on_ready(rabbit::get_rabbit(rabbit())).expect_err("get_rabbit is a stub"),
             block_on_ready(weight::get_weight_entry(entry()))
                 .expect_err("get_weight_entry is a stub"),
-            block_on_ready(dashboard::get_dashboard(household()))
-                .expect_err("get_dashboard is a stub"),
         ];
 
-        assert_eq!(failures.len(), 3, "every remaining P1 read is covered");
+        assert_eq!(failures.len(), 2, "every remaining P1 read is covered");
 
         for failure in &failures {
             assert_not_implemented(failure, None);

@@ -538,8 +538,12 @@ export const commands = {
 	 * 
 	 *  # Errors
 	 * 
-	 *  None is expected: the rows resolve against the locally kept collection, so unreachability is a status
-	 *  fact rather than a read failure (SYNC-3). A local store that cannot answer is `unknown`.
+	 *  `validation` for a blank household id, which names no collection. `unknown` with the
+	 *  unknown-content key when a live row of the collection has content this device cannot describe:
+	 *  omitting the row would present a partial list as the household's own, so the read refuses instead
+	 *  (D1.16). `unknown` when a stored timestamp cannot be ordered (DM-6). Unreachability is not an
+	 *  error: the read resolves against the locally kept copy, so it is a status fact rather than a read
+	 *  failure (SYNC-3).
 	 */
 	getDashboard: (householdId: HouseholdId) => typedError<DashboardRow[], CommandError>(__TAURI_INVOKE("get_dashboard", { householdId })),
 };
