@@ -235,7 +235,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   unknown", "A neutered and a spayed rabbit are recorded distinctly", "Sex and neuter status may each
   be recorded as unknown" (RAB-1), "An empty name is rejected", "A whitespace-only name is treated as
   blank" (RAB-2) and "Additional rabbits are created without restriction" (RAB-3).
-- [ ] 5.2 [test-engineer] Rust tests for profile editing and rabbit lifecycle — covers "A saved edit
+- [x] 5.2 [test-engineer] Rust tests for profile editing and rabbit lifecycle — covers "A saved edit
   including the threshold is shared with every member" (RAB-5), "Archiving removes the rabbit from
   the active list" (RAB-6), "Restoring returns the rabbit to the active list", "Restoration leaves the
   history unchanged" (RAB-7) and "Confirmed deletion removes the rabbit and its data", "An active
