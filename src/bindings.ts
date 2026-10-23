@@ -323,16 +323,19 @@ export const commands = {
 	 *  threshold edit re-derives the entry flags and the dashboard flag without rewriting an entry.
 	 * 
 	 *  The change applies only to an **active** rabbit; an archived rabbit's profile is not editable
-	 *  (RAB-5, D1.5). **That refusal is not produced by this body yet:** no rabbit can be archived before
-	 *  task 2.5, and task 2.8 adds the write-boundary check for this command as well as the weight-entry
-	 *  writes — see [`crate::state::AppState::update_rabbit`], where the check belongs.
+	 *  (RAB-5, D1.5). The refusal is the shared boundary check: the target is resolved from this device's
+	 *  copy and refused as `validation` when archived (RAB-8, DM-4), so a stale route or a direct call
+	 *  fails the same way the UI's absent edit control prevents it. The same check is the one the
+	 *  weight-entry writes of tasks 2.9–2.11 call.
 	 * 
 	 *  # Errors
 	 * 
 	 *  `validation` for a blank name (RAB-2), for an unknown or already-deleted rabbit — the request is
-	 *  refused rather than accepted and ignored — and for a blank operation identity; once tasks 2.5 and
-	 *  2.8 land, an archived rabbit is refused the same way. The write path's service conditions are
-	 *  reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
+	 *  refused rather than accepted and ignored — for an **archived** rabbit (RAB-8, DM-4; D1.5), and for
+	 *  a blank operation identity. `unknown` with the unknown-content key when the rabbit's row has no
+	 *  content this device can describe, because it cannot establish that the rabbit is not archived
+	 *  (D1.16). The write path's service conditions are reachable as for [`create_rabbit`], and `unknown`
+	 *  is the honest remainder.
 	 */
 	updateRabbit: (rabbitId: RabbitId, profile: RabbitProfile, requestId: RequestId) => typedError<Rabbit, CommandError>(__TAURI_INVOKE("update_rabbit", { rabbitId, profile, requestId })),
 	/**

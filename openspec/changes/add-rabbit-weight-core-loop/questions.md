@@ -71,5 +71,25 @@ threshold edit leaves the old flags, until the next foreground refresh.
 the read commands, following P0's `household:changed` pattern. No design change was needed — the
 design already required it; the plan was missing the task.
 
+## Q6 — A failed P1 read has nowhere to name its cause (found reviewing task 4.1)
+
+**Status: settled by adding two tasks.** Raised and resolved 2026-10-23.
+
+Reviewing 4.1 showed that a failed dashboard read renders as P0's "nothing loaded" intro: the list
+conflates *pending*, *failed* and *empty*, so the cause never reaches the person. Two separate gaps
+produced that:
+
+- `describeSaveFailure` deliberately discards `CommandError.message_key`, so D1.16's
+  `error.household_content_unloaded` — already in the catalog from 3.8 — could not be rendered even if
+  the surface tried. Only `error.unknown`'s operation-neutral copy was reachable.
+- No task owned a read-failure surface at all. D1.16 says the unknown-content refusal "renders on the
+  affected screen's failure state, which offers a refresh", and NFR-8 requires cause-specific copy;
+  the plan added the string but never the surface.
+
+**Resolution:** task 3.10 (frontend-logic) adds the read-side cause mapper that keeps the surface key;
+task 4.15 (frontend-ui) renders the failure state with a refresh on every P1 screen a failed read can
+reach. No design change — D1.16 already required the behaviour.
+
+
 
 

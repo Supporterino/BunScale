@@ -75,13 +75,16 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   entries, cascading within the household collection and shared with all members; refuse permanent
   deletion of an active rabbit through P0's failure surface, since RAB-10 makes archival the
   precondition (RAB-10).
-- [ ] 2.8 [rust-backend] Enforce archived-rabbit immutability on every write path at the storage
+- [x] 2.8 [rust-backend] Enforce archived-rabbit immutability on every write path at the storage
   boundary: creating, editing or deleting any weight entry of an archived rabbit is refused, and the
   refusal is reported through P0's failure surface (DM-4, RAB-8).
 - [ ] 2.9 [rust-backend] Implement weight entry creation: canonical grams storage with no per-entry
   unit, timestamp defaulting to now or taken from the supplied instant unchanged, optional note
   (WT-1, DM-1, WT-3). The stored payload's `has_weight_drop_alert` is **not content**: write it
-  `false` at the boundary and never persist a derived value (D1.16, D1.3).
+  `false` at the boundary and never persist a derived value (D1.16, D1.3). Calls
+  `AppState::writable_rabbit` (2.8) and adds a **command-level** test that an archived rabbit's
+  create is refused with nothing written or published. Also add the missing test that a row whose
+  payload is a weight entry, not a rabbit, is refused as `validation` (2.8's non-rabbit branch).
 - [ ] 2.10 [rust-backend] Implement weight value validation: reject zero and negative values through
   P0's failure surface, and mark a value above the plausibility bound as requiring confirmation
   (WT-4).
@@ -89,7 +92,9 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   members; both re-derive the alerts of the entries around the change, so after a deletion the
   following entry is compared against the entry that now precedes it (D1.13); refuse both for an
   archived rabbit (WT-5, WT-7, DM-4). An edit writes the stored payload's `has_weight_drop_alert` as
-  `false` — it is re-derived on read, never carried in (D1.16).
+  `false` — it is re-derived on read, never carried in (D1.16). Both commands call
+  `AppState::writable_rabbit` after resolving the entry's rabbit, with a **command-level** test that
+  each is refused for an archived rabbit with nothing written.
 - [ ] 2.12 [rust-backend] Implement the weight trend and history read: a `WeightRange` window of
   7/30/90/all returning the entries inside it, the rabbit's threshold alongside, and the two ranges
   served independently so one query cannot influence the other (WT-6).
@@ -137,6 +142,11 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   removes the rabbit from the active list" is false as the person sees it until the next foreground
   refresh. P0's `household:changed` subscriber is the pattern. (RAB-5, RAB-6, RAB-7, RAB-10, WT-5,
   DASH-4)
+- [ ] 3.10 [frontend-logic] **Added mid-change (Q6).** Map a P1 **read** failure to its cause-specific
+  copy without losing the surface key: `describeSaveFailure` deliberately discards `message_key`, so
+  the dashboard, lists, profile, trend and detail would all render the operation-neutral `error.unknown`
+  instead of D1.16's `error.household_content_unloaded`. Add the read-side mapper P0 lacks, so every P1
+  read surface can name the cause it actually got. (NFR-8, D1.16)
 
 ## 4. Frontend UI
 
@@ -183,6 +193,12 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 4.14 [frontend-ui] Capture the consolidated P1 screenshot set at 390×844 and 1280×800 into
   `.artifacts/screens/`, and verify touch targets, safe areas and the adaptive layout on both
   baselines (DASH-1, DASH-9, DASH-7).
+- [ ] 4.15 [frontend-ui] **Added mid-change (Q6).** Render a P1 **read** failure as its own state on
+  every screen it can hit — the dashboard, the rabbit and archived lists, the profile, the trend and
+  the entry detail — with the cause-specific copy from 3.10 and a refresh that re-reads, instead of
+  showing a failed read as "nothing loaded yet" or as an empty list. D1.16 requires exactly this for
+  an unknown-content refusal; a partial list must never read as a complete one. (NFR-8, SYNC-3,
+  D1.16, DASH-1)
 
 ## 5. Tests
 

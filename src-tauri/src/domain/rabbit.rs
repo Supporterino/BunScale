@@ -41,6 +41,11 @@
 //!   its book; the marker is minted **once per operation** and re-sent unchanged by a retry, so a
 //!   re-issued write is byte-identical and the service's request ledger recognises it as the same
 //!   operation rather than refusing it as a changed payload.
+//! * **An archived rabbit's data is not writable.** [`ensure_writable`] is the one archived-target
+//!   rule: a content write — an edit now, the weight-entry create/edit/delete of tasks 2.9–2.11 —
+//!   refuses an archived rabbit as `validation` at the boundary rather than relying on the UI hiding
+//!   the control (DM-4, RAB-8; D1.5, NFR-10). A lifecycle write is the exception: restore and
+//!   permanent deletion target an archived rabbit by definition (RAB-7, RAB-10).
 //! * **A lifecycle write submits the whole item.** Archiving and restoring read the rabbit's content
 //!   from this device's copy, set or clear `is_archived` and change nothing else, and write that
 //!   version — a partial payload would replace the stored item and discard the profile (RAB-6,
@@ -265,11 +270,9 @@ impl RabbitRecord {
             sex: profile.sex,
             neuter_status: profile.neuter_status,
             adoption_date: profile.adoption_date,
-            // An edit targets an active rabbit (RAB-5). Archiving is task 2.5's operation and the
-            // refusal of a write to an archived rabbit is task 2.8's, so no record carries `true`
-            // yet, and the archived state is not an input to this constructor — it cannot check it.
-            // The refusal belongs in `AppState::update_rabbit`, beside the household resolution;
-            // task 2.8 must cover that command as well as the weight-entry writes.
+            // An edit targets an active rabbit (RAB-5). The write boundary refuses an archived
+            // target before this constructor is called (`AppState::writable_rabbit`), so this record
+            // never carries `true`.
             is_archived: false,
             weight_drop_threshold_percent: profile.weight_drop_threshold_percent,
         })
@@ -390,6 +393,29 @@ pub fn mark_restored(rabbit: Rabbit) -> Rabbit {
         is_archived: false,
         ..rabbit
     }
+}
+
+/// Refuse a write that would touch an archived rabbit's data (DM-4, RAB-8; D1.5, NFR-10).
+///
+/// This is the **one** archived-target rule, and it is applied where a write is accepted rather than
+/// only where the UI renders: an archived rabbit's timeline is read-only even when a stale route or a
+/// direct command reaches the backend (D1.5). The state's content-write boundary
+/// (`AppState::writable_rabbit`) resolves the target from this device's copy and calls this before
+/// composing anything, so `update_rabbit` and every weight-entry write of tasks 2.9–2.11 share it.
+///
+/// A **lifecycle** write is deliberately outside this rule: [`mark_restored`] returns an archived
+/// rabbit to the active list (RAB-7) and [`deletion_plan`] permanently removes one (RAB-10), so both
+/// target an archived rabbit by definition.
+///
+/// The refusal is `validation` — the frozen cause list has no "immutable target" variant, and the
+/// request is refused as a property of its target — carries the operation's identity, and the caller
+/// sends nothing. A retry cannot clear it: the rabbit has to be restored first (RAB-7).
+pub fn ensure_writable(rabbit: &Rabbit, request_id: &RequestId) -> Result<(), CommandError> {
+    if rabbit.is_archived {
+        return Err(CommandError::validation(Some(request_id.clone())));
+    }
+
+    Ok(())
 }
 
 /// Write one rabbit's whole item as it stands (RAB-6, RAB-7, RAB-9; D1.16).
@@ -2317,5 +2343,24 @@ mod tests {
             bodies.last().expect("the rabbit's tombstone")["item_id"],
             json!(rabbit.id.0)
         );
+    }
+
+    /// DM-4, RAB-8: the one archived-target rule refuses an archived rabbit as `validation` and
+    /// admits an active one. The operation identity is carried, and the refusal is not retryable
+    /// because only a restore can clear it (RAB-7).
+    #[test]
+    fn an_archived_rabbit_is_not_writable_and_an_active_one_is() {
+        let active = stored_rabbit("rabbit-1", "Pebble", false);
+        let archived = stored_rabbit("rabbit-2", "Clover", true);
+        let operation = request_id("operation-1");
+
+        ensure_writable(&active, &operation).expect("an active rabbit accepts a content write");
+
+        let error = ensure_writable(&archived, &operation).expect_err("archived is read-only");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(operation));
     }
 }

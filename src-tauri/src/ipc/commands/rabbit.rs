@@ -27,13 +27,15 @@
 //!   patch: the edit form is pre-filled, and a patch would need a double-optional per field to tell
 //!   "unchanged" from "cleared" (see [`RabbitProfile`]).
 //! * **Archived means immutable at the boundary** (D1.5, RAB-8). Every content write refuses an
-//!   archived target — `update_rabbit` and the weight-entry writes included — and reports it through
-//!   the one failure surface; restoring is the one operation that accepts an archived rabbit, because
-//!   it is the transition that returns it to the active list (RAB-7). P0's cause list is frozen and
-//!   has no "immutable target" variant, so the refusal is `validation`: the request itself is refused
-//!   and a retry cannot clear it (D1.5, NFR-10). Archiving now produces that state (task 2.5), but the
-//!   refusal on the remaining write paths — [`update_rabbit`] and the weight-entry writes — is task
-//!   2.8's, so the check is the hook [`crate::state::AppState::update_rabbit`] documents.
+//!   archived target — `update_rabbit` and the weight-entry writes of tasks 2.9–2.11 included — and
+//!   reports it through the one failure surface; restoring is the one operation that accepts an
+//!   archived rabbit, because it is the transition that returns it to the active list (RAB-7), and
+//!   permanent deletion accepts one because RAB-10 makes archival its precondition. P0's cause list is
+//!   frozen and has no "immutable target" variant, so the refusal is `validation`: the request itself
+//!   is refused and a retry cannot clear it (D1.5, NFR-10). The one check is
+//!   [`crate::state::AppState`]'s `writable_rabbit`, which resolves the target from this device's copy
+//!   and applies [`crate::domain::rabbit::ensure_writable`]; `update_rabbit` calls it now, and the
+//!   weight-entry commands must call it with the target entry's `rabbit_id` when their bodies land.
 //!
 //! Every remaining stub body consumes its arguments deliberately: the parameters are part of the
 //! frozen signature and the bindings' argument names, and an unused-parameter warning under
@@ -264,16 +266,19 @@ pub async fn get_rabbit(rabbit_id: RabbitId) -> Result<Rabbit, CommandError> {
 /// threshold edit re-derives the entry flags and the dashboard flag without rewriting an entry.
 ///
 /// The change applies only to an **active** rabbit; an archived rabbit's profile is not editable
-/// (RAB-5, D1.5). **That refusal is not produced by this body yet:** no rabbit can be archived before
-/// task 2.5, and task 2.8 adds the write-boundary check for this command as well as the weight-entry
-/// writes — see [`crate::state::AppState::update_rabbit`], where the check belongs.
+/// (RAB-5, D1.5). The refusal is the shared boundary check: the target is resolved from this device's
+/// copy and refused as `validation` when archived (RAB-8, DM-4), so a stale route or a direct call
+/// fails the same way the UI's absent edit control prevents it. The same check is the one the
+/// weight-entry writes of tasks 2.9–2.11 call.
 ///
 /// # Errors
 ///
 /// `validation` for a blank name (RAB-2), for an unknown or already-deleted rabbit — the request is
-/// refused rather than accepted and ignored — and for a blank operation identity; once tasks 2.5 and
-/// 2.8 land, an archived rabbit is refused the same way. The write path's service conditions are
-/// reachable as for [`create_rabbit`], and `unknown` is the honest remainder.
+/// refused rather than accepted and ignored — for an **archived** rabbit (RAB-8, DM-4; D1.5), and for
+/// a blank operation identity. `unknown` with the unknown-content key when the rabbit's row has no
+/// content this device can describe, because it cannot establish that the rabbit is not archived
+/// (D1.16). The write path's service conditions are reachable as for [`create_rabbit`], and `unknown`
+/// is the honest remainder.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_rabbit(
@@ -654,6 +659,82 @@ mod tests {
         .expect_err("there is no rabbit to edit");
 
         assert_eq!(error.cause, SaveCause::Validation);
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
+
+    /// DM-4, RAB-8: an archived rabbit's profile is not editable. The refusal comes from the shared
+    /// write-boundary check, is `validation`, carries the operation's identity, and neither writes nor
+    /// publishes anything (D1.5).
+    #[test]
+    fn an_edit_of_an_archived_rabbit_is_refused_and_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit(service.clone());
+        let publisher = RecordingRabbitPublisher::default();
+        let calls_before = service.calls();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(updated_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            RabbitProfile {
+                name: "Clover".to_owned(),
+                ..profile()
+            },
+            request_id.clone(),
+        ))
+        .expect_err("an archived rabbit is read-only");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+        assert!(
+            publisher.published().is_empty(),
+            "a refusal never reports a rabbit change"
+        );
+    }
+
+    /// D1.16: a live row whose content this device cannot describe cannot establish that its rabbit is
+    /// not archived, so the edit is refused with the unknown-content key rather than written blind.
+    #[test]
+    fn an_edit_of_a_row_with_unknown_content_is_refused_and_publishes_nothing() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let state = state_with_a_held_household(service.clone());
+        let one = household("household-1");
+        state
+            .load_collection(
+                &one,
+                collection_with_unknown(&one, "rabbit-1"),
+                Instant("2026-10-22T09:31:00Z".to_owned()),
+            )
+            .expect("the collection is the household's own");
+        let publisher = RecordingRabbitPublisher::default();
+        let calls_before = service.calls();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(updated_rabbit(
+            &state,
+            &publisher,
+            RabbitId("rabbit-1".to_owned()),
+            profile(),
+            request_id.clone(),
+        ))
+        .expect_err("the archived flag cannot be established without the content");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_ne!(error.message_key, "error.unknown");
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
         assert!(
             publisher.published().is_empty(),
             "a refusal never reports a rabbit change"
@@ -1365,6 +1446,57 @@ mod tests {
         assert!(
             held.items.iter().all(|item| !item.deleted),
             "the deletion reached the service, not the local copy"
+        );
+    }
+
+    /// DM-4's counterpart: the archived-target check is a **content** rule. The two lifecycle writes
+    /// that target an archived rabbit by definition still succeed — restore returns it to the active
+    /// list (RAB-7), and permanent deletion removes it (RAB-10) — so the check cannot block them.
+    #[test]
+    fn restore_and_permanent_deletion_still_accept_an_archived_rabbit() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit(service.clone());
+        let publisher = RecordingRabbitPublisher::default();
+        let writes_before = service.write_count();
+
+        let restored = block_on_ready(restored_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id("operation-3"),
+        ))
+        .expect("restoring an archived rabbit is the one write that accepts it");
+
+        assert!(!restored.is_archived);
+        assert_eq!(restored.id, rabbit.id);
+        assert_eq!(publisher.published().len(), 1);
+        assert_eq!(service.write_count(), writes_before + 1);
+
+        let service = Arc::new(ScriptedService::new().on_write([accepted_household()]));
+        let (state, rabbit) = state_with_an_archived_rabbit_and_an_entry(service.clone());
+        let publisher = RecordingRabbitPublisher::default();
+        let writes_before = service.write_count();
+
+        block_on_ready(deleted_rabbit(
+            &state,
+            &publisher,
+            rabbit.id.clone(),
+            request_id("operation-3"),
+        ))
+        .expect("permanent deletion is available for an archived rabbit");
+
+        assert_eq!(
+            publisher.published(),
+            vec![RabbitChanged {
+                household_id: household("household-1"),
+                rabbit_id: rabbit.id,
+                kind: RabbitChangeKind::Deleted,
+            }]
+        );
+        assert_eq!(
+            service.write_count(),
+            writes_before + 2,
+            "the rabbit's tombstone and its entry's"
         );
     }
 }

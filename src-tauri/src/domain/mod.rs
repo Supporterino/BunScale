@@ -41,9 +41,12 @@
 //! [`rabbit`] also owns the P1 lifecycle/read rules that pair with that content: archiving and
 //! restoring change only the archived flag of a rabbit read from this device's copy and submit the
 //! whole item, so nothing the profile holds is replaced by a partial payload and a restored rabbit
-//! keeps its weight history untouched (RAB-6, RAB-7, RAB-9); and a rabbit list is either the active
-//! set or the archived set — never a union — whose rows must all be describable, so a row whose
-//! content this device does not hold refuses as `unknown` instead of being omitted (D1.16).
+//! keeps its weight history untouched (RAB-6, RAB-7, RAB-9); [`rabbit::ensure_writable`] is the one
+//! archived-target rule a content write applies at the boundary, so an archived rabbit's profile and
+//! weight entries cannot be created, edited or deleted however the write is reached (RAB-8, DM-4;
+//! D1.5); and a rabbit list is either the active set or the archived set — never a union — whose rows
+//! must all be describable, so a row whose content this device does not hold refuses as `unknown`
+//! instead of being omitted (D1.16).
 //!
 //! Permanent deletion is the one irreversible operation, and it too is archived-only: the plan is the
 //! archived rabbit plus every weight-entry row that names it, and each is written as a tombstone —

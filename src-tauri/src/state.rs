@@ -539,14 +539,17 @@ impl AppState {
     ///
     /// The steps are the create path's, plus the one lookup the frozen signature forces:
     ///
-    /// 1. The household is resolved from this device's guarded copy — an edit is addressed by the
-    ///    rabbit alone, and the collection it writes is the one that **claimed the item** when the
-    ///    rabbit was loaded ([`AppState::rabbit_household`]). The item must also still be live: a
-    ///    tombstone keeps its claim, so a permanently deleted rabbit is refused here rather than
-    ///    resurrected by a full-payload write (RAB-10). A rabbit this device holds no live row for is
-    ///    refused as `validation`, and nothing is sent. That is not a retryable backend failure: the
-    ///    detail is read from the same copy (SYNC-3), so a rabbit the device has not loaded cannot be
-    ///    presented for an edit. The one reachable window is a just-created rabbit rendered from
+    /// 1. The write target is resolved from this device's guarded copy by the shared archived-target
+    ///    check, `AppState::writable_rabbit` — an edit is addressed by the rabbit alone, and the
+    ///    collection it writes is the one that **claimed the item** when the rabbit was loaded. The
+    ///    item must still be live: a tombstone keeps its claim, so a permanently deleted rabbit is
+    ///    refused here rather than resurrected by a full-payload write (RAB-10). A rabbit this device
+    ///    holds no live row for is refused as `validation`, and nothing is sent. An **archived** rabbit
+    ///    is refused as `validation` too (RAB-8, DM-4; D1.5), and a live row whose content is unknown
+    ///    is refused with the unknown-content key because it cannot establish that the rabbit is not
+    ///    archived (D1.16). None of these is a retryable backend failure: the state is read from the
+    ///    same copy (SYNC-3), so a rabbit the device has not loaded cannot be presented for an edit.
+    ///    The one reachable window is a just-created rabbit rendered from
     ///    [`AppState::create_rabbit`]'s return before the read path has loaded the collection, which
     ///    is why the frontend gates the edit control on the detail query instead.
     /// 2. The profile is recorded next, so the refusals the input itself produces — a blank name,
@@ -570,28 +573,23 @@ impl AppState {
     /// path's (SYNC-3), so the edit reaches this device the same way it reaches every other member —
     /// by the read that follows `rabbit:changed`.
     ///
-    /// **An archived rabbit's profile is not editable (RAB-5, D1.5).** Archiving now produces that
-    /// state (2.5), but task 2.8 owns the refusal on every write path — this command included, not
-    /// only the weight-entry writes — so the check belongs beside the household resolution above.
-    ///
     /// # Errors
     ///
     /// `validation` for a blank name (RAB-2), for the contradictory date-of-birth pair (I8), for a
-    /// blank operation identity, for a blank rabbit id or a rabbit with no live row (absent or
-    /// tombstoned), and for a household with no member for this account; `no_account` when no account
-    /// is available;
-    /// and otherwise the gate's mapped causes (`connectivity`, `no_account`, `allowance_exceeded`,
-    /// `rate_limited`, `timeout`, `unknown`). A refusal never edits a rabbit, and one that is a
-    /// property of the input never reaches the shared service at all.
+    /// blank operation identity, for a blank rabbit id, for a rabbit with no live row (absent or
+    /// tombstoned), for an item that is not a rabbit, for an **archived** rabbit (RAB-8, DM-4; D1.5),
+    /// and for a household with no member for this account; `unknown` with the unknown-content key when
+    /// the rabbit's row has no content this device can describe (D1.16); `no_account` when no account
+    /// is available; and otherwise the gate's mapped causes (`connectivity`, `no_account`,
+    /// `allowance_exceeded`, `rate_limited`, `timeout`, `unknown`). A refusal never edits a rabbit, and
+    /// one that is a property of the local copy never reaches the shared service at all.
     pub async fn update_rabbit(
         &self,
         rabbit_id: RabbitId,
         profile: RabbitProfile,
         request_id: RequestId,
     ) -> Result<Rabbit, CommandError> {
-        let Some(household_id) = self.rabbit_household(&rabbit_id) else {
-            return Err(CommandError::validation(Some(request_id)));
-        };
+        let (household_id, _target) = self.writable_rabbit(&rabbit_id, &request_id)?;
 
         let record = RabbitRecord::updated(household_id.clone(), rabbit_id, profile, &request_id)?;
 
@@ -896,21 +894,62 @@ impl AppState {
             .cloned()
     }
 
-    /// The household whose copy holds `rabbit_id`'s **live** item.
+    /// The **writable** rabbit `rabbit_id` names, with the household whose copy holds it (DM-4,
+    /// RAB-8; D1.5).
     ///
-    /// An edit is addressed by the rabbit alone (the frozen `update_rabbit` signature carries no
-    /// household), so the collection it writes is the one that claimed the item when the rabbit was
-    /// loaded — the same claim that keeps a rabbit from being presented under another household.
+    /// This is the one archived-target check at the write boundary, and it is the check every content
+    /// write calls before composing anything. `update_rabbit` calls it today. **Tasks 2.9–2.11 must
+    /// call it for every weight-entry write**, with these targets:
     ///
-    /// **The claim alone is not enough to write.** It is an identity claim that survives a tombstone,
-    /// so a permanently deleted rabbit still names its household (task 2.7). The stored row is
-    /// therefore required to exist and **not** be a tombstone: a full-payload write to a tombstoned
-    /// item would resurrect it, which RAB-10's permanent deletion must not allow (D1.5, NFR-10). A
-    /// deleted or never-loaded rabbit is refused as unknown rather than written (RAB-5, RAB-10;
-    /// SYNC-3 for the never-loaded case).
-    fn rabbit_household(&self, rabbit_id: &RabbitId) -> Option<HouseholdId> {
-        self.stored_rabbit(rabbit_id)
-            .map(|(household_id, _item)| household_id)
+    /// * `create_weight_entry` passes the `rabbit_id` the command names.
+    /// * `update_weight_entry` and `delete_weight_entry` first resolve their entry from this device's
+    ///   copy and pass the `rabbit_id` that entry's payload carries; an entry is never written before
+    ///   its rabbit has passed this check.
+    ///
+    /// A lifecycle write does **not** call it: restore (2.6) and permanent deletion (2.7) target an
+    /// archived rabbit by definition (RAB-7, RAB-10), and archive checks its own transition.
+    ///
+    /// The rules are all read from this device's copy, so a refusal sends nothing:
+    ///
+    /// * The claim alone is not enough. It survives a tombstone, so a permanently deleted rabbit still
+    ///   names its household; the row must exist and be **live**, or a full-payload write would
+    ///   resurrect what RAB-10 removed (D1.5, NFR-10).
+    /// * The row's content must be a rabbit, so the identity names a rabbit a write may touch.
+    /// * The rabbit must not be **archived**: a content write to it is refused (DM-4, RAB-8; D1.5).
+    /// * A row whose content is **unknown** cannot establish that its rabbit is not archived, so it is
+    ///   refused with the unknown-content key rather than written blind (D1.16). The next successful
+    ///   refresh fills the content and the operation can be retried.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank rabbit id, an absent or tombstoned rabbit, an item that is not a
+    /// rabbit, and an archived rabbit; `unknown` with the unknown-content key when the row's content is
+    /// not on this device. All carry the operation's identity and none has sent anything.
+    pub(crate) fn writable_rabbit(
+        &self,
+        rabbit_id: &RabbitId,
+        request_id: &RequestId,
+    ) -> Result<(HouseholdId, Rabbit), CommandError> {
+        let Some((household_id, stored)) = self.stored_rabbit(rabbit_id) else {
+            return Err(CommandError::validation(Some(request_id.clone())));
+        };
+
+        match stored.payload {
+            Some(ItemPayload::Rabbit { rabbit }) => {
+                domain::rabbit::ensure_writable(&rabbit, request_id)?;
+
+                Ok((household_id, rabbit))
+            }
+            // A live row whose content this device cannot describe cannot establish that the rabbit
+            // is not archived, so the write is refused rather than sent blind (D1.16).
+            None => Err(CommandError::household_content_unloaded(Some(
+                request_id.clone(),
+            ))),
+            // The identity names an item that is not a rabbit: there is no rabbit to write.
+            Some(ItemPayload::WeightEntry { .. }) => {
+                Err(CommandError::validation(Some(request_id.clone())))
+            }
+        }
     }
 
     /// The **live** row this device holds for `rabbit_id`, with the household that claimed it.
@@ -1348,7 +1387,14 @@ mod tests {
         state
             .load_collection(
                 &one,
-                wire_collection(&one, vec![wire(&rabbit.id.0, "2026-10-22T09:30:00Z")]),
+                wire_collection(
+                    &one,
+                    vec![row_with_rabbit(
+                        &rabbit.id.0,
+                        "2026-10-22T09:30:00Z",
+                        &rabbit,
+                    )],
+                ),
                 at("2026-10-22T09:31:00Z"),
             )
             .expect("the collection is the household's own");
@@ -2193,7 +2239,14 @@ mod tests {
         state
             .load_collection(
                 &one,
-                wire_collection(&one, vec![wire("rabbit-1", "2026-10-22T09:30:00Z")]),
+                wire_collection(
+                    &one,
+                    vec![row_with_rabbit(
+                        "rabbit-1",
+                        "2026-10-22T09:30:00Z",
+                        &stored_rabbit("rabbit-1", "Pebble"),
+                    )],
+                ),
                 at("2026-10-22T09:31:00Z"),
             )
             .expect("the collection is the household's own");
@@ -2230,7 +2283,14 @@ mod tests {
         state
             .load_collection(
                 &one,
-                wire_collection(&one, vec![wire("rabbit-1", "2026-10-22T09:30:00Z")]),
+                wire_collection(
+                    &one,
+                    vec![row_with_rabbit(
+                        "rabbit-1",
+                        "2026-10-22T09:30:00Z",
+                        &stored_rabbit("rabbit-1", "Pebble"),
+                    )],
+                ),
                 at("2026-10-22T09:31:00Z"),
             )
             .expect("the collection is the household's own");
@@ -2248,6 +2308,99 @@ mod tests {
         assert!(error.retryable);
         assert_eq!(error.request_id, Some(request_id));
         assert!(service.calls().is_empty(), "nothing was probed or sent");
+    }
+
+    /// RAB-8's first scenario at the boundary the weight writes use: a write that would add an entry
+    /// to an archived rabbit is refused as `validation`, carries the operation's identity, and sends
+    /// nothing (DM-4; D1.5).
+    #[test]
+    fn an_archived_rabbit_refuses_the_write_that_would_add_a_weight_entry() {
+        let (service, state, rabbit) = state_with_an_archived_rabbit();
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        let error = state
+            .writable_rabbit(&rabbit.id, &request_id)
+            .expect_err("an archived rabbit's timeline cannot grow");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// RAB-8's second scenario, in the order task 2.11 must follow: an entry is resolved first and its
+    /// `rabbit_id` is then checked, so an archived rabbit refuses the edit or deletion of any of its
+    /// entries before anything is written (DM-4; D1.5).
+    #[test]
+    fn an_archived_rabbit_refuses_the_write_that_would_edit_or_delete_an_entry() {
+        let (service, state, rabbit) = state_with_an_archived_rabbit_and_entries();
+        let one = household("household-1");
+        let collection = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the read path's copy is held");
+        let entry_rabbit_id = collection
+            .items
+            .iter()
+            .find_map(|item| match &item.payload {
+                Some(ItemPayload::WeightEntry { weight_entry }) => {
+                    Some(weight_entry.rabbit_id.clone())
+                }
+                _ => None,
+            })
+            .expect("the archived rabbit has an entry");
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        assert_eq!(entry_rabbit_id, rabbit.id);
+        let error = state
+            .writable_rabbit(&entry_rabbit_id, &request_id)
+            .expect_err("an archived rabbit's entries are read-only");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// D1.16: a live row whose content is unknown cannot establish that its rabbit is not archived,
+    /// so an edit is refused with the unknown-content key instead of being written blind.
+    #[test]
+    fn an_edit_of_a_rabbit_whose_content_is_unknown_is_refused_and_nothing_is_sent() {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![wire("rabbit-1", "2026-10-22T09:30:00Z")]),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+        let calls_before = service.calls();
+        let request_id = request_id("operation-2");
+
+        let error = block_on_ready(state.update_rabbit(
+            RabbitId("rabbit-1".to_owned()),
+            profile(),
+            request_id.clone(),
+        ))
+        .expect_err("the archived flag cannot be established without the content");
+
+        assert_eq!(error.cause, SaveCause::Unknown);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message_key,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY
+        );
+        assert_ne!(error.message_key, "error.unknown");
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
     }
 
     /// A state whose book holds `household-1` and whose copy holds one rabbit with its content —
