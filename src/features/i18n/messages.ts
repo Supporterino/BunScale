@@ -301,6 +301,10 @@ export const P0_MESSAGES = {
   'weight.history.title': 'History',
   'weight.history.open': 'Weight history',
   'weight.dropAlert': 'Weight drop warning',
+  // The read shares a pending and an empty state, and each names its own
+  // surface: the household is already on screen while these entries load
+  // (NFR-8; task 4.11 replaced its `entry.loading` shortcut with this).
+  'weight.loading': 'Loading weight entries…',
   'weight.empty': 'No weight entries yet.',
   // The four windows, in `WEIGHT_RANGES`' order (search.ts), because the range
   // control renders the catalog in this order rather than sorting it.

@@ -300,6 +300,14 @@ describe('the P1 message catalog', () => {
     }
   });
 
+  it('names the weight read as pending with its own copy (NFR-8)', () => {
+    // The trend and the history are loading entries for a rabbit that is
+    // already on screen, so the pending state names that read rather than the
+    // household the entry route resolves (task 4.11's shortcut).
+    expect(t('weight.loading')).toBe('Loading weight entries…');
+    expect(t('weight.loading')).not.toBe(t('entry.loading'));
+  });
+
   it('confirms a weight-entry deletion with its consequence', () => {
     expect(t('weight.entry.delete')).toBe('Delete entry');
     expect(t('weight.entry.deleteConfirm.title')).toBe(

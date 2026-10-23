@@ -706,3 +706,114 @@
     inset-inline-start: calc(var(--sidebar-width) + var(--spacing-inline));
   }
 }
+
+/*
+ * The rabbit dashboard and its weight sections (task 4.11; DASH-7, WT-6, WT-7,
+ * D5).
+ *
+ * The dashboard is the detail plus the two weight cards, stacked at the section
+ * distance and kept on the form measure: it replaces the detail in the same
+ * scroll region, so it inherits the same width decision rather than inventing a
+ * second one. The cards themselves are the frozen `Card`, whose flex column and
+ * `--card-gap` already space the range control from the plot; no screen rule
+ * restates that.
+ *
+ * **The plot is a `viewBox` drawing, not a measured canvas.** `width: 100%`
+ * with `height: auto` lets the SVG keep its intrinsic 2:1 ratio from 326 px of
+ * compact card content up to the form measure, so there is no chart dependency
+ * and no resize observer. Only two tokens carry meaning: the series is
+ * `--color-primary`, and a flagged point's ring is `--color-danger`. Neither
+ * colour is the only signal — the ring is a shape and the history's badge is
+ * text — and there is deliberately no band, baseline, target or legend to
+ * style (D5, design.md D1.7).
+ */
+.bs-rabbit-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-section);
+  width: 100%;
+  max-width: var(--layout-form-max);
+  margin-inline: auto;
+}
+
+/*
+ * The two range controls are `FormField` + `SegmentedControl` (WT-6). Their
+ * `FormField` label is the radiogroup's accessible name and is clipped rather
+ * than removed — the same treatment as the Settings unit section — because the
+ * card heading above already shows the same words and the control must keep its
+ * name. Clipping is `position: absolute` on the label the primitive renders, so
+ * the group is still named by `aria-labelledby` and nothing focusable is hidden.
+ */
+.bs-weight-range .bs-field__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bs-weight-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.bs-weight-chart__plot {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.bs-weight-chart__line {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.bs-weight-chart__point {
+  fill: var(--color-primary);
+}
+
+/* A flagged point is a ring around the dot: a shape, not a colour swap (WT-7). */
+.bs-weight-chart__drop {
+  fill: none;
+  stroke: var(--color-danger);
+  stroke-width: 2;
+}
+
+/*
+ * The time axis: the extent actually plotted, at the footnote role (AA on the
+ * card surface). It is decorative because the hidden series already states every
+ * timestamp; the visual reader gets the same two end dates.
+ */
+.bs-weight-chart__axis {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-footnote-size);
+  line-height: var(--text-footnote-line-height);
+}
+
+/*
+ * The opened weight-only history inside the History card (DASH-7). Back sits at
+ * the leading edge like every other sub-view's, and the range control, the
+ * listing and the back row keep the card's stack rhythm. The listing is the
+ * frozen `List`/`ListRow` pair (static rows), so it needs no rule of its own.
+ */
+.bs-weight-history__view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-stack-md);
+}
+
+.bs-weight-history__actions {
+  display: flex;
+  justify-content: flex-start;
+}
