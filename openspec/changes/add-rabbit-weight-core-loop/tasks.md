@@ -78,7 +78,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 2.8 [rust-backend] Enforce archived-rabbit immutability on every write path at the storage
   boundary: creating, editing or deleting any weight entry of an archived rabbit is refused, and the
   refusal is reported through P0's failure surface (DM-4, RAB-8).
-- [ ] 2.9 [rust-backend] Implement weight entry creation: canonical grams storage with no per-entry
+- [x] 2.9 [rust-backend] Implement weight entry creation: canonical grams storage with no per-entry
   unit, timestamp defaulting to now or taken from the supplied instant unchanged, optional note
   (WT-1, DM-1, WT-3). The stored payload's `has_weight_drop_alert` is **not content**: write it
   `false` at the boundary and never persist a derived value (D1.16, D1.3). Calls
@@ -146,7 +146,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   copy without losing the surface key: `describeSaveFailure` deliberately discards `message_key`, so
   the dashboard, lists, profile, trend and detail would all render the operation-neutral `error.unknown`
   instead of D1.16's `error.household_content_unloaded`. Add the read-side mapper P0 lacks, so every P1
-  read surface can name the cause it actually got. (NFR-8, D1.16)
+  read surface can name the cause it actually got, and make the refresh action follow the cause (the
+  transport causes' copy promises a retry; `validation`'s does not). **A never-loaded local set is not a
+  failure** — it arrives as a successful read with `loaded_at: null`, so it belongs to 4.15's states,
+  not this mapper. (NFR-8, D1.16, SYNC-3)
 
 ## 4. Frontend UI
 
@@ -196,9 +199,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 4.15 [frontend-ui] **Added mid-change (Q6).** Render a P1 **read** failure as its own state on
   every screen it can hit — the dashboard, the rabbit and archived lists, the profile, the trend and
   the entry detail — with the cause-specific copy from 3.10 and a refresh that re-reads, instead of
-  showing a failed read as "nothing loaded yet" or as an empty list. D1.16 requires exactly this for
-  an unknown-content refusal; a partial list must never read as a complete one. (NFR-8, SYNC-3,
-  D1.16, DASH-1)
+  showing a failed read as "nothing loaded yet" or as an empty list. A **never-loaded** local set is
+  the success value `loaded_at: null`, so it is its own state too (SYNC-3's explicit state), not an
+  error and not the empty state. D1.16 requires the refusal surface exactly; a partial list must never
+  read as a complete one. (NFR-8, SYNC-3, D1.16, DASH-1)
 
 ## 5. Tests
 

@@ -25,9 +25,9 @@
 //! return. `error.not_implemented` is a surface state, and `error.household_content_unloaded` is the
 //! one documented second key for `unknown` (D1.16); see [`failure`](super::failure)'s module doc.
 //!
-//! **Seven of the thirteen P1 bodies are stubs; `create_rabbit` (task 2.1), `update_rabbit` (task
-//! 2.4), `list_rabbits` and `archive_rabbit` (task 2.5), `restore_rabbit` (task 2.6) and
-//! `delete_rabbit` (task 2.7) are implemented.** Each remaining stub returns
+//! **Six of the thirteen P1 bodies are stubs; `create_rabbit` (task 2.1), `update_rabbit` (task
+//! 2.4), `list_rabbits` and `archive_rabbit` (task 2.5), `restore_rabbit` (task 2.6), `delete_rabbit`
+//! (task 2.7) and `create_weight_entry` (task 2.9) are implemented.** Each remaining stub returns
 //! [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
 //! `error.not_implemented` — carrying the command's [`RequestId`] on the writing commands and `None`
 //! on the reading ones, so a frozen signature can never be mistaken for implemented behaviour. Section
@@ -131,11 +131,11 @@ mod tests {
         assert_eq!(error.request_id, expected);
     }
 
-    /// The three remaining state-changing P1 stubs carry the operation identity, so the retry the
+    /// The two remaining state-changing P1 stubs carry the operation identity, so the retry the
     /// failure surface offers has something to re-issue (D0.14, design I5). `create_rabbit` left this
     /// list when task 2.1 implemented its body, `update_rabbit` when task 2.4 did, `archive_rabbit`
-    /// when task 2.5 did, `restore_rabbit` when task 2.6 did, and `delete_rabbit` when task 2.7 did;
-    /// each is covered by that task's own tests.
+    /// when task 2.5 did, `restore_rabbit` when task 2.6 did, `delete_rabbit` when task 2.7 did and
+    /// `create_weight_entry` when task 2.9 did; each is covered by that task's own tests.
     ///
     /// Each body is polled once through the double's helper: a stub has nothing to wait for, so a
     /// future that is not immediately ready is itself the defect.
@@ -144,15 +144,13 @@ mod tests {
         let id = request_id();
 
         let failures = [
-            block_on_ready(weight::create_weight_entry(rabbit(), draft(), id.clone()))
-                .expect_err("create_weight_entry is a stub"),
             block_on_ready(weight::update_weight_entry(entry(), draft(), id.clone()))
                 .expect_err("update_weight_entry is a stub"),
             block_on_ready(weight::delete_weight_entry(entry(), id.clone()))
                 .expect_err("delete_weight_entry is a stub"),
         ];
 
-        assert_eq!(failures.len(), 3, "every remaining P1 write is covered");
+        assert_eq!(failures.len(), 2, "every remaining P1 write is covered");
 
         for failure in &failures {
             assert_not_implemented(failure, Some(id.clone()));

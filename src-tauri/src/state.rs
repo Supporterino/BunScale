@@ -80,6 +80,7 @@ use crate::domain::{
 use crate::ipc::types::{
     AccountUserId, CollectionSource, CommandError, Household, HouseholdCollection, HouseholdId,
     HouseholdSummary, Instant, ItemPayload, MemberId, Rabbit, RabbitId, RabbitProfile, RequestId,
+    WeightEntry, WeightEntryDraft,
 };
 use crate::storage::{
     AbsoluteInstant, BoundaryRefusal, CollectionStore, CollectionStoreError, DeviceSnapshot,
@@ -97,6 +98,21 @@ use crate::sync::{HttpService, SharedService, StatusTracker};
 /// The deployment task that first needs a real write supplies the real origin here.
 const SERVICE_ORIGIN: &str = "";
 
+/// The values one operation mints for itself and re-sends on every retry (D0.14).
+///
+/// They are one record rather than two maps because they are keyed by the same operation and live
+/// exactly as long: a retry re-issues the same [`RequestId`], and the service refuses the same key
+/// with a different payload, so each has to be the first attempt's value on every later attempt.
+#[derive(Debug, Clone)]
+struct OperationMemo {
+    /// The version marker last-write-wins compares, written as the item's `updated_at`.
+    marker: Instant,
+    /// The weight entry's creation instant, once an entry create defaulted one from the clock. It is
+    /// `None` until then, so an operation that supplied its own timestamp — or is not an entry create
+    /// at all — never reads the clock for one (WT-1).
+    entry_created_at: Option<Instant>,
+}
+
 /// The one managed state the command adapters borrow.
 pub struct AppState {
     /// The shared service, or the scripted double in a test (task 2.4's seam).
@@ -105,16 +121,18 @@ pub struct AppState {
     account: Option<AccountUserId>,
     /// The process's household set and operation ledger (tasks 2.1, 2.2).
     households: Mutex<HouseholdBook>,
-    /// The version markers this process minted, keyed by the operation that minted them (D0.14).
+    /// The values each operation this process minted re-sends on a retry (D0.14).
     ///
     /// A retry re-issues the same [`RequestId`], and the service refuses the same key with a
     /// *different* payload, so the item write a retry submits has to be byte-identical to the first
-    /// attempt's — including the `updated_at` marker last-write-wins compares (D0.7 criteria 3 and
-    /// 6). The marker is therefore minted once here and handed back on every later attempt rather
-    /// than re-read from the clock. The map is process-lifetime state like the household book's
-    /// operation ledger (also unbounded and also not persisted); an entry is one create this process
-    /// attempted, and the service's own ledger is what bounds the window that matters.
-    markers: Mutex<HashMap<RequestId, Instant>>,
+    /// attempt's — including the `updated_at` marker last-write-wins compares (D0.7 criteria 3 and 6)
+    /// and the creation instant a weight entry recorded when its draft omitted one (WT-1). Both are
+    /// therefore minted once here and handed back on every later attempt rather than re-read from the
+    /// clock, and they share one entry because they are minted for the same operation. The map is
+    /// process-lifetime state like the household book's operation ledger (also unbounded and also not
+    /// persisted); an entry is one operation this process attempted, and the service's own ledger is
+    /// what bounds the window that matters.
+    operations: Mutex<HashMap<RequestId, OperationMemo>>,
     /// The device's guarded copies of the collections it has loaded (tasks 2.3, 2.5 and 2.7).
     copies: Mutex<GuardedStore>,
     /// The last fresh service/account status (task 2.13).
@@ -144,7 +162,7 @@ impl AppState {
             service,
             account,
             households: Mutex::new(HouseholdBook::new()),
-            markers: Mutex::new(HashMap::new()),
+            operations: Mutex::new(HashMap::new()),
             copies: Mutex::new(GuardedStore::new()),
             status: Mutex::new(StatusTracker::new()),
             #[cfg(test)]
@@ -181,7 +199,7 @@ impl AppState {
             service,
             account,
             households: Mutex::new(households),
-            markers: Mutex::new(HashMap::new()),
+            operations: Mutex::new(HashMap::new()),
             copies: Mutex::new(copies),
             status: Mutex::new(StatusTracker::new()),
             #[cfg(test)]
@@ -607,6 +625,86 @@ impl AppState {
         Ok(record.to_wire())
     }
 
+    /// Record a weight entry for one rabbit (WT-1, WT-3, DM-1; D1.1, D1.2, D1.16).
+    ///
+    /// The steps are the edit path's, with the entry's own rules added:
+    ///
+    /// 1. The write target is resolved through [`AppState::writable_rabbit`] — the one archived-target
+    ///    check every weight-entry write calls. An archived rabbit's create is refused as `validation`
+    ///    (DM-4, RAB-8; D1.5), an unknown-content row is refused with the unknown-content key because it
+    ///    cannot establish that the rabbit is not archived (D1.16), and an id that names an item which
+    ///    is not a rabbit is refused as `validation` too. The household that resolved the rabbit is the
+    ///    collection the entry is written into, never the person's active household.
+    /// 2. The entry is recorded next, so the refusals the input itself produces — a blank operation
+    ///    identity and a timestamp that is not an absolute instant — are reported as `validation` even
+    ///    when no account exists, because that is what the form has to change. The value is stored in
+    ///    canonical grams exactly as supplied and carries no unit (DM-1); the supplied timestamp is kept
+    ///    as that moment, including in the past, and an omitted one becomes the operation's creation
+    ///    instant (WT-1) — minted once per operation by [`AppState::entry_created_at`], so a retry sends
+    ///    the same one (D0.14). The note is optional and kept whole.
+    /// 3. No account is `no_account` before any probe, and the **writing member** is resolved from the
+    ///    person's household book exactly as a rabbit write resolves it (ADR 0002 criterion 3).
+    /// 4. The version marker is the one minted for the operation and the write goes through
+    ///    [`crate::sync::SaveGate`] — a fresh probe, then the item write — so an entry exists once the
+    ///    service has accepted it and never as a local-only value (D1.1, SYNC-2).
+    ///
+    /// The returned household is the one whose collection holds the entry. The command's answer is the
+    /// entry, but the adapter needs the household to scope `weight:changed` — and the entry itself
+    /// carries only its rabbit, so it cannot name the household on its own.
+    ///
+    /// The recorded entry's `has_weight_drop_alert` is always `false`: the flag is derived on read and
+    /// never content (D1.3, D1.13, D1.16). **This device's copy is deliberately not written here**,
+    /// exactly as a rabbit create does not write it: the copy is the read path's (SYNC-3), so the entry
+    /// reaches this device the same way it reaches every other member — by the read that follows
+    /// `weight:changed`.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank rabbit id, a rabbit this device holds no live row for, one whose row is
+    /// not a rabbit, an **archived** rabbit (DM-4, RAB-8; D1.5), a blank operation identity, a
+    /// timestamp that is not an absolute instant, and a household with no member for this account;
+    /// `unknown` with the unknown-content key when the rabbit's row has no content this device can
+    /// describe (D1.16); `no_account` when no account is available; and otherwise the gate's mapped
+    /// causes (`connectivity`, `no_account`, `allowance_exceeded`, `rate_limited`, `timeout`,
+    /// `unknown`). A refusal never records an entry, and one that is a property of the local copy never
+    /// reaches the shared service at all.
+    pub async fn create_weight_entry(
+        &self,
+        rabbit_id: RabbitId,
+        entry: WeightEntryDraft,
+        request_id: RequestId,
+    ) -> Result<(HouseholdId, WeightEntry), CommandError> {
+        let (household_id, _target) = self.writable_rabbit(&rabbit_id, &request_id)?;
+
+        let recorded = domain::weight::record(
+            rabbit_id,
+            entry,
+            || self.entry_created_at(&request_id),
+            &request_id,
+        )?;
+
+        if self.account.is_none() {
+            return Err(CommandError::no_account(Some(request_id)));
+        }
+
+        let Some(writer) = self.writing_member(&household_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+        let marker = self.operation_marker(&request_id);
+
+        domain::weight::save_weight_entry(
+            self.service.as_ref(),
+            &household_id,
+            &recorded,
+            &writer,
+            &marker,
+            request_id,
+        )
+        .await?;
+
+        Ok((household_id, recorded))
+    }
+
     /// Archive a rabbit: a reversible soft delete that discards nothing (RAB-6, RAB-9; D1.16).
     ///
     /// The write is the **whole item**. This device's copy of the household collection supplies the
@@ -898,8 +996,8 @@ impl AppState {
     /// RAB-8; D1.5).
     ///
     /// This is the one archived-target check at the write boundary, and it is the check every content
-    /// write calls before composing anything. `update_rabbit` calls it today. **Tasks 2.9–2.11 must
-    /// call it for every weight-entry write**, with these targets:
+    /// write calls before composing anything. `update_rabbit` and `create_weight_entry` call it today.
+    /// **The weight-entry edit and delete of task 2.11 must call it too**, with these targets:
     ///
     /// * `create_weight_entry` passes the `rabbit_id` the command names.
     /// * `update_weight_entry` and `delete_weight_entry` first resolve their entry from this device's
@@ -983,11 +1081,49 @@ impl AppState {
     /// [`AbsoluteInstant::now`] in `storage::instant`, the version-marker side of P0's task 2.8 (not
     /// this change's 2.8, which is archived-rabbit immutability).
     fn operation_marker(&self, request_id: &RequestId) -> Instant {
-        let mut markers = lock(&self.markers);
+        self.operation_memo(request_id).marker
+    }
 
-        markers
+    /// The operation's memo, minting a fresh version marker when this is its first write.
+    ///
+    /// Both values a weight-entry create mints are recorded here, because they are the operation's
+    /// own and a retry must re-send them (D0.14): the marker below, and the entry's creation instant
+    /// in [`AppState::entry_created_at`].
+    fn operation_memo(&self, request_id: &RequestId) -> OperationMemo {
+        let mut operations = lock(&self.operations);
+
+        operations
             .entry(request_id.clone())
-            .or_insert_with(|| AbsoluteInstant::now().to_wire())
+            .or_insert_with(|| OperationMemo {
+                marker: AbsoluteInstant::now().to_wire(),
+                entry_created_at: None,
+            })
+            .clone()
+    }
+
+    /// The creation instant for the weight entry `request_id` creates: the one already minted for the
+    /// operation, or a fresh one recorded now (WT-1, D0.14).
+    ///
+    /// [`WeightEntryDraft::timestamp`] is `None` when the person did not change the timestamp, and the
+    /// recorded value is then "the moment of creation" — minted once per operation for the same reason
+    /// [`AppState::operation_marker`] is: a retry re-issues the same [`RequestId`], and the service
+    /// refuses the same key with a different payload, so the defaulted instant has to be the first
+    /// attempt's on every later one. A supplied timestamp never reaches this method: it is the person's
+    /// value and is re-sent unchanged, so the operation's memo stays `None` for it.
+    ///
+    /// It shares the operation's memo with the version marker rather than a parallel map: same key,
+    /// same mint, same process lifetime.
+    fn entry_created_at(&self, request_id: &RequestId) -> Instant {
+        let mut operations = lock(&self.operations);
+        let memo = operations
+            .entry(request_id.clone())
+            .or_insert_with(|| OperationMemo {
+                marker: AbsoluteInstant::now().to_wire(),
+                entry_created_at: None,
+            });
+
+        memo.entry_created_at
+            .get_or_insert_with(|| AbsoluteInstant::now().to_wire())
             .clone()
     }
 
@@ -1271,6 +1407,16 @@ mod tests {
         RequestId(value.to_owned())
     }
 
+    /// A weight-entry draft supplying only the value: no timestamp, no note, nothing confirmed.
+    fn weight_entry_draft() -> WeightEntryDraft {
+        WeightEntryDraft {
+            value_grams: Grams(1_800),
+            timestamp: None,
+            note: None,
+            outlier_confirmed: false,
+        }
+    }
+
     fn household(value: &str) -> HouseholdId {
         HouseholdId(value.to_owned())
     }
@@ -1415,6 +1561,106 @@ mod tests {
                 },
             }),
         ))
+    }
+
+    /// 2.8's non-rabbit branch: an identity that names a **weight-entry** row is not a rabbit, so a
+    /// weight-entry create that addresses it is refused as `validation` with nothing written — there is
+    /// no rabbit whose archived state the write could be accepted under (D1.5, D1.16).
+    #[test]
+    fn a_create_on_a_row_that_is_a_weight_entry_is_refused_as_validation() {
+        let (service, state, rabbit) = state_with_one_rabbit();
+        let one = household("household-1");
+
+        // The copy the read path would deliver for a household whose item `rabbit-1` is an entry: the
+        // identity is known and live, but its content is not a rabbit.
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, vec![row_with_weight_entry("rabbit-1", &rabbit)]),
+                at("2026-10-22T09:32:00Z"),
+            )
+            .expect("the collection is the household's own");
+        let calls_before = service.calls();
+        let request_id = request_id("operation-3");
+
+        let error = block_on_ready(state.create_weight_entry(
+            RabbitId("rabbit-1".to_owned()),
+            weight_entry_draft(),
+            request_id.clone(),
+        ))
+        .expect_err("the row is not a rabbit");
+
+        assert_eq!(error.cause, SaveCause::Validation);
+        assert_eq!(error.message_key, "error.validation");
+        assert!(!error.retryable);
+        assert_eq!(error.request_id, Some(request_id));
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// D0.14, WT-1: a retried create re-sends the creation instant it minted the first time, so the two
+    /// attempts submit byte-identical bodies and the service's ledger recognises one operation instead
+    /// of refusing a changed payload.
+    #[test]
+    fn a_retried_create_reuses_the_creation_instant_it_minted() {
+        let (service, state, rabbit) = state_with_one_rabbit();
+        let operation = request_id("operation-3");
+
+        let (_, first) = block_on_ready(state.create_weight_entry(
+            rabbit.id.clone(),
+            weight_entry_draft(),
+            operation.clone(),
+        ))
+        .expect("the double accepted the write");
+        let (_, retried) = block_on_ready(state.create_weight_entry(
+            rabbit.id.clone(),
+            weight_entry_draft(),
+            operation,
+        ))
+        .expect("the retry is accepted too");
+
+        assert_eq!(
+            retried.timestamp, first.timestamp,
+            "the defaulted instant is the operation's, not a fresh clock read"
+        );
+
+        let bodies = write_bodies(&service);
+        assert_eq!(
+            bodies.len(),
+            4,
+            "the household create, the rabbit create and the two entry attempts"
+        );
+        assert_eq!(
+            bodies[2], bodies[3],
+            "a retry submits the bytes the first attempt submitted"
+        );
+    }
+
+    /// WT-1's supplied timestamp through the state: the write carries the person's moment, so the
+    /// operation's defaulted-instant path is never consulted for it (the default would be "now").
+    #[test]
+    fn a_supplied_timestamp_is_written_unchanged_and_never_defaulted() {
+        let (service, state, rabbit) = state_with_one_rabbit();
+        let supplied = at("2026-01-02T03:04:05Z");
+
+        let (_, created) = block_on_ready(state.create_weight_entry(
+            rabbit.id.clone(),
+            WeightEntryDraft {
+                timestamp: Some(supplied.clone()),
+                ..weight_entry_draft()
+            },
+            request_id("operation-3"),
+        ))
+        .expect("the double accepted the write");
+
+        assert_eq!(created.timestamp, supplied, "the past moment is kept");
+        let body = write_bodies(&service)
+            .pop()
+            .expect("the entry write reached the transport");
+        assert_eq!(
+            body["payload"]["weight_entry"]["timestamp"],
+            json!(supplied.0),
+            "the stored payload carries the supplied moment"
+        );
     }
 
     #[test]

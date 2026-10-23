@@ -55,6 +55,14 @@
 //! and a row this device cannot describe refuses the whole deletion rather than removing a subset or a
 //! partial payload (RAB-10; D1.8, D1.16).
 //!
+//! [`weight`] starts the weight loop: one entry's value, timestamp and optional note, and the one item
+//! write a create goes through. The value is canonical grams and the entry carries no unit of its own —
+//! the display unit is applied at the frontend boundary (DM-1, WT-3) — the timestamp is the supplied
+//! moment or the operation's creation instant, and the note is optional and kept whole (WT-1). An
+//! entry's identity is its create operation's identity, so a retried create is the same row (D0.14),
+//! and the derived drop-alert flag is written `false` rather than persisted (D1.16, D1.3). The value
+//! rules, the edit and delete paths, the reads and the derivation are the tasks that follow it.
+//!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.
 
@@ -62,6 +70,7 @@ pub mod create;
 pub mod household;
 pub mod identity;
 pub mod rabbit;
+pub mod weight;
 
 pub use create::{CREATE_HOUSEHOLD_RPC, create_household};
 pub use household::{HouseholdBook, HouseholdName, HouseholdRecord, validate_name};
