@@ -40,13 +40,18 @@
 //! **A value is checked where the draft becomes a record.** [`validate_value`] is the one WT-4 rule —
 //! a value of zero or less is refused, and a value above [`PLAUSIBILITY_BOUND_GRAMS`] is refused until
 //! the draft's [`outlier_confirmed`](WeightEntryDraft::outlier_confirmed) says the person confirmed it
-//! — and [`record`] applies it before anything is recorded. It is a separate function so task 2.11's
-//! edit path can apply the identical rule to a correction rather than growing a second copy. The bound
-//! is a confirmation threshold, not a rejection (D1.9): a confirmed outlier is recorded at its true
-//! value, never clamped.
+//! — and [`record`] applies it before anything is recorded. [`revise`] calls the same function, so a
+//! correction and a create are judged by one rule rather than two. The bound is a confirmation
+//! threshold, not a rejection (D1.9): a confirmed outlier is recorded at its true value, never clamped.
 //!
-//! **What this module does not decide.** Duplicate-entry detection, editing and deletion, the reads
-//! and the drop-alert derivation belong to tasks 2.11–2.15.
+//! **An edit replaces the editable set and keeps the target's identity.** [`revise`] takes the stored
+//! entry and the submitted draft: the value, note and timestamp are replaced, an omitted timestamp
+//! keeping the stored instant rather than restamping a back-dated entry, while the identity, rabbit
+//! and photo references come from the stored entry. The derived alert flag is `false` on the revised
+//! value, because it is re-derived on read rather than carried (WT-5, D1.13, D1.16).
+//!
+//! **What this module does not decide.** Duplicate-entry detection, the reads and the drop-alert
+//! derivation belong to tasks 2.12–2.15; a deletion is the write path's tombstone (D1.17).
 
 use serde_json::{Value, json};
 
@@ -170,6 +175,69 @@ pub fn record(
         timestamp,
         note,
         photo_refs: Vec::new(),
+        has_weight_drop_alert: false,
+    })
+}
+
+/// Revise one stored entry, replacing exactly its editable fields (WT-5, WT-7; D1.13, D1.16).
+///
+/// [`WeightEntryDraft`] is the whole editable set — the value, the timestamp and the optional note —
+/// and it is submitted whole by the pre-filled form, so this function replaces all three and needs no
+/// "unchanged" versus "cleared" sentinel. Three facts come from the **target** instead: the identity,
+/// the rabbit and the photo references. An edit may not move an entry to another rabbit or another
+/// item, and [`WeightEntryDraft`] has no photo field (choosing one is PHOTO-2 in P2, D1.11).
+///
+/// **`timestamp: None` keeps the stored instant.** The frozen draft uses `None` for "now" on create
+/// and "the entry's existing timestamp" on update, so an edit of a back-dated entry never restamps it
+/// (design, `WeightEntryDraft`). A supplied instant is parsed and normalised to UTC by the storage
+/// boundary exactly as [`record`] does (DM-6), and an unparseable one is refused rather than replaced
+/// with the stored value.
+///
+/// The value is judged by [`validate_value`], the one WT-4 rule: zero or less is refused, and a value
+/// above the plausibility bound is refused until the draft confirms it (D1.9). The returned
+/// `has_weight_drop_alert` is `false`; the flag is derived from the current entry set on every read
+/// and never persisted (D1.3, D1.13), and [`save_weight_entry`] normalises it again on the way out.
+///
+/// # Errors
+///
+/// `validation` for a blank operation identity, a value of zero or less, an unconfirmed value above
+/// the plausibility bound (WT-4), and a timestamp that is not an absolute instant (DM-6). Each carries
+/// the operation's identity, and none sends anything.
+pub fn revise(
+    stored: &WeightEntry,
+    draft: WeightEntryDraft,
+    request_id: &RequestId,
+) -> Result<WeightEntry, CommandError> {
+    if request_id.0.trim().is_empty() {
+        return Err(CommandError::validation(Some(request_id.clone())));
+    }
+
+    let WeightEntryDraft {
+        value_grams,
+        timestamp,
+        note,
+        outlier_confirmed,
+    } = draft;
+
+    validate_value(value_grams, outlier_confirmed, request_id)?;
+
+    let timestamp = match timestamp {
+        Some(supplied) => AbsoluteInstant::parse(&supplied)
+            .map_err(|_| CommandError::validation(Some(request_id.clone())))?
+            .to_wire(),
+        // The frozen draft's `None` means "keep the stored instant" on an edit: a back-dated entry is
+        // never restamped by a correction (WT-5).
+        None => stored.timestamp.clone(),
+    };
+
+    Ok(WeightEntry {
+        id: stored.id.clone(),
+        rabbit_id: stored.rabbit_id.clone(),
+        value_grams,
+        timestamp,
+        note,
+        photo_refs: stored.photo_refs.clone(),
+        // Derived on read, never content: the write boundary states the constant (D1.16).
         has_weight_drop_alert: false,
     })
 }
@@ -636,5 +704,181 @@ mod tests {
 
         assert_ne!(first.id, second.id);
         assert_eq!(first.value_grams, second.value_grams);
+    }
+
+    /// WT-5: an edit that omits the timestamp keeps the entry's stored instant. A back-dated entry is
+    /// never restamped by a correction, which is the frozen draft's `None` on update.
+    #[test]
+    fn an_edit_that_omits_the_timestamp_keeps_the_stored_instant() {
+        let stored = record_with(
+            WeightEntryDraft {
+                timestamp: Some(at("2026-01-02T03:04:05Z")),
+                ..draft()
+            },
+            request_id("operation-1"),
+        )
+        .expect("the draft records an entry");
+
+        let revised =
+            revise(&stored, draft(), &request_id("operation-2")).expect("the revision is accepted");
+
+        assert_eq!(revised.timestamp, at("2026-01-02T03:04:05Z"));
+        assert_eq!(revised.timestamp, stored.timestamp);
+    }
+
+    /// WT-5: a supplied timestamp replaces the stored one, and an offset spelling is the same moment
+    /// once the storage boundary normalises it (DM-6).
+    #[test]
+    fn an_edit_applies_the_supplied_timestamp() {
+        let stored = record_with(draft(), request_id("operation-1")).expect("recorded");
+
+        let revised = revise(
+            &stored,
+            WeightEntryDraft {
+                timestamp: Some(at("2026-01-02T05:04:05+02:00")),
+                ..draft()
+            },
+            &request_id("operation-2"),
+        )
+        .expect("the revision is accepted");
+
+        assert_eq!(revised.timestamp, at("2026-01-02T03:04:05Z"));
+    }
+
+    /// WT-5: the editable set is replaced — value and note — while the identity, the rabbit and the
+    /// photos come from the stored entry and cannot be changed by a draft.
+    #[test]
+    fn an_edit_replaces_the_value_and_note_and_keeps_the_identity_rabbit_and_photos() {
+        let mut stored = record_with(
+            WeightEntryDraft {
+                note: Some("before correction".to_owned()),
+                ..draft()
+            },
+            request_id("operation-1"),
+        )
+        .expect("recorded");
+        stored.photo_refs = vec!["photo-1".to_owned()];
+
+        let revised = revise(
+            &stored,
+            WeightEntryDraft {
+                value_grams: Grams(1_500),
+                note: Some("corrected".to_owned()),
+                ..draft()
+            },
+            &request_id("operation-2"),
+        )
+        .expect("the revision is accepted");
+
+        assert_eq!(revised.id, stored.id, "an edit never renames the item");
+        assert_eq!(revised.rabbit_id, stored.rabbit_id);
+        assert_eq!(revised.photo_refs, stored.photo_refs);
+        assert_eq!(revised.value_grams, Grams(1_500));
+        assert_eq!(revised.note.as_deref(), Some("corrected"));
+    }
+
+    /// WT-5: a blank note in the pre-filled form is no note, not the stored one (the draft is the
+    /// whole editable set).
+    #[test]
+    fn an_edit_with_no_note_clears_the_stored_note() {
+        let stored = record_with(
+            WeightEntryDraft {
+                note: Some("morning".to_owned()),
+                ..draft()
+            },
+            request_id("operation-1"),
+        )
+        .expect("recorded");
+
+        let revised =
+            revise(&stored, draft(), &request_id("operation-2")).expect("the revision is accepted");
+
+        assert_eq!(revised.note, None);
+    }
+
+    /// D1.16: the derived alert is written `false` even when the stored value says otherwise — it is
+    /// re-derived on read, never carried into a write.
+    #[test]
+    fn an_edit_normalises_the_derived_alert_to_false() {
+        let stored = WeightEntry {
+            has_weight_drop_alert: true,
+            ..record_with(draft(), request_id("operation-1")).expect("recorded")
+        };
+
+        let revised =
+            revise(&stored, draft(), &request_id("operation-2")).expect("the revision is accepted");
+
+        assert!(!revised.has_weight_drop_alert);
+    }
+
+    /// WT-4, D1.9: an edit applies the same value rule as a create — zero is refused, an unconfirmed
+    /// outlier is refused, and a confirmed outlier is accepted at its true value.
+    #[test]
+    fn an_edit_applies_the_same_value_rules_as_a_create() {
+        let stored = record_with(draft(), request_id("operation-1")).expect("recorded");
+        let operation = request_id("operation-2");
+
+        for refused in [
+            WeightEntryDraft {
+                value_grams: Grams(0),
+                ..draft()
+            },
+            WeightEntryDraft {
+                value_grams: Grams(PLAUSIBILITY_BOUND_GRAMS.0 + 1),
+                outlier_confirmed: false,
+                ..draft()
+            },
+        ] {
+            let error = revise(&stored, refused, &operation).expect_err("the value is refused");
+            assert_eq!(error.cause, crate::ipc::types::SaveCause::Validation);
+            assert_eq!(error.request_id, Some(operation.clone()));
+        }
+
+        let confirmed = revise(
+            &stored,
+            WeightEntryDraft {
+                value_grams: Grams(30_000),
+                outlier_confirmed: true,
+                ..draft()
+            },
+            &operation,
+        )
+        .expect("a confirmed outlier is accepted");
+
+        assert_eq!(confirmed.value_grams, Grams(30_000), "never clamped");
+    }
+
+    /// A blank operation identity names no operation, so an edit is refused before anything could be
+    /// composed.
+    #[test]
+    fn an_edit_with_a_blank_operation_identity_is_refused() {
+        let stored = record_with(draft(), request_id("operation-1")).expect("recorded");
+        let operation = request_id("  ");
+
+        let error = revise(&stored, draft(), &operation).expect_err("a blank identity is refused");
+
+        assert_eq!(error.cause, crate::ipc::types::SaveCause::Validation);
+        assert_eq!(error.request_id, Some(operation));
+    }
+
+    /// An unparseable timestamp is refused rather than silently replaced with the stored value: a
+    /// corrupt input must not masquerade as the entry's existing moment (DM-6).
+    #[test]
+    fn an_edit_with_an_unparseable_timestamp_is_refused() {
+        let stored = record_with(draft(), request_id("operation-1")).expect("recorded");
+        let operation = request_id("operation-2");
+
+        let error = revise(
+            &stored,
+            WeightEntryDraft {
+                timestamp: Some(at("2026-01-02 03:04:05")),
+                ..draft()
+            },
+            &operation,
+        )
+        .expect_err("the text names no absolute instant");
+
+        assert_eq!(error.cause, crate::ipc::types::SaveCause::Validation);
+        assert_eq!(error.request_id, Some(operation));
     }
 }

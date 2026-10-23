@@ -88,7 +88,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 2.10 [rust-backend] Implement weight value validation: reject zero and negative values through
   P0's failure surface, and mark a value above the plausibility bound as requiring confirmation
   (WT-4).
-- [ ] 2.11 [rust-backend] Implement editing and deleting a past weight entry, shared with all
+- [x] 2.11 [rust-backend] Implement editing and deleting a past weight entry, shared with all
   members; both re-derive the alerts of the entries around the change, so after a deletion the
   following entry is compared against the entry that now precedes it (D1.13); refuse both for an
   archived rabbit (WT-5, WT-7, DM-4). An edit writes the stored payload's `has_weight_drop_alert` as

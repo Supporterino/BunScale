@@ -699,12 +699,14 @@ fn cascaded_request_id(operation: &RequestId, item_id: &ItemId) -> Option<Reques
 ///
 /// It is the whole-item write of [`save_rabbit_version`] with two differences: the removal flag is set,
 /// and the payload is any [`ItemPayload`], because a deletion removes entries as well as rabbits. The
-/// content is carried so the removing version retains it (D1.16, D1.17).
+/// content is carried so the removing version retains it (D1.16, D1.17). It is `pub(crate)` because
+/// the single-entry removal (`delete_weight_entry`, task 2.11) writes through this same tombstone
+/// rather than growing a second body.
 ///
 /// A completed call is not automatically a removal: a losing last-write-wins write answers with
 /// `applied: false` and is not an error (D0.7 criterion 3), so [`applied`] reads the receipt and a
 /// tombstone that did not take effect is reported as `unknown` under the key it was written with.
-async fn save_tombstone(
+pub(crate) async fn save_tombstone(
     service: &dyn SharedService,
     household_id: &HouseholdId,
     item_id: &ItemId,

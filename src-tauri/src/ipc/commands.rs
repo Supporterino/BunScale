@@ -25,15 +25,16 @@
 //! return. `error.not_implemented` is a surface state, and `error.household_content_unloaded` is the
 //! one documented second key for `unknown` (D1.16); see [`failure`](super::failure)'s module doc.
 //!
-//! **Six of the thirteen P1 bodies are stubs; `create_rabbit` (task 2.1), `update_rabbit` (task
+//! **Four of the thirteen P1 bodies are stubs; `create_rabbit` (task 2.1), `update_rabbit` (task
 //! 2.4), `list_rabbits` and `archive_rabbit` (task 2.5), `restore_rabbit` (task 2.6), `delete_rabbit`
-//! (task 2.7) and `create_weight_entry` (task 2.9) are implemented.** Each remaining stub returns
+//! (task 2.7), `create_weight_entry` (task 2.9), `update_weight_entry` and `delete_weight_entry` (task
+//! 2.11) are implemented.** Each remaining stub returns
 //! [`CommandError::not_implemented`] — cause `unknown`, `retryable: false`, key
-//! `error.not_implemented` — carrying the command's [`RequestId`] on the writing commands and `None`
-//! on the reading ones, so a frozen signature can never be mistaken for implemented behaviour. Section
-//! 2 replaces them; the signatures, the argument names the bindings export and this module split are
-//! what task 1.1 froze, so a replacement body need not change `src/bindings.ts` — the state a command
-//! reaches the app through is a `tauri::State` parameter, which the exporter does not emit.
+//! `error.not_implemented` — carrying `None` on the reading commands, so a frozen signature can never
+//! be mistaken for implemented behaviour. The remaining reads are `get_rabbit` (still awaiting an
+//! owner in `tasks.md`), `get_weight_entries` (2.12), `get_weight_entry` (2.15) and `get_dashboard`
+//! (2.14). Replacing a body needs no `src/bindings.ts` change — the state a command reaches the app
+//! through is a `tauri::State` parameter, which the exporter does not emit.
 //!
 //! **The frontend reaches these commands only through `src/features/*/api.ts`** — wrappers over the
 //! generated `src/bindings.ts` (project hard rule 2). No route, component or hook imports the
@@ -92,11 +93,6 @@ mod tests {
     use super::*;
     use crate::sync::double::test_support::block_on_ready;
 
-    /// One operation identity, re-used so a failure's carried id is checked against a known value.
-    fn request_id() -> RequestId {
-        RequestId("operation-1".to_owned())
-    }
-
     fn rabbit() -> RabbitId {
         RabbitId("rabbit-1".to_owned())
     }
@@ -107,15 +103,6 @@ mod tests {
 
     fn household() -> HouseholdId {
         HouseholdId("household-1".to_owned())
-    }
-
-    fn draft() -> WeightEntryDraft {
-        WeightEntryDraft {
-            value_grams: Grams(1_800),
-            timestamp: None,
-            note: None,
-            outlier_confirmed: false,
-        }
     }
 
     /// The one placeholder failure shape (design I5): classified as `unknown` with its retry withheld,
@@ -131,35 +118,13 @@ mod tests {
         assert_eq!(error.request_id, expected);
     }
 
-    /// The two remaining state-changing P1 stubs carry the operation identity, so the retry the
-    /// failure surface offers has something to re-issue (D0.14, design I5). `create_rabbit` left this
-    /// list when task 2.1 implemented its body, `update_rabbit` when task 2.4 did, `archive_rabbit`
-    /// when task 2.5 did, `restore_rabbit` when task 2.6 did, `delete_rabbit` when task 2.7 did and
-    /// `create_weight_entry` when task 2.9 did; each is covered by that task's own tests.
+    /// The four remaining P1 read stubs are idempotent, so their failure carries no operation
+    /// identity (D0.14). `list_rabbits` left this list when task 2.5 implemented its body; it is
+    /// covered by that task's own tests. The two write stubs left when task 2.11 implemented
+    /// `update_weight_entry` and `delete_weight_entry`.
     ///
     /// Each body is polled once through the double's helper: a stub has nothing to wait for, so a
     /// future that is not immediately ready is itself the defect.
-    #[test]
-    fn every_p1_write_stub_is_not_implemented_and_carries_the_operations_identity() {
-        let id = request_id();
-
-        let failures = [
-            block_on_ready(weight::update_weight_entry(entry(), draft(), id.clone()))
-                .expect_err("update_weight_entry is a stub"),
-            block_on_ready(weight::delete_weight_entry(entry(), id.clone()))
-                .expect_err("delete_weight_entry is a stub"),
-        ];
-
-        assert_eq!(failures.len(), 2, "every remaining P1 write is covered");
-
-        for failure in &failures {
-            assert_not_implemented(failure, Some(id.clone()));
-        }
-    }
-
-    /// The four remaining P1 read stubs are idempotent, so their failure carries no operation
-    /// identity (D0.14). `list_rabbits` left this list when task 2.5 implemented its body; it is
-    /// covered by that task's own tests.
     #[test]
     fn every_p1_read_stub_is_not_implemented_and_carries_no_operation_identity() {
         let failures = [

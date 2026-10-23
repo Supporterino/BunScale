@@ -469,17 +469,22 @@ export const commands = {
 	 *  The whole editable set is replaced through [`WeightEntryDraft`]: a patch would need a double-optional
 	 *  per field to distinguish "unchanged" from "cleared", and the edit form is pre-filled anyway. The
 	 *  same validation as [`create_weight_entry`] applies — grams only, zero and negative refused, an
-	 *  unconfirmed outlier refused — and the change is shared with every member (WT-5, HS-8).
+	 *  unconfirmed outlier refused — and the change is shared with every member (WT-5, HS-8). The
+	 *  timestamp is the supplied moment, or the entry's stored instant when omitted, so an edit never
+	 *  restamps a back-dated entry.
 	 * 
 	 *  Editing a value is an **alert-affecting** operation, not a value correction only: the edited entry's
 	 *  flag and the flag of the entry that follows it are re-derived from the current entry set
-	 *  (D1.13, WT-7).
+	 *  (D1.13, WT-7). That re-derivation is the read's (tasks 2.13–2.15); this command changes one stored
+	 *  row and writes its `has_weight_drop_alert` as `false` (D1.16).
 	 * 
 	 *  # Errors
 	 * 
 	 *  `validation` for a value of zero or less, an unconfirmed outlier, an entry of an **archived** rabbit
-	 *  (WT-5, DM-4), an unknown entry, a blank id or a blank operation identity. The write path's service
-	 *  conditions are reachable as for [`create_weight_entry`].
+	 *  (WT-5, DM-4), an unknown or tombstoned entry, an id that names another kind of item, a blank id or a
+	 *  blank operation identity. `unknown` with the unknown-content key when the entry's or its rabbit's
+	 *  content is not on this device (D1.16). The write path's service conditions are reachable as for
+	 *  [`create_weight_entry`].
 	 */
 	updateWeightEntry: (entryId: WeightEntryId, entry: WeightEntryDraft, requestId: RequestId) => typedError<WeightEntry, CommandError>(__TAURI_INVOKE("update_weight_entry", { entryId, entry, requestId })),
 	/**
@@ -487,15 +492,17 @@ export const commands = {
 	 * 
 	 *  Deleting is also **alert-affecting**: the entry that followed the deleted one is afterwards compared
 	 *  against the entry that now precedes it, so its flag can change although it was never edited
-	 *  (D1.13, WT-7). The confirmation that precedes the call is the frontend's (NFR-9, WT-8); this
-	 *  command is called only after it.
+	 *  (D1.13, WT-7). That re-derivation is the read's (tasks 2.13–2.15); this command writes one
+	 *  tombstone and never rewrites a neighbouring entry. The confirmation that precedes the call is the
+	 *  frontend's (NFR-9, WT-8); this command is called only after it.
 	 * 
 	 *  # Errors
 	 * 
-	 *  `validation` for an entry of an **archived** rabbit (WT-5, DM-4), an unknown entry, a blank id or a
-	 *  blank operation identity. The write path's service conditions are reachable as for
-	 *  [`create_weight_entry`]; a removal the service did not accept leaves the entry in place and is never
-	 *  reported as deleted.
+	 *  `validation` for an entry of an **archived** rabbit (WT-5, DM-4), an unknown or tombstoned entry, an
+	 *  id that names another kind of item, a blank id or a blank operation identity. `unknown` with the
+	 *  unknown-content key when the entry's or its rabbit's content is not on this device (D1.16). The
+	 *  write path's service conditions are reachable as for [`create_weight_entry`]; a removal the service
+	 *  did not accept leaves the entry in place and is never reported as deleted.
 	 */
 	deleteWeightEntry: (entryId: WeightEntryId, requestId: RequestId) => typedError<null, CommandError>(__TAURI_INVOKE("delete_weight_entry", { entryId, requestId })),
 	/**

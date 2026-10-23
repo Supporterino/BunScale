@@ -80,7 +80,7 @@ use crate::domain::{
 use crate::ipc::types::{
     AccountUserId, CollectionSource, CommandError, Household, HouseholdCollection, HouseholdId,
     HouseholdSummary, Instant, ItemPayload, MemberId, Rabbit, RabbitId, RabbitProfile, RequestId,
-    WeightEntry, WeightEntryDraft,
+    WeightEntry, WeightEntryDraft, WeightEntryId,
 };
 use crate::storage::{
     AbsoluteInstant, BoundaryRefusal, CollectionStore, CollectionStoreError, DeviceSnapshot,
@@ -708,6 +708,195 @@ impl AppState {
         Ok((household_id, recorded))
     }
 
+    /// Correct a past weight entry, sharing the change with every member (WT-5, WT-7; D1.13).
+    ///
+    /// The steps are the create path's, with the entry's own resolution added:
+    ///
+    /// 1. The target is this device's live row for `entry_id` ([`AppState::live_entry`]), resolved
+    ///    with **the household that owns the entry row**. A blank id, an entry this device holds no
+    ///    row for, a **tombstoned** one (permanently deleted; D1.17), an item that is not an entry and
+    ///    a row whose payload names a different entry id (an item is addressed by the id the
+    ///    collection holds, never by the id re-derived from its payload; D1.16, SYNC-1) are all
+    ///    refused as `validation`, and nothing is sent. A live row whose content is not on this
+    ///    device refuses with the unknown-content key, because a whole-item write cannot be composed
+    ///    without it (D1.16).
+    /// 2. The entry's own `rabbit_id` — never a rabbit the command has to guess — is passed to
+    ///    [`AppState::writable_rabbit`], so an **archived** rabbit refuses the edit as `validation`
+    ///    before anything is composed (DM-4, RAB-8; D1.5), an unknown-content rabbit row refuses with
+    ///    its own key, and a non-rabbit row is refused too. The rabbit's household must be the
+    ///    **entry's**: a copy whose two resolutions disagree is refused as `validation` rather than
+    ///    writing the entry into a collection that does not hold it (NFR-10).
+    /// 3. The revision is recorded next, so the refusals the input itself produces — a value of zero
+    ///    or less, an unconfirmed value above the plausibility bound (WT-4), a blank operation identity
+    ///    and an unparseable timestamp — are reported as `validation` even when no account exists.
+    ///    The whole editable set is replaced: value, note and timestamp, with `timestamp: None`
+    ///    keeping the stored instant so an edit never restamps a back-dated entry. The identity, the
+    ///    rabbit and the photo references come from the target, and `has_weight_drop_alert` is written
+    ///    `false` because it is derived on read (WT-5, D1.13, D1.16).
+    /// 4. No account is `no_account` before any probe, and the **writing member** is resolved from the
+    ///    person's household book exactly as a rabbit write resolves it (ADR 0002 criterion 3).
+    /// 5. The version marker is the one minted for the operation and the write is one `save_item` of
+    ///    the entry's existing item — the id its row is keyed by — through [`crate::sync::SaveGate`],
+    ///    so a retry re-sends a byte-identical body and the edit is shared with every member because
+    ///    there is one item, not one per member (D0.14, HS-8).
+    ///
+    /// **The alerts around the entry are not rewritten here.** The edit changes the entry set, and the
+    /// drop alert is a derivation over that set on every read (D1.13): the following entry's flag is
+    /// re-derived by the trend/detail read (tasks 2.13–2.15), never repaired by a write. This method
+    /// touches exactly one row, so no neighbouring stored entry is changed.
+    ///
+    /// The returned household is the one whose collection holds the entry. The command's answer is the
+    /// entry, but the adapter needs the household to scope `weight:changed` — and the entry itself
+    /// carries only its rabbit, so it cannot name the household on its own.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank entry id, an entry this device holds no live row for (absent or
+    /// tombstoned), an item that is not an entry, a row whose payload names another entry, an
+    /// **archived** rabbit (DM-4, RAB-8; D1.5), a rabbit claimed by another household, a value of
+    /// zero or less, an unconfirmed value above the plausibility bound (WT-4), a blank operation
+    /// identity, an unparseable timestamp, and a household with no member for this account; `unknown`
+    /// with the unknown-content key when the entry's row or its rabbit's row has no content this
+    /// device can describe (D1.16); `no_account` when no account is available; and otherwise the
+    /// gate's mapped causes (`connectivity`, `no_account`, `allowance_exceeded`, `rate_limited`,
+    /// `timeout`, `unknown`). A refusal never edits an entry, and one that is a property of the local
+    /// copy never reaches the shared service at all.
+    pub async fn update_weight_entry(
+        &self,
+        entry_id: WeightEntryId,
+        entry: WeightEntryDraft,
+        request_id: RequestId,
+    ) -> Result<(HouseholdId, WeightEntry), CommandError> {
+        if request_id.0.trim().is_empty() {
+            return Err(CommandError::validation(Some(request_id)));
+        }
+
+        let (household_id, stored) = self.live_entry(&entry_id, &request_id)?;
+        let (rabbit_household_id, _rabbit) =
+            self.writable_rabbit(&stored.rabbit_id, &request_id)?;
+
+        if rabbit_household_id != household_id {
+            // The entry and its rabbit are claimed by different collections, so neither household is
+            // the one this write can address (NFR-10).
+            return Err(CommandError::validation(Some(request_id)));
+        }
+
+        let revised = domain::weight::revise(&stored, entry, &request_id)?;
+
+        if self.account.is_none() {
+            return Err(CommandError::no_account(Some(request_id)));
+        }
+
+        let Some(writer) = self.writing_member(&household_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+        let marker = self.operation_marker(&request_id);
+
+        domain::weight::save_weight_entry(
+            self.service.as_ref(),
+            &household_id,
+            &revised,
+            &writer,
+            &marker,
+            request_id,
+        )
+        .await?;
+
+        Ok((household_id, revised))
+    }
+
+    /// Delete a past weight entry, sharing the removal with every member (WT-5, WT-8; D1.13, D1.17).
+    ///
+    /// The steps are the edit's, with the removal written instead of a revised version:
+    ///
+    /// 1. The target is resolved exactly as an edit resolves it ([`AppState::live_entry`]): a blank
+    ///    id, an absent or tombstoned entry, a non-entry item and a row whose payload names a different
+    ///    entry are `validation`, unknown content is the unknown-content refusal, and none of them
+    ///    sends anything (D1.16, D1.17). The resolution also carries the household that owns the
+    ///    **entry row**, which is the collection the tombstone is written into.
+    /// 2. The entry's own `rabbit_id` is passed to [`AppState::writable_rabbit`], so an **archived**
+    ///    rabbit refuses the deletion as `validation` before anything is composed (DM-4, RAB-8;
+    ///    D1.5). A rabbit claimed by another household is refused too: the entry and its rabbit must
+    ///    belong to the same collection (NFR-10).
+    /// 3. No account is `no_account` before any probe, and the writing member is resolved from the
+    ///    person's household book (ADR 0002 criterion 3).
+    /// 4. The operation's fresh version marker is written with the **tombstone**: identity and version
+    ///    are kept, the entry's content is retained on the version that removes it, and `deleted` is
+    ///    the write's own top-level argument (D1.16, D1.17). The write addresses the item id the row
+    ///    is keyed by and goes into the household that holds it, so every member resolves the entry as
+    ///    removed (HS-8). A removal needs no derived ledger key: one command writes one item, so the
+    ///    operation's `request_id` is the only key (D1.17).
+    ///
+    /// **The following entry's alert is not rewritten here.** Deleting the entry changes the entry set
+    /// the derivation reads, so the entry that now follows is compared against the entry that now
+    /// precedes it by the read (tasks 2.13–2.15) — a recomputation is a re-read, never a repair pass
+    /// over stored rows (D1.13). This method touches exactly one row.
+    ///
+    /// The returned household is the one whose collection lost the entry, with the rabbit the entry
+    /// belonged to. The command's answer is `()` as the contract fixes, but the adapter needs both to
+    /// scope `weight:changed`.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank entry id, an entry this device holds no live row for (absent or
+    /// tombstoned), an item that is not an entry, a row whose payload names another entry, an
+    /// **archived** rabbit (DM-4, RAB-8; D1.5), a rabbit claimed by another household, a blank
+    /// operation identity, and a household with no member for this account; `unknown` with the
+    /// unknown-content key when the entry's row or its rabbit's row has no content this device can
+    /// describe, and `unknown` when the service accepted the call but the removal did not apply
+    /// (D1.16, D1.17); `no_account` when no account is available; and otherwise the gate's mapped
+    /// causes (`connectivity`, `no_account`, `allowance_exceeded`, `rate_limited`, `timeout`,
+    /// `unknown`). A refusal never removes an entry, and one that is a property of the local copy
+    /// never reaches the shared service at all.
+    pub async fn delete_weight_entry(
+        &self,
+        entry_id: WeightEntryId,
+        request_id: RequestId,
+    ) -> Result<(HouseholdId, RabbitId), CommandError> {
+        if request_id.0.trim().is_empty() {
+            return Err(CommandError::validation(Some(request_id)));
+        }
+
+        let (household_id, stored) = self.live_entry(&entry_id, &request_id)?;
+        let rabbit_id = stored.rabbit_id.clone();
+        let (rabbit_household_id, _rabbit) = self.writable_rabbit(&rabbit_id, &request_id)?;
+
+        if rabbit_household_id != household_id {
+            // The entry and its rabbit are claimed by different collections, so neither household is
+            // the one this removal can address (NFR-10).
+            return Err(CommandError::validation(Some(request_id)));
+        }
+
+        if self.account.is_none() {
+            return Err(CommandError::no_account(Some(request_id)));
+        }
+
+        let Some(writer) = self.writing_member(&household_id) else {
+            return Err(CommandError::validation(Some(request_id)));
+        };
+        let marker = self.operation_marker(&request_id);
+        let payload = ItemPayload::WeightEntry {
+            weight_entry: WeightEntry {
+                // Derived on read, never content: the removing version writes it `false` (D1.16).
+                has_weight_drop_alert: false,
+                ..stored
+            },
+        };
+
+        domain::rabbit::save_tombstone(
+            self.service.as_ref(),
+            &household_id,
+            &domain::weight::item_id(&entry_id),
+            &payload,
+            &writer,
+            &marker,
+            request_id,
+        )
+        .await?;
+
+        Ok((household_id, rabbit_id))
+    }
+
     /// Archive a rabbit: a reversible soft delete that discards nothing (RAB-6, RAB-9; D1.16).
     ///
     /// The write is the **whole item**. This device's copy of the household collection supplies the
@@ -1053,6 +1242,77 @@ impl AppState {
         }
     }
 
+    /// The **live** weight entry `entry_id` names, with the household that owns its row (WT-5, D1.16,
+    /// D1.17; SYNC-1).
+    ///
+    /// The entry counterpart of [`AppState::stored_rabbit`], and the one resolution both the edit and
+    /// the deletion use so the rules cannot differ between them. **The household returned is the one
+    /// that claimed the entry's item id**, and it is the only collection the caller may write the
+    /// entry into: the rabbit's household is checked against it by the caller, so an entry can never be
+    /// edited or removed inside a collection that does not hold it (NFR-10).
+    ///
+    /// A tombstone is checked **before** the content, because a tombstone whose content was never read
+    /// is stored as unknown content; it names an entry that is already removed, so it is refused as a
+    /// **blank/unknown entry** (`validation`) rather than re-submitted (D1.17). A row whose content is
+    /// not on this device refuses with the unknown-content key, because a whole-item write cannot be
+    /// composed from it (D1.16), and a row that carries a rabbit is not an entry at all.
+    ///
+    /// **The payload's entry id must be the item id the row is keyed by.** A weight entry's item is
+    /// the row the collection holds, never an id re-derived from its payload (the same rule
+    /// [`crate::domain::rabbit::deletion_plan`] states for a removal); a row whose `WeightEntry.id`
+    /// disagrees with the id it was looked up by would make the write address a different item from
+    /// the one resolved. That is refused as `validation` here, so the resolved row's item id is the
+    /// single write target for both the edit and the removal.
+    ///
+    /// # Errors
+    ///
+    /// `validation` for a blank id, an entry this device holds no live row for, a tombstoned entry, a
+    /// non-entry item, and a payload naming another entry id; `unknown` with the unknown-content key
+    /// when the live row's content is not on this device. All carry the operation's identity and none
+    /// sends anything.
+    fn live_entry(
+        &self,
+        entry_id: &WeightEntryId,
+        request_id: &RequestId,
+    ) -> Result<(HouseholdId, WeightEntry), CommandError> {
+        if entry_id.0.trim().is_empty() {
+            return Err(CommandError::validation(Some(request_id.clone())));
+        }
+
+        let item_id = domain::weight::item_id(entry_id);
+        let copies = lock(&self.copies);
+        let Some(household_id) = copies.household_of(&item_id).cloned() else {
+            return Err(CommandError::validation(Some(request_id.clone())));
+        };
+        let Ok(Some(stored)) = copies.item(&household_id, &item_id) else {
+            return Err(CommandError::validation(Some(request_id.clone())));
+        };
+
+        if stored.deleted {
+            return Err(CommandError::validation(Some(request_id.clone())));
+        }
+
+        match &stored.payload {
+            Some(ItemPayload::WeightEntry { weight_entry }) if weight_entry.id == *entry_id => {
+                Ok((household_id, weight_entry.clone()))
+            }
+            // The payload names another item than the row it is stored under, so it cannot be the
+            // content of the row `entry_id` resolved (D1.16, SYNC-1).
+            Some(ItemPayload::WeightEntry { .. }) => {
+                Err(CommandError::validation(Some(request_id.clone())))
+            }
+            // The row exists but its content is not on this device: a whole-item write cannot be
+            // composed, and a partial one would replace the stored version (D1.16).
+            None => Err(CommandError::household_content_unloaded(Some(
+                request_id.clone(),
+            ))),
+            // The identity names an item that is not an entry, so there is nothing to edit or delete.
+            Some(ItemPayload::Rabbit { .. }) => {
+                Err(CommandError::validation(Some(request_id.clone())))
+            }
+        }
+    }
+
     /// The **live** row this device holds for `rabbit_id`, with the household that claimed it.
     ///
     /// The one lookup both an edit and a lifecycle write resolve their target through, so the
@@ -1380,8 +1640,8 @@ mod tests {
 
     use super::*;
     use crate::ipc::types::{
-        CollectionItem, Grams, ItemId, NeuterStatus, RabbitId, RabbitProfile, SaveCause, Sex,
-        WeightEntry, WeightEntryId,
+        CollectionItem, Grams, ItemId, NeuterStatus, PLAUSIBILITY_BOUND_GRAMS, RabbitId,
+        RabbitProfile, SaveCause, Sex, WeightEntry, WeightEntryId,
     };
     use crate::sync::double::ScriptedService;
     use crate::sync::double::test_support::block_on_ready;
@@ -1512,6 +1772,26 @@ mod tests {
                     rabbit_id: rabbit.id.clone(),
                     value_grams: Grams(1_800),
                     timestamp: at("2026-10-20T09:00:00Z"),
+                    note: Some("morning".to_owned()),
+                    photo_refs: Vec::new(),
+                    has_weight_drop_alert: false,
+                },
+            }),
+        }
+    }
+
+    /// One weight-entry row at a stated value and timestamp, so the tests can order several entries.
+    fn row_with_entry(id: &str, rabbit: &Rabbit, value: i32, timestamp: &str) -> CollectionItem {
+        CollectionItem {
+            item_id: ItemId(id.to_owned()),
+            updated_at: at(timestamp),
+            deleted: false,
+            payload: Some(ItemPayload::WeightEntry {
+                weight_entry: WeightEntry {
+                    id: WeightEntryId(id.to_owned()),
+                    rabbit_id: rabbit.id.clone(),
+                    value_grams: Grams(value),
+                    timestamp: at(timestamp),
                     note: Some("morning".to_owned()),
                     photo_refs: Vec::new(),
                     has_weight_drop_alert: false,
@@ -3333,6 +3613,582 @@ mod tests {
 
             assert_eq!(error.cause, SaveCause::Validation);
             assert_eq!(error.request_id, Some(request_id.clone()));
+        }
+
+        assert!(service.calls().is_empty(), "nothing was probed or sent");
+    }
+
+    /// A state whose book holds `household-1`, whose copy holds exactly `items`, and whose account is
+    /// the household's member — the starting point for the entry-resolution refusals (D1.16, D1.17).
+    fn state_with_copy(items: Vec<CollectionItem>) -> (Arc<ScriptedService>, AppState) {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        state
+            .load_collection(
+                &one,
+                wire_collection(&one, items),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        (service, state)
+    }
+
+    /// A state that holds one active rabbit and three entries in timestamp order — the state an edit or
+    /// a deletion of a past entry starts from (WT-5, WT-7).
+    fn state_with_one_rabbit_and_three_entries() -> (Arc<ScriptedService>, AppState, Rabbit) {
+        let service = Arc::new(ScriptedService::new().on_write([accepted_answer("household-1")]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the household is created and held");
+        let rabbit =
+            block_on_ready(state.create_rabbit(one.clone(), profile(), request_id("operation-2")))
+                .expect("the rabbit is created");
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![
+                        row_with_rabbit(&rabbit.id.0, "2026-10-22T09:30:00Z", &rabbit),
+                        row_with_entry("entry-1", &rabbit, 2_000, "2026-10-20T09:00:00Z"),
+                        row_with_entry("entry-2", &rabbit, 1_800, "2026-10-21T09:00:00Z"),
+                        row_with_entry("entry-3", &rabbit, 1_700, "2026-10-22T09:00:00Z"),
+                    ],
+                ),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+
+        (service, state, rabbit)
+    }
+
+    /// Assert that both entry writes refuse `entry_id` with `cause` and `message_key`, carrying the
+    /// operation's identity, with nothing probed or sent.
+    fn assert_both_entry_writes_refused(
+        state: &AppState,
+        service: &ScriptedService,
+        entry_id: &str,
+        cause: SaveCause,
+        message_key: &str,
+    ) {
+        let calls_before = service.calls();
+        let operation = request_id("operation-2");
+
+        let errors = [
+            block_on_ready(state.update_weight_entry(
+                WeightEntryId(entry_id.to_owned()),
+                weight_entry_draft(),
+                operation.clone(),
+            ))
+            .expect_err("the edit is refused"),
+            block_on_ready(
+                state.delete_weight_entry(WeightEntryId(entry_id.to_owned()), operation.clone()),
+            )
+            .expect_err("the deletion is refused"),
+        ];
+
+        for error in errors {
+            assert_eq!(error.cause, cause, "{entry_id}");
+            assert_eq!(error.message_key, message_key, "{entry_id}");
+            assert!(!error.retryable, "{entry_id}");
+            assert_eq!(error.request_id, Some(operation.clone()), "{entry_id}");
+        }
+
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// WT-5, HS-8: correcting a past entry is one write of the entry's **whole** item into the
+    /// household's collection, naming the writing member — so every member resolves the correction —
+    /// and the stored timestamp is kept when the draft omits it.
+    ///
+    /// WT-7, D1.13: the edit is alert-affecting, but the re-derivation is a read-side property. This
+    /// test proves the write side touches exactly the edited row: no write names a neighbour, and the
+    /// rows this device holds (the neighbours included) are unchanged. The following entry's flag is
+    /// re-derived by the read of tasks 2.13–2.15.
+    #[test]
+    fn editing_a_past_entry_writes_the_one_shared_item_and_leaves_the_neighbours_stored() {
+        let (service, state, rabbit) = state_with_one_rabbit_and_three_entries();
+        let one = household("household-1");
+        let held_before = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the read path's copy is held");
+        let stored_timestamp = at("2026-10-21T09:00:00Z");
+        let operation = request_id("operation-3");
+
+        let (household_id, revised) = block_on_ready(state.update_weight_entry(
+            WeightEntryId("entry-2".to_owned()),
+            WeightEntryDraft {
+                value_grams: Grams(1_500),
+                timestamp: None,
+                note: Some("corrected".to_owned()),
+                outlier_confirmed: false,
+            },
+            operation.clone(),
+        ))
+        .expect("the double accepted the edit");
+
+        assert_eq!(household_id, one);
+        assert_eq!(revised.id, WeightEntryId("entry-2".to_owned()));
+        assert_eq!(revised.rabbit_id, rabbit.id);
+        assert_eq!(revised.value_grams, Grams(1_500));
+        assert_eq!(revised.note.as_deref(), Some("corrected"));
+        assert_eq!(
+            revised.timestamp, stored_timestamp,
+            "an omitted timestamp keeps the entry's stored instant"
+        );
+
+        // One added write: the entry's existing item, whole, in the household's collection (HS-8).
+        let bodies = write_bodies(&service);
+        assert_eq!(bodies.len(), 3, "the household, the rabbit and the edit");
+        let body = &bodies[2];
+        assert_eq!(body["household_id"], json!(one.0));
+        assert_eq!(body["item_id"], json!("entry-2"));
+        assert_eq!(body["request_id"], json!("operation-3"));
+        assert_eq!(body["writer_id"], json!("member-1"));
+        assert!(body.get("deleted").is_none(), "an edit is not a removal");
+        assert_eq!(body["payload"]["kind"], json!("weight_entry"));
+        assert_eq!(body["payload"]["weight_entry"]["value_grams"], json!(1_500));
+        assert_eq!(
+            body["payload"]["weight_entry"]["timestamp"],
+            json!(stored_timestamp.0),
+            "the stored payload carries the kept instant, not a restamp"
+        );
+        assert_eq!(
+            body["payload"]["weight_entry"]["has_weight_drop_alert"],
+            json!(false),
+            "the derived alert is written false and re-derived on read (D1.16, D1.13)"
+        );
+
+        // WT-7, D1.13: no neighbour is rewritten. The only entry write addresses the edited row.
+        for neighbour in ["entry-1", "entry-3"] {
+            assert!(
+                bodies
+                    .iter()
+                    .all(|body| body["item_id"] != json!(neighbour)),
+                "the write never names {neighbour}"
+            );
+        }
+        let held_after = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is still held");
+        assert_eq!(
+            held_after.items, held_before.items,
+            "no stored row is rewritten, the neighbours included"
+        );
+    }
+
+    /// WT-5, HS-8, D1.17: deleting a past entry is one tombstone of its existing item, retaining its
+    /// content and naming the writing member.
+    ///
+    /// WT-7, D1.13: the deletion is alert-affecting, but the following entry's re-derivation is a
+    /// read-side property. No stored neighbour is rewritten here; the read of tasks 2.13–2.15 compares
+    /// the following entry against the one that now precedes it.
+    #[test]
+    fn deleting_a_past_entry_writes_the_one_tombstone_and_leaves_the_neighbours_stored() {
+        let (service, state, rabbit) = state_with_one_rabbit_and_three_entries();
+        let one = household("household-1");
+        let held_before = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the read path's copy is held");
+        let operation = request_id("operation-3");
+
+        let (household_id, rabbit_id) = block_on_ready(
+            state.delete_weight_entry(WeightEntryId("entry-2".to_owned()), operation.clone()),
+        )
+        .expect("the double accepted the deletion");
+
+        assert_eq!(household_id, one);
+        assert_eq!(rabbit_id, rabbit.id);
+
+        let bodies = write_bodies(&service);
+        assert_eq!(
+            bodies.len(),
+            3,
+            "the household, the rabbit and the deletion"
+        );
+        let body = &bodies[2];
+        assert_eq!(body["household_id"], json!(one.0));
+        assert_eq!(body["item_id"], json!("entry-2"));
+        assert_eq!(body["request_id"], json!("operation-3"));
+        assert_eq!(body["writer_id"], json!("member-1"));
+        assert_eq!(body["deleted"], json!(true));
+        assert_eq!(body["payload"]["kind"], json!("weight_entry"));
+        assert_eq!(
+            body["payload"]["weight_entry"]["value_grams"],
+            json!(1_800),
+            "the removing version retains the entry's content"
+        );
+        assert_eq!(body["payload"]["weight_entry"]["note"], json!("morning"));
+        assert_eq!(
+            body["payload"]["weight_entry"]["has_weight_drop_alert"],
+            json!(false)
+        );
+
+        for neighbour in ["entry-1", "entry-3"] {
+            assert!(
+                bodies
+                    .iter()
+                    .all(|body| body["item_id"] != json!(neighbour)),
+                "the removal never names {neighbour}"
+            );
+        }
+        let held_after = state
+            .read_collection(&one, CollectionSource::Local)
+            .expect("the copy is still held");
+        assert_eq!(
+            held_after.items, held_before.items,
+            "no stored row is rewritten, the neighbours included"
+        );
+    }
+
+    /// D0.14: a retried edit re-sends the operation's marker and the kept timestamp, so the two bodies
+    /// are byte-identical and the service's ledger recognises one operation rather than refusing a
+    /// changed payload.
+    #[test]
+    fn a_retried_edit_submits_a_byte_identical_body() {
+        let (service, state, _rabbit) = state_with_one_rabbit_and_three_entries();
+        let operation = request_id("operation-3");
+        let correction = || WeightEntryDraft {
+            value_grams: Grams(1_500),
+            timestamp: None,
+            note: Some("corrected".to_owned()),
+            outlier_confirmed: false,
+        };
+
+        for _attempt in 1..=2 {
+            block_on_ready(state.update_weight_entry(
+                WeightEntryId("entry-2".to_owned()),
+                correction(),
+                operation.clone(),
+            ))
+            .expect("the double accepted the edit");
+        }
+
+        let bodies = write_bodies(&service);
+        assert_eq!(
+            bodies.len(),
+            4,
+            "the household, the rabbit and two attempts"
+        );
+        assert_eq!(
+            bodies[2], bodies[3],
+            "a retry submits the bytes the first attempt submitted"
+        );
+    }
+
+    /// WT-4: an edit applies the create path's value rule — zero is refused, an unconfirmed outlier is
+    /// refused — with nothing probed or sent.
+    #[test]
+    fn an_edit_with_an_invalid_value_is_refused_and_writes_nothing() {
+        for refused in [
+            WeightEntryDraft {
+                value_grams: Grams(0),
+                ..weight_entry_draft()
+            },
+            WeightEntryDraft {
+                value_grams: Grams(PLAUSIBILITY_BOUND_GRAMS.0 + 1),
+                outlier_confirmed: false,
+                ..weight_entry_draft()
+            },
+        ] {
+            let (service, state, _rabbit) = state_with_one_rabbit_and_three_entries();
+            let calls_before = service.calls();
+            let operation = request_id("operation-3");
+
+            let error = block_on_ready(state.update_weight_entry(
+                WeightEntryId("entry-2".to_owned()),
+                refused,
+                operation.clone(),
+            ))
+            .expect_err("the value is refused");
+
+            assert_eq!(error.cause, SaveCause::Validation);
+            assert_eq!(error.request_id, Some(operation));
+            assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+        }
+    }
+
+    /// DM-4, WT-5: an archived rabbit's entries cannot be edited or deleted, whichever entry point
+    /// reaches them; both refuse as `validation` and neither sends anything (D1.5, RAB-8).
+    #[test]
+    fn an_archived_rabbits_entry_cannot_be_edited_or_deleted() {
+        let (service, state, _rabbit) = state_with_an_archived_rabbit_and_entries();
+
+        assert_both_entry_writes_refused(
+            &state,
+            &service,
+            "entry-1",
+            SaveCause::Validation,
+            "error.validation",
+        );
+    }
+
+    /// D1.17: a tombstone names an entry that is already removed, so both writes refuse it as an
+    /// unknown entry (`validation`) rather than re-submitting or resurrecting it.
+    #[test]
+    fn a_tombstoned_entry_cannot_be_edited_or_deleted() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble");
+        let (service, state) = state_with_copy(vec![
+            row_with_rabbit("rabbit-1", "2026-10-22T09:30:00Z", &rabbit),
+            tombstone("entry-1", "2026-10-22T10:00:00Z"),
+        ]);
+
+        assert_both_entry_writes_refused(
+            &state,
+            &service,
+            "entry-1",
+            SaveCause::Validation,
+            "error.validation",
+        );
+    }
+
+    /// D1.16: a live entry row whose content is not on this device cannot be re-submitted as a whole
+    /// item, so both writes refuse with the unknown-content key and send nothing.
+    #[test]
+    fn an_entry_whose_content_is_unknown_cannot_be_edited_or_deleted() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble");
+        let (service, state) = state_with_copy(vec![
+            row_with_rabbit("rabbit-1", "2026-10-22T09:30:00Z", &rabbit),
+            wire("entry-1", "2026-10-21T09:00:00Z"),
+        ]);
+
+        assert_both_entry_writes_refused(
+            &state,
+            &service,
+            "entry-1",
+            SaveCause::Unknown,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY,
+        );
+    }
+
+    /// D1.16: the entry is known but its rabbit's content is not, so the archived check cannot be
+    /// established and both writes refuse with the unknown-content key instead of writing blind.
+    #[test]
+    fn an_entry_whose_rabbits_content_is_unknown_cannot_be_edited_or_deleted() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble");
+        let (service, state) = state_with_copy(vec![
+            wire("rabbit-1", "2026-10-22T09:30:00Z"),
+            row_with_entry("entry-1", &rabbit, 1_800, "2026-10-21T09:00:00Z"),
+        ]);
+
+        assert_both_entry_writes_refused(
+            &state,
+            &service,
+            "entry-1",
+            SaveCause::Unknown,
+            crate::ipc::failure::HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY,
+        );
+    }
+
+    /// NFR-10, D1.16: the entry row and its rabbit's row must belong to the same collection. A copy
+    /// whose entry is claimed by one household while its rabbit is claimed by another is refused as
+    /// `validation` by both writes — neither may "succeed" by writing into the rabbit's household and
+    /// leaving the entry's own row untouched, and nothing is sent.
+    ///
+    /// Household-2 is put in the **household book** with this account as a member, so the unguarded
+    /// path can name a writer and reach the write: the refusal has to come from the household
+    /// mismatch, not from a book that cannot attribute the write.
+    #[test]
+    fn an_entry_whose_rabbit_is_claimed_by_another_household_is_refused_by_both_writes() {
+        let service = Arc::new(ScriptedService::new().on_write([
+            accepted_answer("household-1"),
+            accepted_answer("household-2"),
+        ]));
+        let state = AppState::new(service.clone(), Some(account()));
+        let one = household("household-1");
+        let two = household("household-2");
+
+        block_on_ready(state.create_household("Home".to_owned(), request_id("operation-1")))
+            .expect("the first household is created and held");
+        block_on_ready(state.create_household("Other".to_owned(), request_id("operation-book-2")))
+            .expect("the second household is created and held");
+        assert_eq!(
+            state
+                .list_households()
+                .iter()
+                .map(|household| household.id.clone())
+                .collect::<Vec<_>>(),
+            vec![one.clone(), two.clone()],
+            "both households are in the book"
+        );
+        let rabbit = Rabbit {
+            household_id: two.clone(),
+            ..stored_rabbit("rabbit-1", "Pebble")
+        };
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![row_with_entry(
+                        "entry-1",
+                        &rabbit,
+                        1_800,
+                        "2026-10-21T09:00:00Z",
+                    )],
+                ),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is household-1's own");
+        state
+            .load_collection(
+                &two,
+                wire_collection(
+                    &two,
+                    vec![row_with_rabbit("rabbit-1", "2026-10-22T09:30:00Z", &rabbit)],
+                ),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is household-2's own");
+
+        assert_both_entry_writes_refused(
+            &state,
+            &service,
+            "entry-1",
+            SaveCause::Validation,
+            "error.validation",
+        );
+    }
+
+    /// D1.16, SYNC-1: a weight entry's item is the row the collection holds, never an id re-derived
+    /// from its payload. A row whose payload names another entry is refused by both writes, so the
+    /// resolved row's item id stays the single write target and a different item is never edited or
+    /// tombstoned in its place.
+    #[test]
+    fn an_entry_row_whose_payload_names_another_entry_is_refused_by_both_writes() {
+        let rabbit = stored_rabbit("rabbit-1", "Pebble");
+        let mut misplaced = row_with_entry("entry-1", &rabbit, 1_800, "2026-10-21T09:00:00Z");
+        let Some(ItemPayload::WeightEntry { weight_entry }) = &mut misplaced.payload else {
+            panic!("the row is an entry");
+        };
+        weight_entry.id = WeightEntryId("entry-2".to_owned());
+
+        let (service, state) = state_with_copy(vec![
+            row_with_rabbit("rabbit-1", "2026-10-22T09:30:00Z", &rabbit),
+            misplaced,
+        ]);
+
+        assert_both_entry_writes_refused(
+            &state,
+            &service,
+            "entry-1",
+            SaveCause::Validation,
+            "error.validation",
+        );
+    }
+
+    /// D1.16: an id that names a rabbit row is not an entry, so both writes refuse it as `validation`.
+    #[test]
+    fn an_id_that_names_a_rabbit_row_cannot_be_edited_or_deleted_as_an_entry() {
+        let rabbit = stored_rabbit("entry-1", "Pebble");
+        let (service, state) = state_with_copy(vec![row_with_rabbit(
+            "entry-1",
+            "2026-10-22T09:30:00Z",
+            &rabbit,
+        )]);
+
+        assert_both_entry_writes_refused(
+            &state,
+            &service,
+            "entry-1",
+            SaveCause::Validation,
+            "error.validation",
+        );
+    }
+
+    /// An entry this device holds no row for — never loaded, or a blank id — is refused as `validation`
+    /// and sends nothing; the write never invents a row it cannot read.
+    #[test]
+    fn an_entry_this_device_holds_no_row_for_cannot_be_edited_or_deleted() {
+        let (service, state) = state_with_copy(Vec::new());
+
+        for entry_id in ["entry-1", "   "] {
+            assert_both_entry_writes_refused(
+                &state,
+                &service,
+                entry_id,
+                SaveCause::Validation,
+                "error.validation",
+            );
+        }
+    }
+
+    /// A blank operation identity names no operation, so both entry writes refuse before the copy is
+    /// even consulted (D0.14).
+    #[test]
+    fn a_blank_operation_identity_is_refused_by_the_edit_and_the_delete() {
+        let (service, state, _rabbit) = state_with_one_rabbit_and_three_entries();
+        let calls_before = service.calls();
+        let blank = request_id("   ");
+
+        let edit = block_on_ready(state.update_weight_entry(
+            WeightEntryId("entry-2".to_owned()),
+            weight_entry_draft(),
+            blank.clone(),
+        ))
+        .expect_err("a blank identity names no operation");
+        let deletion = block_on_ready(
+            state.delete_weight_entry(WeightEntryId("entry-2".to_owned()), blank.clone()),
+        )
+        .expect_err("a blank identity names no operation");
+
+        for error in [edit, deletion] {
+            assert_eq!(error.cause, SaveCause::Validation);
+            assert_eq!(error.message_key, "error.validation");
+            assert!(!error.retryable);
+            assert_eq!(error.request_id, Some(blank.clone()));
+        }
+
+        assert_eq!(service.calls(), calls_before, "nothing was probed or sent");
+    }
+
+    /// Without an account both writes are refused with `no_account` before any probe; the copy is
+    /// still consulted first, so the refusal names the real state.
+    #[test]
+    fn an_entry_edit_without_an_account_is_refused_with_no_account_and_nothing_is_sent() {
+        let service = Arc::new(ScriptedService::new());
+        let state = AppState::new(service.clone(), None);
+        let one = household("household-1");
+        let rabbit = stored_rabbit("rabbit-1", "Pebble");
+
+        state
+            .load_collection(
+                &one,
+                wire_collection(
+                    &one,
+                    vec![
+                        row_with_rabbit("rabbit-1", "2026-10-22T09:30:00Z", &rabbit),
+                        row_with_entry("entry-1", &rabbit, 1_800, "2026-10-21T09:00:00Z"),
+                    ],
+                ),
+                at("2026-10-22T09:31:00Z"),
+            )
+            .expect("the collection is the household's own");
+        let operation = request_id("operation-2");
+
+        let edit = block_on_ready(state.update_weight_entry(
+            WeightEntryId("entry-1".to_owned()),
+            weight_entry_draft(),
+            operation.clone(),
+        ))
+        .expect_err("P0 has no account");
+        let deletion = block_on_ready(
+            state.delete_weight_entry(WeightEntryId("entry-1".to_owned()), operation.clone()),
+        )
+        .expect_err("P0 has no account");
+
+        for error in [edit, deletion] {
+            assert_eq!(error.cause, SaveCause::NoAccount);
+            assert_eq!(error.message_key, "error.no_account");
+            assert!(error.retryable);
+            assert_eq!(error.request_id, Some(operation.clone()));
         }
 
         assert!(service.calls().is_empty(), "nothing was probed or sent");

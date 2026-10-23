@@ -63,9 +63,12 @@
 //! and the derived drop-alert flag is written `false` rather than persisted (D1.16, D1.3). The value
 //! rules of WT-4 are applied where the draft becomes a record: a value of zero or less is refused, and
 //! a value above the plausibility bound is refused until the draft confirms it — the bound is a
-//! confirmation threshold, so a confirmed outlier is stored at its true value (D1.9). The same rule is
-//! public for the edit path. The edit and delete paths, the reads and the derivation are the tasks that
-//! follow.
+//! confirmation threshold, so a confirmed outlier is stored at its true value (D1.9). An edit replaces
+//! the editable set of the stored entry, keeps its identity and — when the draft omits the timestamp —
+//! its stored instant, and is written as the whole item so every member resolves the correction
+//! (WT-5); a deletion is the write path's tombstone, keeping the row's identity and content (D1.17).
+//! Both are alert-affecting operations whose re-derivation is the read's (D1.13); the reads and the
+//! derivation are the tasks that follow.
 //!
 //! **Nothing here touches Tauri.** The commands in [`crate::ipc`] are adapters over this module, and
 //! the shared state in [`crate::state`] owns the instance a command borrows.
