@@ -193,7 +193,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   history and its entry details without any control that adds, edits or deletes its weight data (the
   lifecycle controls: restore belongs to the archived list, task 4.5; permanent delete is RAB-10's
   control and appears here as well as on that list) (RAB-8, DM-4, DASH-7).
-- [ ] 4.7 [frontend-ui] Build the per-row quick-weight control that opens the weight form pre-bound to
+- [x] 4.7 [frontend-ui] Build the per-row quick-weight control that opens the weight form pre-bound to
   that row's rabbit, as a directly visible touchable control within the row (DASH-9, WT-2, NFR-9).
 - [ ] 4.8 [frontend-ui] Build the quick-entry control with a rabbit picker that opens the same weight
   form bound to the chosen rabbit (WT-2).
@@ -237,7 +237,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   permanent delete stay on the row as 4.5 placed them, and no weight-write control appears on the
   read-only surfaces. Add a catalog key only if the affordance needs one — check `messages.ts` first.
   (RAB-6, RAB-8, DASH-7)
-- [ ] 4.18 [frontend-logic] **Added mid-change (Q11).** Give the weight form the route D1.10 requires:
+- [x] 4.18 [frontend-logic] **Added mid-change (Q11).** Give the weight form the route D1.10 requires:
   one weight-form route whose typed search parameters carry the rabbit binding (and the mode the two
   quick paths share), mounting 4.9's `WeightForm` as the content, with cancel returning to the screen
   that opened it and a successful save returning the person to that rabbit's context. 4.7's inline
@@ -274,11 +274,11 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   "Deleting an entry re-derives the following entry's alert", "Editing an entry re-derives the alerts
   around it" (WT-7), asserting that no stored entry is rewritten when the threshold changes and that
   the dashboard flag (DASH-4) is derived from the same result.
-- [ ] 5.6 [test-engineer] Rust tests for the dashboard read model — covers "Both active rabbits are
+- [x] 5.6 [test-engineer] Rust tests for the dashboard read model — covers "Both active rabbits are
   listed with their details", "An archived rabbit is not listed" (DASH-1), "A rabbit with no entries
   is marked as never weighed" (DASH-2) and "The most recently weighed rabbit sorts first", "A
   never-weighed rabbit sorts last" (DASH-3), including a back-dated entry case.
-- [ ] 5.7 [test-engineer] Rust tests for trend and history ranges — covers "Selecting a range limits
+- [x] 5.7 [test-engineer] Rust tests for trend and history ranges — covers "Selecting a range limits
   the trend to that window", "The full-history range presents every entry", "The weight history range
   is independent of the trend range" (WT-6).
 - [ ] 5.8 [test-engineer] Rust tests for the weight entry detail read — covers "The detail shows the
