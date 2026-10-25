@@ -237,6 +237,13 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   permanent delete stay on the row as 4.5 placed them, and no weight-write control appears on the
   read-only surfaces. Add a catalog key only if the affordance needs one — check `messages.ts` first.
   (RAB-6, RAB-8, DASH-7)
+- [ ] 4.18 [frontend-logic] **Added mid-change (Q11).** Give the weight form the route D1.10 requires:
+  one weight-form route whose typed search parameters carry the rabbit binding (and the mode the two
+  quick paths share), mounting 4.9's `WeightForm` as the content, with cancel returning to the screen
+  that opened it and a successful save returning the person to that rabbit's context. 4.7's inline
+  mount, which contradicted D1.10, is replaced by a navigation to this route; 4.8 (the picker) opens
+  the same route. Regenerate `src/routeTree.gen.ts` (gate stage 6) and keep the route out of the
+  adaptive layout fork. (WT-2, DASH-9, D1.10)
 
 ## 5. Tests
 
@@ -261,7 +268,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   stored as grams" (DM-1), "A zero value is rejected", "A negative value is rejected", "A confirmed
   outlier is saved" (WT-4) and the WT-5 edit and delete sharing. Also asserts the stored payload's
   `has_weight_drop_alert` is written `false` and that a read re-derives it (D1.16, D1.3).
-- [ ] 5.5 [test-engineer] Rust tests for the drop alert — covers "A drop exceeding the threshold is
+- [x] 5.5 [test-engineer] Rust tests for the drop alert — covers "A drop exceeding the threshold is
   flagged", "A drop within the threshold is not flagged", "Raising the threshold clears an existing
   flag", "Lowering the threshold raises a flag", "Entries sharing a timestamp are ordered by creation",
   "Deleting an entry re-derives the following entry's alert", "Editing an entry re-derives the alerts

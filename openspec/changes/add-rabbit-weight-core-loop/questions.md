@@ -155,6 +155,24 @@ the same "built but unmounted" shape Q49 recorded in P0.
 route; lifecycle controls stay where 4.5 put them and no weight-write control appears on the archived
 surfaces.
 
+## Q11 — The weight form had no route, and 4.7 mounted it inline (found reviewing task 4.7)
+
+**Status: settled by adding a task.** Raised 2026-10-25.
+
+D1.10 is explicit: both quick paths "open the same weight form route with the rabbit bound through
+typed search parameters", which is what keeps range, unit and binding behaviour in one place. Task 4.7
+could not create a route (`src/routes/**` is `frontend-logic`'s), so it mounted 4.9's `WeightForm`
+inline in `RabbitList` instead. The review flagged that as a design contradiction with a concrete cost
+— 4.8 would duplicate the household read, the mounting state and the focus return, and the inline
+mount is a dead end when 4.9's display-unit read is pending or failed, because that card has no cancel
+control.
+
+**Resolution:** task 4.18 added (frontend-logic): one weight-form route with typed search parameters,
+cancel returning to the opener and a successful save returning to the rabbit's context. 4.7 keeps its
+directly visible row control but navigates to that route instead of mounting the form inline; 4.8
+opens the same route. The Q9/4.16 precedent applies: when a decided design needs a route, the plan
+gains the task rather than the implementation choosing an alternative.
+
 
 
 
