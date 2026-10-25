@@ -134,6 +134,17 @@
 }
 
 /*
+ * DASH-9's quick-weight control (task 4.7) is a target of its own beside the
+ * row's open-dashboard target, so the two hit areas keep the system's 8 px
+ * (`--size-touch-spacing`) between them (design-system global convention 2).
+ * The margin belongs to the control slot, outside the button's hit area, so
+ * neither target overlaps the other and the row does not grow.
+ */
+.bs-rabbit-row > [data-quick-weight] {
+  margin-inline-start: var(--size-touch-spacing);
+}
+
+/*
  * The dashboard's add control (task 4.3; RAB-4). It sits above the list or the
  * nothing-loaded fallback, at the trailing edge on the content measure, so the
  * same control reads as a toolbar action at both baselines. The empty state is

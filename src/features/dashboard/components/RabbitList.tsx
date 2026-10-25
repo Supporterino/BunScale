@@ -32,15 +32,27 @@
  * **A failure is 4.15's surface, not this one.** A read that never resolved
  * falls back exactly as before; nothing here invents failure copy.
  *
- * **What this list still does not own.** DASH-4's per-row drop flag (task 4.12)
- * and DASH-9's quick-weight control (4.7) compose into the row's control slot.
+ * **DASH-9's quick-weight control opens the weight-form route** (task 4.7
+ * rework; DASH-9, WT-2, NFR-9, D1.10). Every row carries the control
+ * (`RabbitRow.onLogWeight`), and using it navigates to `/weight` with the rabbit
+ * bound through typed search parameters — `rabbit`, `mode: 'quick'` and
+ * `from: 'dashboard'` — instead of mounting 4.9's form on this surface. The
+ * route owns the form, the household read and the return: cancel and a
+ * confirmed save navigate back to `/` with `focusRabbitId` in the history entry
+ * (4.18), and `HouseholdDashboardScreen` restores focus to that rabbit's row
+ * once the list has settled (4.16). This list therefore holds no form state and
+ * no focus machinery of its own.
  *
- * **The row control is supplied, not invented.** DASH-6's destination is the
- * rabbit dashboard, which P1's route tree does not hold until task 4.11, so the
- * dashboard mounts this list without `onOpenRabbit` and each row stays static.
- * 4.11 passes the handler and the same row becomes a real button; no route is
- * guessed here and no control is rendered without a destination.
+ * **What this list still does not own.** DASH-4's per-row drop flag (task 4.12)
+ * composes into the row's control slot.
+ *
+ * **The row's open control is supplied, not invented.** DASH-6's destination is
+ * the rabbit dashboard route, which the screen owns: it passes `onOpenRabbit`
+ * (task 4.16) and the row becomes a real button. Without a handler the row stays
+ * static; no route is guessed here and no control is rendered without a
+ * destination.
  */
+import { useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { List } from '../../../components/ui/List';
@@ -72,6 +84,7 @@ export function RabbitList({
   onAddRabbit,
 }: RabbitListProps) {
   const rows = useDashboardRows();
+  const navigate = useNavigate();
 
   /*
    * `data` is the last successful answer: `undefined` before the first one,
@@ -81,6 +94,19 @@ export function RabbitList({
    * presenting an invented message (4.15 owns the failure surface).
    */
   const data = rows.data;
+
+  /*
+   * DASH-9's control opens the one weight-form route, bound to the row's rabbit
+   * through typed search parameters (D1.10). The route reads the household and
+   * the profile itself, so this list passes no data across and needs no form
+   * state.
+   */
+  function logWeight(rabbitId: string): void {
+    void navigate({
+      to: '/weight',
+      search: { rabbit: rabbitId, mode: 'quick', from: 'dashboard' },
+    });
+  }
 
   if (data !== undefined && data.length === 0) {
     return <EmptyRabbitList onAddRabbit={onAddRabbit} />;
@@ -111,6 +137,9 @@ export function RabbitList({
           {data.map((row) => (
             <RabbitRow
               key={row.rabbit.id}
+              onLogWeight={() => {
+                logWeight(row.rabbit.id);
+              }}
               onOpen={
                 onOpenRabbit === undefined
                   ? undefined

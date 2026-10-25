@@ -31,11 +31,32 @@
  * when the destination exists. The static mode also omits `ListRow`'s
  * `--interactive` target class, so it paints no pressed or hover surface.
  *
+ * **DASH-9's quick-weight control is the row's sibling, never its child**
+ * (task 4.7; DASH-9, WT-2, NFR-9, D1.10). It is a directly visible,
+ * always-present control in the row's trailing control slot — not a long press
+ * and not a hidden menu (NFR-9). Because it is a target of its own it cannot
+ * live inside the row's open-dashboard button: nesting interactive controls
+ * makes one of them unreachable by touch, so the two siblings both stay
+ * operable. The control navigates to the weight-form route with the rabbit
+ * bound through typed search parameters (task 4.18), so the route owns the
+ * form, the household read and the return; this row only names the rabbit. Its
+ * visible label is the catalog's `weight.log`, and `aria-labelledby` adds the
+ * row title's id so every row's control is distinguishable — "Hazel Log
+ * weight" — without a new key or a second visible label. The compact size keeps
+ * the system's 44 pt minimum without stretching the row, and `data-quick-weight`
+ * marks the slot for the adjacent-target spacing.
+ *
+ * The control composes `Button`'s class contract rather than using the
+ * primitive because `Button` does not forward ARIA attributes and this name
+ * needs `aria-labelledby`. It is the same composition this row already makes
+ * for the list row, whose primitive has no leading-image slot; no style is
+ * copied, only the class names.
+ *
  * DASH-4's drop flag is 4.12's; this row only carries `flag` in the trailing
  * slot P0's row already has (`dashboardRowHasDropAlert` picks it, 4.12 paints
  * it).
  */
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useId, useState } from 'react';
 import { t } from '../../i18n';
 import type { DashboardRow } from '../queries';
 
@@ -61,10 +82,18 @@ export type RabbitRowProps = {
    * weight-drop flag is task 4.12's to compose and style.
    */
   flag?: ReactNode;
+  /**
+   * Opens the weight form bound to this rabbit (DASH-9, WT-2, D1.10). Supplied
+   * by the dashboard list, which navigates to the weight-form route; absent, the
+   * row carries no quick-weight control.
+   */
+  onLogWeight?: () => void;
 };
 
-export function RabbitRow({ row, onOpen, flag }: RabbitRowProps) {
+export function RabbitRow({ row, onOpen, flag, onLogWeight }: RabbitRowProps) {
   const { rabbit } = row;
+  const titleId = useId();
+  const quickWeightLabelId = useId();
 
   /*
    * The accessible name is this content, in reading order: the rabbit's name,
@@ -78,7 +107,9 @@ export function RabbitRow({ row, onOpen, flag }: RabbitRowProps) {
         <RabbitThumbnail reference={rabbit.thumbnail_ref} />
       </span>
       <span className="bs-list-row__text">
-        <span className="bs-list-row__title">{rabbit.name}</span>
+        <span className="bs-list-row__title" id={titleId}>
+          {rabbit.name}
+        </span>
         <span className="bs-list-row__detail">{lastWeighedDetail(row)}</span>
       </span>
       {flag === undefined ? null : (
@@ -99,6 +130,25 @@ export function RabbitRow({ row, onOpen, flag }: RabbitRowProps) {
         >
           {content}
         </button>
+      )}
+      {onLogWeight === undefined ? null : (
+        /*
+         * The control slot centres the 44 pt control inside the row instead of
+         * stretching it to the row's full height, so the pressed surface stays
+         * the size of the control and the thumbnail keeps the row's rhythm.
+         */
+        <span className="bs-list-row__control" data-quick-weight="">
+          <button
+            aria-labelledby={`${titleId} ${quickWeightLabelId}`}
+            className="bs-button bs-button--plain bs-button--compact"
+            onClick={onLogWeight}
+            type="button"
+          >
+            <span className="bs-button__label" id={quickWeightLabelId}>
+              {t('weight.log')}
+            </span>
+          </button>
+        </span>
       )}
     </li>
   );
