@@ -131,7 +131,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 3.3 [frontend-logic] Add the weight query hooks parameterised by range, separately for the
   trend and for the weight-only history, so the two carry independent range state in the route's typed
   search parameters (WT-6).
-- [ ] 3.4 [frontend-logic] Add the rabbit mutations (create, update, archive, restore, delete) with
+- [x] 3.4 [frontend-logic] Add the rabbit mutations (create, update, archive, restore, delete) with
   invalidation of only the affected queries (RAB-1, RAB-5, RAB-6, RAB-7, RAB-10).
 - [x] 3.5 [frontend-logic] Add the weight mutations (create, update, delete) with the display-unit
   parse/format at the entry boundary and invalidation of only the affected trend, history, detail and
@@ -176,7 +176,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   name, optional photo, breed, date of birth with an "unknown" option, sex offered as exactly
   `male`/`female`/`unknown`, neuter status offered as exactly `intact`/`neutered`/`spayed`/`unknown`
   (D1.14) and adoption date, with inline blank-name rejection (RAB-1, RAB-2, RAB-4).
-- [ ] 4.4 [frontend-ui] Build the rabbit profile detail with a directly visible edit control and the
+- [x] 4.4 [frontend-ui] Build the rabbit profile detail with a directly visible edit control and the
   pre-filled edit form covering every field including the weight-drop threshold (RAB-5).
 - [x] 4.5 [frontend-ui] Build the archive control, the archived-rabbit list entry point, and the
   restore and permanent-delete controls; the permanent-delete control lives on the archived list and
