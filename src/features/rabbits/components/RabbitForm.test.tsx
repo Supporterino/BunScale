@@ -19,6 +19,13 @@
  * Reachability (RAB-4) is the dashboard list's contract and is asserted in
  * `../../dashboard/components/rabbit-list.test.tsx`; this file stops at the
  * form itself.
+ *
+ * Added by task 5.11: "Optional fields may be left unset" as its own create —
+ * a name and a sex only, with creation keeping the contract's default
+ * threshold — and "Date of birth may be marked unknown" through the edit path,
+ * where the pre-fill must carry the saved marker instead of inventing a date
+ * (RAB-1, RAB-5). The dashboard's add control and empty-state prompt are
+ * `rabbit-list.test.tsx`'s (5.10) and are not restated here.
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import {
@@ -273,6 +280,59 @@ describeAtBothBaselines('Rabbit form (RAB-1, RAB-2, RAB-5)', () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves the optional fields unset when only a name and a sex are supplied', async () => {
+    answers.push(() => ({ ...CREATED, name: 'Clover' }));
+
+    const { onSaved } = renderForm();
+
+    fireEvent.change(nameField(), { target: { value: 'Clover' } });
+    fireEvent.click(
+      within(
+        screen.getByRole('radiogroup', { name: t('rabbit.sex.label') }),
+      ).getByRole('radio', { name: t('rabbit.sex.female') }),
+    );
+
+    // Creation keeps the contract's default threshold and offers no field for
+    // it; RAB-5 makes it editable once the rabbit exists.
+    expect(
+      screen.queryByRole('spinbutton', {
+        name: new RegExp(t('rabbit.form.thresholdLabel')),
+      }),
+    ).toBeNull();
+
+    fireEvent.click(submitButton());
+
+    await waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
+
+    // RAB-1: the profile is saved without the unsupplied fields, and nothing
+    // is invented from a default — the neuter status stays the recorded
+    // `unknown` the form starts with rather than becoming `intact`.
+    expect(calls[0]).toEqual({
+      command: 'create_rabbit',
+      args: {
+        householdId: HOUSEHOLD_ID,
+        profile: {
+          name: 'Clover',
+          photo_ref: null,
+          breed: null,
+          dob: null,
+          dob_unknown: false,
+          sex: 'female',
+          neuter_status: 'unknown',
+          adoption_date: null,
+          weight_drop_threshold_percent: 5,
+        },
+        requestId: expect.any(String),
+      },
+    });
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('saves an unknown date of birth without a date', async () => {
     answers.push(() => ({ ...CREATED, name: 'Clover', dob: null }));
 
@@ -377,6 +437,65 @@ describeAtBothBaselines('Rabbit form (RAB-1, RAB-2, RAB-5)', () => {
           sex: saved.sex,
           neuter_status: saved.neuter_status,
           adoption_date: saved.adoption_date,
+          weight_drop_threshold_percent: saved.weight_drop_threshold_percent,
+        },
+        requestId: expect.any(String),
+      },
+    });
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('keeps a date of birth marked unknown through an edit and saves it without a date', async () => {
+    const saved: Rabbit = {
+      ...CREATED,
+      breed: null,
+      dob: null,
+      dob_unknown: true,
+      adoption_date: null,
+    };
+
+    answers.push(() => saved);
+
+    const { onSaved } = renderEditForm(vi.fn(), saved);
+
+    // RAB-1's explicit marker is a recorded state, so the pre-fill starts
+    // checked with no date rather than with a date the profile never had.
+    expect(
+      screen.getByRole('checkbox', { name: t('rabbit.form.dobUnknown') }),
+    ).toBeChecked();
+
+    const dob = screen.getByLabelText(t('rabbit.form.dobLabel'), {
+      exact: true,
+    });
+
+    expect(dob).toHaveValue('');
+    expect(dob).toBeDisabled();
+
+    fireEvent.click(submitButton());
+
+    await waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
+
+    // RAB-5: the whole-profile replacement carries the marker and the absence
+    // through unchanged, so saving the edit does not turn "unknown" into a
+    // date or into "not supplied".
+    expect(calls[0]).toEqual({
+      command: 'update_rabbit',
+      args: {
+        rabbitId: saved.id,
+        profile: {
+          name: saved.name,
+          photo_ref: null,
+          breed: null,
+          dob: null,
+          dob_unknown: true,
+          sex: saved.sex,
+          neuter_status: saved.neuter_status,
+          adoption_date: null,
           weight_drop_threshold_percent: saved.weight_drop_threshold_percent,
         },
         requestId: expect.any(String),

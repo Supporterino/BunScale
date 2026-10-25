@@ -25,6 +25,12 @@
  * the Tab trap, focus return, the pending refusal to close and both failure
  * causes are behaviours of this screen's confirmation, reached the same way a
  * person reaches them.
+ *
+ * Added by task 5.11: RAB-10's scope — the confirmation names the row's rabbit
+ * and a confirmed deletion removes that rabbit only, leaving the other
+ * archived rabbit in place. The consequence copy, its live region and the
+ * cancel path already had their cases here; the active list's absence of the
+ * control is the profile's (`RabbitDetail.test.tsx`) and 5.10's.
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import {
@@ -409,6 +415,48 @@ describeAtBothBaselines('Archived rabbit list (RAB-6, RAB-7, RAB-10)', () => {
       expect(
         screen.getByRole('button', { name: t('settings.back') }),
       ).toHaveFocus();
+    });
+  });
+
+  it("names the row's rabbit in the confirmation and deletes only that rabbit", async () => {
+    archivedRows = [summary(WILLOW), summary(HOLLY)];
+
+    renderList();
+
+    await screen.findByText(WILLOW.name);
+
+    const triggers = screen.getAllByRole('button', {
+      name: t('rabbit.delete'),
+    });
+
+    expect(triggers).toHaveLength(2);
+
+    openDialog(triggers[1]);
+
+    // NFR-9: the consequence is stated for the rabbit whose control opened the
+    // dialog, not for the list's first row.
+    expect(within(confirmDialog()).getByText(HOLLY.name)).toBeVisible();
+    expect(within(confirmDialog()).queryByText(WILLOW.name)).toBeNull();
+
+    fireEvent.click(confirmControl());
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'delete_rabbit'),
+      ).toHaveLength(1);
+    });
+
+    // RAB-10: only the confirmed rabbit is removed, and its own data with it.
+    expect(
+      calls.find((call) => call.command === 'delete_rabbit')?.args,
+    ).toEqual({
+      rabbitId: HOLLY.id,
+      requestId: expect.any(String),
+    });
+
+    expect(await screen.findByText(WILLOW.name)).toBeVisible();
+    await waitFor(() => {
+      expect(screen.queryByText(HOLLY.name)).toBeNull();
     });
   });
 

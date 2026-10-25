@@ -25,6 +25,13 @@
  * form and the values the confirming read painted, not about a prop recorder.
  * Sharing with every member is the shared service's obligation; this spec
  * asserts only what the UI does with the confirming read.
+ *
+ * Added by task 5.11: the value side of "Date of birth may be marked unknown"
+ * — an explicit marker must read as unknown, not as an absent field or a
+ * placeholder date — and NFR-9's confirmation naming the rabbit whose
+ * consequence it states. The edit control's visibility and the archived
+ * rabbit's lack of one already had their cases here; the dashboard and the
+ * entry detail belong to 5.14 and 5.13.
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import {
@@ -208,6 +215,32 @@ describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
     // WT-7's threshold is part of the profile, shown as a value here.
     expect(screen.getByText('8%')).toBeVisible();
     expect(screen.getByText(t('rabbit.form.thresholdLabel'))).toBeVisible();
+  });
+
+  it('presents a date of birth marked unknown as unknown rather than a date', async () => {
+    reads.push({
+      ...SAVED,
+      dob: null,
+      dob_unknown: true,
+      adoption_date: null,
+    });
+
+    const { container } = renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: SAVED.name }),
+    ).toBeVisible();
+
+    // RAB-1: the explicit marker is a presented value, not an absent field.
+    expect(screen.getByText(t('rabbit.dob.unknown'))).toBeVisible();
+
+    // It is not a placeholder date either: this profile has no instant to
+    // format, and the only absent value on it is the adoption date.
+    expect(container.querySelectorAll('time')).toHaveLength(0);
+    expect(screen.getAllByText('—')).toHaveLength(1);
+    // The sex and neuter status are recorded values, so "Unknown" here can
+    // only be the date of birth rather than a fifth, invented one.
+    expect(screen.getAllByText(t('rabbit.dob.unknown'))).toHaveLength(1);
   });
 
   it('pre-fills every field, saves them all including the threshold, and returns with the confirmed values', async () => {
@@ -574,6 +607,32 @@ describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
     expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('names the rabbit whose consequence the deletion confirmation states', async () => {
+    reads.push({ ...SAVED, is_archived: true });
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: SAVED.name }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: t('rabbit.delete') }));
+
+    const dialog = screen.getByRole('alertdialog');
+
+    // NFR-9: the consequence is about this rabbit, not about "an item" — the
+    // name the person recognises is in the confirmation itself.
+    expect(within(dialog).getByText(SAVED.name)).toBeVisible();
+    expect(dialog).toHaveAccessibleDescription(
+      new RegExp(t('rabbit.deleteConfirm.body')),
+    );
+
+    // Opening the confirmation removes nothing.
+    expect(
+      calls.filter((call) => call.command === 'delete_rabbit'),
+    ).toHaveLength(0);
   });
 
   it('keeps the deletion confirmation open with the validation copy when the delete is refused as validation', async () => {
