@@ -19,7 +19,8 @@ here.
 | Q3 | the value sets for a rabbit's sex (`male`/`female`/`unknown`) and neuter/spay status (`intact`/`neutered`/`spayed`/`unknown`) | `design.md` D1.14 |
 
 New ambiguity discovered while implementing is appended here as a new question, per project hard
-rule 7; only Q4 has been added since Q3.
+rule 7; Q4–Q10 have been added since Q3, each settled in the same session that raised it.
+
 
 ## Q4 — A missing payload channel in the local item model (found in task 2.5, settled 2026-10-22)
 
@@ -125,6 +126,34 @@ load, and 4.4's "edit control gated on the profile read" would be permanently em
 `summaries`/`dashboard`/`detail` (tombstone before the content check, unknown content refuses, archived
 readable, blank or non-rabbit id refused as `validation`). No design change — the contract already
 required the command; the plan was missing the task.
+
+## Q9 — The rabbit dashboard had no route for its range state (found in task 4.16)
+
+**Status: settled by adding a task.** Raised and resolved 2026-10-24.
+
+4.11 built `RabbitDashboard` to take the trend and history ranges as props, because D1.4 requires the
+two selections to live in **typed route search parameters** rather than screen state — but no task
+owned `src/routes/**`, and `frontend-ui` cannot write it. Left alone the ranges would have been
+`useState`, which the decision forbids and which drops both on reload.
+
+**Resolution:** task 4.16 added (frontend-logic): the `$rabbitId` route with
+`validateSearch: validateWeightRangeSearch`, passing `trend`/`history` through and removing the
+screen's state, with the row control opening it.
+
+## Q10 — An archived rabbit's read-only dashboard had no way in (found in task 4.6)
+
+**Status: settled by adding a task.** Raised 2026-10-25.
+
+Task 4.6 built the archived rabbit's read-only presentation on the `$rabbitId` route, but nothing in
+the product navigates there for an archived rabbit: `ArchivedRabbitList` (4.5) offers restore and
+permanent delete only, and the dashboard's row control (4.7, unbuilt) is defined for the active list.
+RAB-6 says an archived rabbit's history is retrievable from the archived list and DASH-7's archived
+scenario assumes it is opened, so as it stood the read-only surfaces were reachable by deep link only —
+the same "built but unmounted" shape Q49 recorded in P0.
+
+**Resolution:** task 4.17 added (frontend-ui): the archived row opens the same read-only dashboard
+route; lifecycle controls stay where 4.5 put them and no weight-write control appears on the archived
+surfaces.
 
 
 

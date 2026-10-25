@@ -175,7 +175,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 4.3 [frontend-ui] Build the rabbit-creation form reachable from the dashboard at all times:
   name, optional photo, breed, date of birth with an "unknown" option, sex offered as exactly
   `male`/`female`/`unknown`, neuter status offered as exactly `intact`/`neutered`/`spayed`/`unknown`
-  (D1.14) and adoption date, with inline blank-name rejection (RAB-1, RAB-2, RAB-4).
+  (D1.14) and adoption date, with inline blank-name rejection (RAB-1, RAB-2, RAB-4). **Correction
+  (2026-10-25):** an edit carries the saved `photo_ref` through the whole-profile replacement instead
+  of submitting `null` (D1.11), and an edit refusal shows the catalog's `error.validation` copy rather
+  than the blank-name prompt (D1.5).
 - [x] 4.4 [frontend-ui] Build the rabbit profile detail with a directly visible edit control and the
   pre-filled edit form covering every field including the weight-drop threshold (RAB-5).
 - [x] 4.5 [frontend-ui] Build the archive control, the archived-rabbit list entry point, and the
@@ -186,10 +189,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   including the empty one, or an all-archived household is trapped behind "No rabbits yet"; and the
   transition to zero rows after an archive or delete must announce the replaced content
   (`role="status"`), per the `EmptyState` contract.
-- [ ] 4.6 [frontend-ui] Build the read-only presentation of an archived rabbit: its dashboard, its
+- [x] 4.6 [frontend-ui] Build the read-only presentation of an archived rabbit: its dashboard, its
   history and its entry details without any control that adds, edits or deletes its weight data (the
-  lifecycle controls — restore and permanent delete — belong to the archived list, task 4.5)
-  (RAB-8, DM-4, DASH-7).
+  lifecycle controls: restore belongs to the archived list, task 4.5; permanent delete is RAB-10's
+  control and appears here as well as on that list) (RAB-8, DM-4, DASH-7).
 - [ ] 4.7 [frontend-ui] Build the per-row quick-weight control that opens the weight form pre-bound to
   that row's rabbit, as a directly visible touchable control within the row (DASH-9, WT-2, NFR-9).
 - [ ] 4.8 [frontend-ui] Build the quick-entry control with a rabbit picker that opens the same weight
@@ -227,6 +230,13 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   component to take them as props and left the wiring here because `src/routes/**` is outside
   `frontend-ui`'s allow-list. Regenerate `src/routeTree.gen.ts` (gate stage 6) and keep the dashboard's
   row control opening it. (DASH-6, WT-6, D1.4)
+- [x] 4.17 [frontend-ui] **Added mid-change (Q10).** Make an archived rabbit reachable from the
+  archived list: its row opens the same `$rabbitId` dashboard route that 4.6 made read-only, so an
+  archived rabbit's timeline is retrievable as RAB-6 requires instead of existing only behind a deep
+  link. Use the router's link/navigation from the component (do not edit `src/routes/**`); restore and
+  permanent delete stay on the row as 4.5 placed them, and no weight-write control appears on the
+  read-only surfaces. Add a catalog key only if the affordance needs one — check `messages.ts` first.
+  (RAB-6, RAB-8, DASH-7)
 
 ## 5. Tests
 
@@ -245,7 +255,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   "Archived history survives an arbitrary interval", "Archiving discards nothing" (RAB-9) and "No
   weight data of an archived rabbit is mutable", "The archive is retrievable and its data is retained
   by default" (DM-4), asserting the refusal through the command path and not only through the UI.
-- [ ] 5.4 [test-engineer] Rust tests for weight entries — covers "An entry is recorded with the
+- [x] 5.4 [test-engineer] Rust tests for weight entries — covers "An entry is recorded with the
   current time", "An entry records an edited timestamp", "The note is optional" (WT-1), "Every stored
   weight is in grams", "A weight entry carries no unit of its own", "A value entered in kilograms is
   stored as grams" (DM-1), "A zero value is rejected", "A negative value is rejected", "A confirmed
