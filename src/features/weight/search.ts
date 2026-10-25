@@ -30,6 +30,11 @@
  * about one being missing. Completeness is pinned by `search.test.ts`, which
  * compares the list against the frozen four with `toEqual`, so dropping a
  * window fails the suite instead of silently validating to the default.
+ *
+ * **The weight form's binding is validated here too (task 4.18).** That search
+ * is the same kind of state — a typed URL that must never fail a navigation —
+ * so `validateWeightFormSearch` sits beside the range pair it hands back on the
+ * way out of the form, rather than in the screen that renders it.
  */
 import type { getWeightEntries } from './api';
 
@@ -92,5 +97,63 @@ export function validateWeightRangeSearch(
   return {
     trend: weightRangeOr(search.trend),
     history: weightRangeOr(search.history),
+  };
+}
+
+/**
+ * The weight form's entry kind: the one the two quick paths share (WT-2,
+ * D1.10). Only quick entry exists, but the route names the kind rather than
+ * implying it, so a second kind could be bound without changing the contract.
+ */
+export type WeightFormMode = 'quick';
+
+/**
+ * The surface that opened the weight form. Cancel returns to it and a confirmed
+ * save returns to the same rabbit's context (D1.10).
+ *
+ * `dashboard` is the list route (`/`), whose rows are the per-rabbit path and
+ * whose quick-entry control is the picker path. `rabbit` is a rabbit's own
+ * dashboard, so the form gives back the windows it was opened at.
+ */
+export type WeightFormOrigin = 'dashboard' | 'rabbit';
+
+/**
+ * The form's typed search (task 4.18). The range pair is the rabbit
+ * dashboard's contract, carried only so a `from: 'rabbit'` return lands on the
+ * same windows; both are optional so a dashboard caller does not have to
+ * restate a window it does not own. The validator still fills the defaults if
+ * they are absent.
+ */
+export type WeightFormSearch = Partial<WeightRangeSearch> & {
+  /** The rabbit this entry is bound to (DASH-9, WT-2). */
+  rabbit: string;
+  /** The quick-entry kind both paths share (D1.10). */
+  mode: WeightFormMode;
+  /** Where cancel and a confirmed save return (D1.10). */
+  from: WeightFormOrigin;
+};
+
+/**
+ * Validate the weight form's search without failing the navigation: a missing
+ * or misspelled value becomes the ordinary default instead of an error page
+ * over a stale bookmark. The pair comes from the frozen
+ * `validateWeightRangeSearch` rather than restating its four windows here.
+ *
+ * A blank `rabbit` is not defaulted away: the profile read is the surface that
+ * says an id is unknown (it answers `validation`), and inventing a destination
+ * here would bind the form to a rabbit the person did not choose.
+ */
+export function validateWeightFormSearch(
+  search: Record<string, unknown>,
+): WeightFormSearch {
+  const rabbit = typeof search.rabbit === 'string' ? search.rabbit : '';
+
+  return {
+    ...validateWeightRangeSearch(search),
+    rabbit,
+    mode: 'quick',
+    // Without a rabbit there is no rabbit dashboard to return to; the default
+    // keeps a malformed URL on the dashboard instead of a route with no id.
+    from: search.from === 'rabbit' && rabbit !== '' ? 'rabbit' : 'dashboard',
   };
 }

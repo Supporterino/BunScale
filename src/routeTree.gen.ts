@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DesignPreviewRouteImport } from './routes/design-preview'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as WeightRouteImport } from './routes/weight'
 import { Route as RabbitsRabbitIdRouteImport } from './routes/rabbits.$rabbitId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,6 +36,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeightRoute = WeightRouteImport.update({
+  id: '/weight',
+  path: '/weight',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RabbitsRabbitIdRoute = RabbitsRabbitIdRouteImport.update({
   id: '/rabbits/$rabbitId',
   path: '/rabbits/$rabbitId',
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/design-preview': typeof DesignPreviewRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/weight': typeof WeightRoute
   '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/design-preview': typeof DesignPreviewRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/weight': typeof WeightRoute
   '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
 }
 export interface FileRoutesById {
@@ -61,21 +69,33 @@ export interface FileRoutesById {
   '/design-preview': typeof DesignPreviewRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/weight': typeof WeightRoute
   '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/design-preview' | '/onboarding' | '/settings' | '/rabbits/$rabbitId'
+    | '/'
+    | '/design-preview'
+    | '/onboarding'
+    | '/settings'
+    | '/weight'
+    | '/rabbits/$rabbitId'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/design-preview' | '/onboarding' | '/settings' | '/rabbits/$rabbitId'
+    | '/'
+    | '/design-preview'
+    | '/onboarding'
+    | '/settings'
+    | '/weight'
+    | '/rabbits/$rabbitId'
   id:
     | '__root__'
     | '/'
     | '/design-preview'
     | '/onboarding'
     | '/settings'
+    | '/weight'
     | '/rabbits/$rabbitId'
   fileRoutesById: FileRoutesById
 }
@@ -84,6 +104,7 @@ export interface RootRouteChildren {
   DesignPreviewRoute: typeof DesignPreviewRoute
   OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
+  WeightRoute: typeof WeightRoute
   RabbitsRabbitIdRoute: typeof RabbitsRabbitIdRoute
 }
 
@@ -117,6 +138,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/weight': {
+      id: '/weight'
+      path: '/weight'
+      fullPath: '/weight'
+      preLoaderRoute: typeof WeightRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rabbits/$rabbitId': {
       id: '/rabbits/$rabbitId'
       path: '/rabbits/$rabbitId'
@@ -132,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   DesignPreviewRoute: DesignPreviewRoute,
   OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
+  WeightRoute: WeightRoute,
   RabbitsRabbitIdRoute: RabbitsRabbitIdRoute,
 }
 export const routeTree = rootRouteImport

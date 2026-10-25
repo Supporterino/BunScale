@@ -22,6 +22,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_WEIGHT_RANGE,
+  validateWeightFormSearch,
   validateWeightRangeSearch,
   WEIGHT_RANGES,
   type WeightRange,
@@ -133,5 +134,120 @@ describe('the two fields are independent', () => {
     expect(
       validateWeightRangeSearch({ trend: 'days_7', rabbitId: 'other' }),
     ).toEqual({ trend: 'days_7', history: DEFAULT_WEIGHT_RANGE });
+  });
+});
+
+/*
+ * Task 4.18's typed search (WT-2, DASH-9, D1.10).
+ *
+ * The weight form is one route reached by both quick paths, and its binding,
+ * entry kind and origin are search parameters rather than screen state. The
+ * validator is the same "never fail the navigation" shape as the range pair
+ * above: a deep link is a preference, so a missing or misspelled value becomes
+ * the ordinary default instead of an error page.
+ *
+ * What the fallbacks *are*, asserted rather than guessed: a missing `rabbit`
+ * becomes the empty string (the profile read is the surface that refuses an
+ * unknown id), `mode` is always `quick` because only quick entry exists, and
+ * `from` is `dashboard` unless it says `rabbit` *and* a rabbit is actually
+ * bound — without an id there is no rabbit dashboard to return to.
+ */
+describe('the weight form search', () => {
+  /** The rabbit a dashboard row's quick-weight control binds (DASH-9). */
+  const RABBIT = 'rabbit-hazel';
+
+  it('round-trips a complete binding, ranges included', () => {
+    expect(
+      validateWeightFormSearch({
+        rabbit: RABBIT,
+        mode: 'quick',
+        from: 'dashboard',
+        trend: 'days_7',
+        history: 'all',
+      }),
+    ).toEqual({
+      trend: 'days_7',
+      history: 'all',
+      rabbit: RABBIT,
+      mode: 'quick',
+      from: 'dashboard',
+    });
+  });
+
+  it('defaults a missing rabbit to an empty binding instead of throwing', () => {
+    expect(validateWeightFormSearch({})).toEqual({
+      trend: DEFAULT_WEIGHT_RANGE,
+      history: DEFAULT_WEIGHT_RANGE,
+      rabbit: '',
+      mode: 'quick',
+      from: 'dashboard',
+    });
+  });
+
+  it('keeps a malformed search on the dashboard when no rabbit is bound', () => {
+    // `from: 'rabbit'` without a rabbit would be a return to a route with no
+    // id, so it falls back to the dashboard origin.
+    expect(validateWeightFormSearch({ from: 'rabbit' })).toMatchObject({
+      rabbit: '',
+      from: 'dashboard',
+    });
+  });
+
+  it('honours the rabbit origin only when a rabbit is bound', () => {
+    expect(
+      validateWeightFormSearch({ rabbit: RABBIT, from: 'rabbit' }),
+    ).toMatchObject({ rabbit: RABBIT, from: 'rabbit' });
+  });
+
+  it('keeps the dashboard origin when the search omits it', () => {
+    expect(validateWeightFormSearch({ rabbit: RABBIT })).toMatchObject({
+      rabbit: RABBIT,
+      from: 'dashboard',
+    });
+  });
+
+  it('defaults the origin to the dashboard when the value is unknown', () => {
+    expect(
+      validateWeightFormSearch({ rabbit: RABBIT, from: 'archived-list' }),
+    ).toMatchObject({ rabbit: RABBIT, from: 'dashboard' });
+  });
+
+  it('defaults the mode to quick for any unknown value', () => {
+    // Only the quick-entry kind exists (WT-2, D1.10); the route still names it
+    // so a second kind could be bound without changing the contract.
+    expect(
+      validateWeightFormSearch({ rabbit: RABBIT, mode: 'picker' }),
+    ).toMatchObject({ mode: 'quick' });
+  });
+
+  it('ignores a rabbit that is not a string', () => {
+    expect(
+      validateWeightFormSearch({ rabbit: 42, from: 'rabbit' }),
+    ).toMatchObject({ rabbit: '', from: 'dashboard' });
+  });
+
+  it('validates the range pair through the range schema', () => {
+    const search = { rabbit: RABBIT, trend: 'weekly', history: 'all' };
+
+    // The pair is the dashboard's contract, not a second copy of its windows.
+    expect(validateWeightFormSearch(search)).toMatchObject(
+      validateWeightRangeSearch(search),
+    );
+    expect(validateWeightFormSearch(search)).toMatchObject({
+      trend: DEFAULT_WEIGHT_RANGE,
+      history: 'all',
+    });
+  });
+
+  it('drops search fields it does not own', () => {
+    expect(
+      validateWeightFormSearch({ rabbit: RABBIT, householdId: 'other' }),
+    ).toEqual({
+      trend: DEFAULT_WEIGHT_RANGE,
+      history: DEFAULT_WEIGHT_RANGE,
+      rabbit: RABBIT,
+      mode: 'quick',
+      from: 'dashboard',
+    });
   });
 });

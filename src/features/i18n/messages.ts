@@ -190,8 +190,10 @@ export const P0_MESSAGES = {
   'connectivity.checkAgain': 'Check again',
   'connectivity.checking': 'Checking…',
 
-  // A single rabbit's failed read is profile-scoped, unlike the entry route's
-  // household-scoped `entry.loadFailed.title` (task 4.4; NFR-8).
+  // A single rabbit's read is profile-scoped, unlike the entry route's
+  // household-scoped `entry.loading` and `entry.loadFailed.title` (task 4.4;
+  // NFR-8). The form route shows this once the household has resolved.
+  'rabbit.loading': 'Loading the rabbit…',
   'rabbit.loadFailed.title': 'This rabbit could not be loaded.',
 
   // Rabbit lifecycle controls (RAB-6, RAB-7, RAB-10, NFR-9). Archiving is the
