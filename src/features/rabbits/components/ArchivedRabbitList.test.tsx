@@ -3,10 +3,11 @@
  * RAB-10, NFR-9).
  *
  * What this layer decides: the list is the household's *archived* list, each
- * row offers restore and permanent deletion, restoration returns the rabbit to
- * the active list, deletion never happens before its confirmation (and the
- * confirmation states the consequence), and the empty state's copy is written
- * into a polite region that already existed when the last row leaves.
+ * row offers restore and permanent deletion and a way into the rabbit's
+ * dashboard (RAB-6), restoration returns the rabbit to the active list,
+ * deletion never happens before its confirmation (and the confirmation states
+ * the consequence), and the empty state's copy is written into a polite region
+ * that already existed when the last row leaves.
  *
  * The active list is rendered beside the archived one as a probe
  * (`data-testid="active-list"`): RAB-7 must show the restored rabbit *in the
@@ -33,7 +34,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   describeAtBothBaselines,
   renderWithQueryClient,
@@ -192,19 +193,29 @@ afterEach(async () => {
   resetSaveRetry();
 });
 
+/*
+ * The archived list is rendered directly, with a spy for the row's open
+ * destination (4.17; RAB-6). The route itself is the screen's, so the component
+ * contract under test is that the row offers that destination and reports the
+ * rabbit it belongs to.
+ */
 function renderList() {
-  return renderWithQueryClient(
+  const onOpen = vi.fn();
+
+  const view = renderWithQueryClient(
     <>
-      <ArchivedRabbitList onClose={() => {}} />
+      <ArchivedRabbitList onClose={() => {}} onOpen={onOpen} />
       {/*
-       * RAB-7's active half: the dashboard read the restore invalidates, painted
-       * by the product's own `RabbitList`.
+       * RAB-7's active half: the dashboard read the restore invalidates,
+       * painted by the product's own `RabbitList`.
        */}
       <div data-testid="active-list">
         <RabbitList />
       </div>
     </>,
   );
+
+  return { ...view, onOpen };
 }
 
 function deleteTrigger(): HTMLElement {
@@ -263,6 +274,25 @@ describeAtBothBaselines('Archived rabbit list (RAB-6, RAB-7, RAB-10)', () => {
     expect(calls.find((call) => call.command === 'list_rabbits')?.args).toEqual(
       { householdId: HOUSEHOLD.id, includeArchived: true },
     );
+  });
+
+  it('opens the archived rabbit dashboard from its row', async () => {
+    const { onOpen } = renderList();
+
+    await screen.findByText(WILLOW.name);
+
+    // RAB-6: the archived rabbit's history is retrievable from the list, not
+    // only behind a deep link. The row reports the rabbit it belongs to, and
+    // the dashboard screen owns the route it opens (4.16, 4.17).
+    const open = screen.getByRole('button', {
+      name: t('rabbit.archived.open'),
+    });
+
+    expect(open).toBeVisible();
+
+    fireEvent.click(open);
+
+    expect(onOpen).toHaveBeenCalledWith(WILLOW.id);
   });
 
   it('restores an archived rabbit to the active list', async () => {
