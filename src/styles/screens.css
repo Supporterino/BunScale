@@ -251,17 +251,22 @@
   justify-content: space-between;
 }
 
-/*
- * The identity row: the RAB-1 photo placeholder at the list row's fixed 44 pt
- * size, beside the rabbit's name. The placeholder's accessible name is the
- * "No photo" key, so it is information rather than decoration.
- */
 .bs-rabbit-detail__card {
   width: 100%;
 }
 
+/*
+ * The identity row: the RAB-1 photo placeholder at the list row's fixed 44 pt
+ * size, beside the rabbit's name. The placeholder's accessible name is the
+ * "No photo" key, so it is information rather than decoration.
+ *
+ * The row wraps so the archived badge (task 4.6) — which is `nowrap` text —
+ * moves to its own line rather than pushing a long name, or a 2× preferred text
+ * size, past the card's edge. A name that fits keeps the single row.
+ */
 .bs-rabbit-detail__identity {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
 }
@@ -288,6 +293,7 @@
 
 .bs-rabbit-detail__name {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 /*

@@ -41,7 +41,8 @@ import {
   renderWithQueryClient,
 } from '../../../test/setup';
 import { t } from '../../i18n';
-import { resetSaveRetry } from '../../sync/save-retry';
+import { getSaveRetryState, resetSaveRetry } from '../../sync/save-retry';
+import { rabbitKeys } from '../keys';
 import type { Rabbit } from '../queries';
 import { RabbitDetail } from './RabbitDetail';
 
@@ -52,7 +53,7 @@ const SAVED: Rabbit = {
   id: 'rabbit-hazel',
   household_id: HOUSEHOLD_ID,
   name: 'Hazel',
-  photo_ref: null,
+  photo_ref: 'https://photos.example/hazel.jpg',
   breed: 'Holland Lop',
   dob: '2026-03-01T00:00:00.000Z',
   dob_unknown: false,
@@ -105,6 +106,16 @@ function validationError() {
   };
 }
 
+/** A refusal the shell's retry surface owns, not the dialog. */
+function connectivityError() {
+  return {
+    cause: 'connectivity',
+    retryable: true,
+    message_key: 'error.connectivity',
+    request_id: null,
+  };
+}
+
 beforeEach(() => {
   calls = [];
   reads = [];
@@ -131,6 +142,11 @@ beforeEach(() => {
 
     if (command === 'archive_rabbit') {
       return archived;
+    }
+
+    // RAB-10: the contract's `()` arrives on the wire as `null`.
+    if (command === 'delete_rabbit') {
+      return null;
     }
 
     throw new Error(`unexpected mocked command "${command}"`);
@@ -287,7 +303,7 @@ describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
       rabbitId: SAVED.id,
       profile: {
         name: EDITED.name,
-        photo_ref: null,
+        photo_ref: EDITED.photo_ref,
         breed: EDITED.breed,
         dob: EDITED.dob,
         dob_unknown: false,
@@ -311,6 +327,49 @@ describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
     expect(
       screen.queryByRole('button', { name: t('rabbit.form.save') }),
     ).toBeNull();
+  });
+
+  it('closes the edit form and keeps focus in the detail when the profile becomes archived mid-edit', async () => {
+    reads.push(SAVED);
+
+    const { client } = renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: SAVED.name }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: t('rabbit.edit') }));
+
+    expect(saveControl()).toBeVisible();
+
+    /*
+     * Another member archives the rabbit: the detail already observes this
+     * profile key, so the confirming read is the invalidation a write performs.
+     */
+    reads.push({ ...SAVED, is_archived: true });
+
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: rabbitKeys.detail(SAVED.id),
+      });
+    });
+
+    // RAB-5, RAB-8, D1.5: no Save is left behind on a profile that can no
+    // longer be written, and there is no edit control to return to either.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: t('rabbit.form.save') }),
+      ).toBeNull();
+    });
+    expect(editControl()).toBeNull();
+    expect(screen.getByText(t('rabbit.archived.readOnly'))).toBeVisible();
+
+    // Focus falls back to the detail's first control rather than to `<body>`.
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: t('settings.back') }),
+      ).toHaveFocus();
+    });
   });
 
   it('shows the content-unloaded reason and no edit control when the rabbit is not loaded here', async () => {
@@ -423,7 +482,7 @@ describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
     expect(container.querySelector('.bs-rabbit-detail__image')).toBeNull();
   });
 
-  it('does not offer the edit control for an archived rabbit', async () => {
+  it("presents an archived rabbit read-only and states why in the catalog's words", async () => {
     reads.push({ ...SAVED, is_archived: true });
 
     renderDetail();
@@ -431,15 +490,208 @@ describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
     expect(
       await screen.findByRole('heading', { name: SAVED.name }),
     ).toBeVisible();
+
+    // RAB-8, DM-4: the archived marker is the one the archived list already
+    // uses, so the state reads the same wherever the rabbit appears.
+    expect(screen.getByText(t('rabbit.archived.label'))).toBeVisible();
+    // DASH-7: the read-only sentence sits on the profile itself, covering the
+    // dashboard sections this detail is mounted above.
+    expect(screen.getByText(t('rabbit.archived.readOnly'))).toBeVisible();
+
     expect(editControl()).toBeNull();
     // RAB-6: an archived rabbit is not archived again.
     expect(
       screen.queryByRole('button', { name: t('rabbit.archive') }),
     ).toBeNull();
-    // RAB-10: permanent deletion lives on the archived list, not here.
+    // RAB-10: the irreversible control is on the archived read-only surface,
+    // and it only opens its confirmation.
     expect(
-      screen.queryByRole('button', { name: t('rabbit.delete') }),
-    ).toBeNull();
+      screen.getByRole('button', { name: t('rabbit.delete') }),
+    ).toBeVisible();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('permanently deletes an archived rabbit only from the confirmation', async () => {
+    // The second answer covers the profile re-read the deletion invalidates.
+    reads.push(
+      { ...SAVED, is_archived: true },
+      { ...SAVED, is_archived: true },
+    );
+
+    const { onClose } = renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: SAVED.name }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: t('rabbit.delete') }));
+
+    const dialog = screen.getByRole('alertdialog');
+
+    // NFR-9: the shared confirmation states the consequence before anything is
+    // removed, and cancelling deletes nothing.
+    expect(dialog).toHaveAccessibleName(t('rabbit.deleteConfirm.title'));
+    expect(dialog).toHaveAccessibleDescription(
+      new RegExp(t('rabbit.deleteConfirm.body')),
+    );
+    expect(
+      calls.filter((call) => call.command === 'delete_rabbit'),
+    ).toHaveLength(0);
+
+    fireEvent.click(
+      within(dialog).getByRole('button', {
+        name: t('rabbit.deleteConfirm.cancel'),
+      }),
+    );
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(
+      calls.filter((call) => call.command === 'delete_rabbit'),
+    ).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: t('rabbit.delete') }));
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: t('rabbit.deleteConfirm.confirm'),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'delete_rabbit'),
+      ).toHaveLength(1);
+    });
+
+    expect(
+      calls.find((call) => call.command === 'delete_rabbit')?.args,
+    ).toEqual({
+      rabbitId: SAVED.id,
+      requestId: expect.any(String),
+    });
+
+    // A confirmed deletion removes the rabbit, so the detail closes.
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('keeps the deletion confirmation open with the validation copy when the delete is refused as validation', async () => {
+    mockIPC((command, args) => {
+      calls.push({ command, args: (args ?? {}) as Record<string, unknown> });
+
+      if (command === 'get_rabbit') {
+        const answer = reads.shift();
+
+        if (answer === undefined) {
+          throw new Error('get_rabbit answered without a queued profile');
+        }
+
+        return answer;
+      }
+
+      if (command === 'delete_rabbit') {
+        throw validationError();
+      }
+
+      throw new Error(`unexpected mocked command "${command}"`);
+    });
+
+    reads.push({ ...SAVED, is_archived: true });
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: SAVED.name }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: t('rabbit.delete') }));
+
+    const dialog = screen.getByRole('alertdialog');
+
+    fireEvent.click(
+      within(dialog).getByRole('button', {
+        name: t('rabbit.deleteConfirm.confirm'),
+      }),
+    );
+
+    // D0.14: a `validation` refusal belongs to the dialog that owns the input,
+    // so it stays open with that copy and the shell records no retry for it.
+    expect(
+      await within(dialog).findByText(t('error.validation')),
+    ).toBeVisible();
+    expect(screen.getByRole('alertdialog')).toBe(dialog);
+    expect(
+      calls.filter((call) => call.command === 'delete_rabbit'),
+    ).toHaveLength(1);
+    expect(getSaveRetryState().failure).toBeNull();
+  });
+
+  it('closes the deletion confirmation when the delete fails for a cause the shell can retry', async () => {
+    mockIPC((command, args) => {
+      calls.push({ command, args: (args ?? {}) as Record<string, unknown> });
+
+      if (command === 'get_rabbit') {
+        const answer = reads.shift();
+
+        if (answer === undefined) {
+          throw new Error('get_rabbit answered without a queued profile');
+        }
+
+        return answer;
+      }
+
+      if (command === 'delete_rabbit') {
+        throw connectivityError();
+      }
+
+      throw new Error(`unexpected mocked command "${command}"`);
+    });
+
+    reads.push({ ...SAVED, is_archived: true });
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: SAVED.name }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: t('rabbit.delete') }));
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: t('rabbit.deleteConfirm.confirm'),
+      }),
+    );
+
+    // D0.14: the write hook records this refusal for the shell's retry surface,
+    // so the dialog closes rather than offering a second, differently
+    // identified attempt beside it.
+    await waitFor(() => {
+      expect(getSaveRetryState().failure?.cause).toBe('connectivity');
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+    });
+
+    expect(getSaveRetryState().failure?.retryable).toBe(true);
+    // The validation copy is the dialog's, and this refusal is not that.
+    expect(screen.queryByText(t('error.validation'))).toBeNull();
+  });
+
+  it('states no archived read-only copy on an active rabbit', async () => {
+    reads.push(SAVED);
+
+    renderDetail();
+
+    expect(
+      await screen.findByRole('heading', { name: SAVED.name }),
+    ).toBeVisible();
+
+    // Both describe the archive, not the profile: an active rabbit states
+    // neither of them.
+    expect(screen.queryByText(t('rabbit.archived.label'))).toBeNull();
+    expect(screen.queryByText(t('rabbit.archived.readOnly'))).toBeNull();
   });
 
   it('archives an active rabbit from a directly visible control without a confirmation', async () => {

@@ -24,7 +24,7 @@
  * fresh read can change the answer (`validation` is the one that cannot). While
  * the read is in flight the same rule holds — no data, no action — and the
  * pending surface says what is loading. An archived rabbit is likewise not
- * editable (RAB-5); task 4.6 owns the rest of its read-only presentation.
+ * editable (RAB-5); its whole presentation is read-only (task 4.6 below).
  *
  * **A saved edit returns to this detail with the new values.** `useUpdateRabbit`
  * invalidates the profile key (and the rabbit's series, so the threshold's
@@ -43,32 +43,54 @@
  * is shown here; every other cause is recorded by the write hook for the route
  * shell's failure surface.
  *
- * **Permanent deletion is deliberately absent (RAB-10, D1.8).** The irreversible
- * action lives only on the archived list and task 4.6's archived surface; an
- * active profile offers no such control, so archiving is a real step before the
- * point of no return rather than a decorative flag.
+ * **Permanent deletion is present only on the archived rabbit (RAB-10, D1.8).**
+ * It is in this detail's action row for an archived rabbit — the read-only
+ * surface task 4.5 names beside the archived list — and it opens the same
+ * `DeleteRabbitDialog` the list uses, consequence copy included. An active
+ * rabbit's profile never shows it: archiving is a real step before the point of
+ * no return rather than a decorative flag.
+ *
+ * **An archived rabbit is presented read-only (task 4.6; RAB-8, DM-4, DASH-7).**
+ * This detail is the top of the rabbit's dashboard — `RabbitDashboard` mounts it
+ * above the trend and the History section — so the state is stated on the
+ * surface itself, in the catalog's own words: the existing
+ * `rabbit.archived.label` badge beside the name and `rabbit.archived.readOnly`
+ * beneath the identity. The edit and archive controls are *withheld*, not
+ * disabled: a greyed control still offers the action, and RAB-8 asks for no
+ * edit control at all (RAB-5). Permanent deletion is the one lifecycle action an
+ * archived rabbit's surface carries, because RAB-10 places it here as well as
+ * on the archived list; restore stays on the list, because it operates on the
+ * archive rather than on the profile this surface presents. The weight surfaces
+ * below this card carry no write control on either rabbit, so the archived
+ * rabbit's trend, its history and its entry rows are read-only by construction
+ * and need no second guard here. If another member archives the rabbit while
+ * the edit form is open, the refreshed profile closes that form rather than
+ * leaving a Save behind on a profile that can no longer be written.
  *
  * **Focus.** The Back control takes focus when the detail replaces the list, and
  * the edit control takes it back when the form closes — the same swap pattern
  * task 4.3 established for the dashboard's Add/form pair.
  */
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { ErrorState } from '../../../components/ui/ErrorState';
 import { Heading } from '../../../components/ui/Heading';
 import { LoadingIndicator } from '../../../components/ui/LoadingIndicator';
 import { Notice } from '../../../components/ui/Notice';
+import { Text } from '../../../components/ui/Text';
 import { type MessageKey, t } from '../../i18n';
 import { describeSaveFailure } from '../../sync/failure';
 import { describeReadFailure } from '../../sync/read-failure';
-import { archiveRabbit } from '../api';
-import { useArchiveRabbit } from '../mutations';
+import { archiveRabbit, deleteRabbit } from '../api';
+import { useArchiveRabbit, useDeleteRabbit } from '../mutations';
 import {
   type Rabbit,
   type RabbitProfileFailure,
   useRabbitProfile,
 } from '../queries';
+import { DeleteRabbitDialog } from './DeleteRabbitDialog';
 import {
   DEFAULT_WEIGHT_DROP_THRESHOLD_PERCENT,
   RabbitForm,
@@ -113,10 +135,13 @@ type Field = {
 export function RabbitDetail({ rabbitId, onClose }: RabbitDetailProps) {
   const profile = useRabbitProfile(rabbitId);
   const archive = useArchiveRabbit();
+  const remove = useDeleteRabbit();
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const wasEditing = useRef(false);
   const closedAfterArchive = useRef(false);
+  const closedAfterDelete = useRef(false);
 
   // The list unmounts with this detail, so focus is handed to its own entry
   // point instead of being dropped on `<body>`.
@@ -139,6 +164,36 @@ export function RabbitDetail({ rabbitId, onClose }: RabbitDetailProps) {
   }, [archive.isSuccess, onClose]);
 
   /*
+   * A confirmed deletion has removed the rabbit, so this detail closes like the
+   * archived list leaves the row behind (RAB-10).
+   */
+  useEffect(() => {
+    if (!remove.isSuccess || closedAfterDelete.current) {
+      return;
+    }
+
+    closedAfterDelete.current = true;
+    setConfirmingDelete(false);
+    onClose();
+  }, [remove.isSuccess, onClose]);
+
+  /*
+   * A non-validation failure is already recorded by `useDeleteRabbit` for the
+   * shell's retry surface; leaving the dialog open would offer a second,
+   * differently identified attempt beside that retry (D0.14). A `validation`
+   * refusal stays in the dialog, which owns the input.
+   */
+  useEffect(() => {
+    if (remove.error === null) {
+      return;
+    }
+
+    if (describeSaveFailure(remove.error).cause !== 'validation') {
+      setConfirmingDelete(false);
+    }
+  }, [remove.error]);
+
+  /*
    * Returning from the form waits for the read the save invalidated: focusing
    * the edit control while the detail still shows the previous values would
    * announce the stale profile as the confirmed one.
@@ -155,12 +210,33 @@ export function RabbitDetail({ rabbitId, onClose }: RabbitDetailProps) {
 
     wasEditing.current = false;
 
-    // By the control's own marker, not its visible text: a label is copy and
-    // must not be the identity a focus target is found by.
-    containerRef.current
-      ?.querySelector<HTMLButtonElement>('.bs-rabbit-detail__edit')
-      ?.focus();
+    /*
+     * By the control's own marker, not its visible text: a label is copy and
+     * must not be the identity a focus target is found by. When the form was
+     * closed because the refreshed profile reports archived, that control no
+     * longer exists and the read-only detail's Back takes focus instead of the
+     * node being dropped on `<body>`.
+     */
+    const container = containerRef.current;
+
+    (
+      container?.querySelector<HTMLButtonElement>('.bs-rabbit-detail__edit') ??
+      container?.querySelector<HTMLButtonElement>('button')
+    )?.focus();
   }, [editing, profile.isFetching]);
+
+  /*
+   * Another member can archive the rabbit while this form is open. The read this
+   * component already observes is the confirming one, so the form closes the
+   * moment it reports archived: RAB-5 and RAB-8 ask for no edit control on an
+   * archived profile, and leaving Save on screen would offer a write the
+   * contract refuses (D1.5).
+   */
+  useEffect(() => {
+    if (editing && profile.data?.is_archived === true) {
+      setEditing(false);
+    }
+  }, [editing, profile.data?.is_archived]);
 
   /*
    * The Back control is rendered before the read settles, so opening the detail
@@ -169,6 +245,13 @@ export function RabbitDetail({ rabbitId, onClose }: RabbitDetailProps) {
    * (D1.16) and only for an active rabbit (RAB-5).
    */
   const editable = profile.data !== undefined && !profile.data.is_archived;
+
+  /*
+   * RAB-10 places the irreversible control on the archived list *and* on the
+   * archived rabbit's read-only surface. Only an archived profile carries it;
+   * an active profile keeps none (D1.8).
+   */
+  const deletable = profile.data?.is_archived === true;
 
   /*
    * A `validation` refusal belongs to this surface, because there is no form to
@@ -181,6 +264,13 @@ export function RabbitDetail({ rabbitId, onClose }: RabbitDetailProps) {
   const archiveValidation =
     archiveFailure !== null && archiveFailure.cause === 'validation'
       ? archiveFailure.messageKey
+      : null;
+
+  const deleteFailure =
+    remove.error === null ? null : describeSaveFailure(remove.error);
+  const deleteValidation =
+    deleteFailure !== null && deleteFailure.cause === 'validation'
+      ? deleteFailure
       : null;
 
   return (
@@ -235,11 +325,49 @@ export function RabbitDetail({ rabbitId, onClose }: RabbitDetailProps) {
                     : t('rabbit.archive')}
                 </Button>
               ) : null}
+              {/*
+               * RAB-10, NFR-9: the archived read-only surface carries the
+               * irreversible control, and it only opens the shared confirmation.
+               */}
+              {deletable ? (
+                <Button
+                  onClick={() => {
+                    remove.reset();
+                    setConfirmingDelete(true);
+                  }}
+                  variant="destructive"
+                >
+                  {t('rabbit.delete')}
+                </Button>
+              ) : null}
             </div>
           </div>
           {archiveValidation === null ? null : (
             <Notice tone="danger">{t(archiveValidation)}</Notice>
           )}
+          {confirmingDelete && profile.data !== undefined ? (
+            <DeleteRabbitDialog
+              errorMessage={
+                deleteValidation === null
+                  ? undefined
+                  : t(deleteValidation.messageKey)
+              }
+              onCancel={() => {
+                setConfirmingDelete(false);
+                remove.reset();
+              }}
+              onConfirm={() => {
+                remove.mutate({
+                  householdId: profile.data.household_id,
+                  operation: deleteRabbit(rabbitId),
+                  rabbitId,
+                });
+              }}
+              pending={remove.isPending}
+              rabbitName={profile.data.name}
+              restoreFocus={!remove.isSuccess}
+            />
+          ) : null}
           {profile.data === undefined ? (
             <PendingProfile
               error={profile.error}
@@ -290,7 +418,10 @@ function PendingProfile({
   );
 }
 
-/** A loaded profile: every RAB-1 value, threshold included (RAB-5). */
+/**
+ * A loaded profile: every RAB-1 value, threshold included (RAB-5), and the
+ * archived state when it applies (RAB-8, task 4.6).
+ */
 function ReadProfile({ rabbit }: { rabbit: Rabbit }) {
   const fields: Field[] = [
     { term: t('rabbit.form.breedLabel'), value: rabbit.breed ?? '—' },
@@ -334,7 +465,25 @@ function ReadProfile({ rabbit }: { rabbit: Rabbit }) {
         <Heading as="h2" className="bs-rabbit-detail__name" variant="title-2">
           {rabbit.name}
         </Heading>
+        {/*
+         * RAB-8, DM-4: the archived marker is the one the archived list already
+         * uses (`rabbit.archived.label`), so the state reads the same wherever
+         * the rabbit appears. It is text, not a colour or a lock glyph.
+         */}
+        {rabbit.is_archived ? (
+          <Badge tone="neutral">{t('rabbit.archived.label')}</Badge>
+        ) : null}
       </div>
+      {/*
+       * The read-only sentence sits on the surface itself rather than in a
+       * transient notice: it is the profile's state, and it covers the dashboard
+       * sections below, which offer no write control for either rabbit (DASH-7).
+       */}
+      {rabbit.is_archived ? (
+        <Text as="p" tone="secondary" variant="subheadline">
+          {t('rabbit.archived.readOnly')}
+        </Text>
+      ) : null}
       <dl className="bs-rabbit-detail__fields">
         {fields.map((field) => (
           <div className="bs-rabbit-detail__field" key={field.term}>
