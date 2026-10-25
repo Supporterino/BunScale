@@ -214,6 +214,7 @@ export const P0_MESSAGES = {
   'rabbit.archived.label': 'Archived',
   'rabbit.archived.readOnly':
     'This rabbit is archived. Its history is read-only.',
+  'rabbit.archived.open': 'Open dashboard',
   'rabbit.archivedList.title': 'Archived rabbits',
   'rabbit.archivedList.empty': 'No archived rabbits.',
   // The thumbnail fallback wherever a rabbit is presented, used as its

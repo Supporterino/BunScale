@@ -493,6 +493,15 @@ export function HouseholdDashboardScreen({
             onClose={() => {
               setArchivedOpen(false);
             }}
+            /*
+             * Close the pane before navigating: on the rabbit route the screen
+             * is not remounted, so a surviving `archivedOpen` would keep the
+             * archived list on top of the rabbit that was just opened.
+             */
+            onOpen={(id) => {
+              setArchivedOpen(false);
+              openRabbit(id);
+            }}
           />
         ) : null}
       </Screen>

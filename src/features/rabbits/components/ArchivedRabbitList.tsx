@@ -19,10 +19,10 @@
  * given. Archiving, by contrast, asks nothing (design.md D1.8).
  *
  * **Where the lifecycle controls live.** Permanent deletion exists only for an
- * archived rabbit (D1.8): it is here and on task 4.6's archived read-only
- * surface, and it is absent from an active rabbit's profile. Task 4.6 owns the
- * rest of the archived rabbit's read-only presentation; this screen does not
- * build it.
+ * archived rabbit (D1.8): it is here and on the archived rabbit's read-only
+ * surface (`RabbitDetail`), and it is absent from an active rabbit's profile.
+ * Task 4.6 owns the rest of the archived rabbit's read-only presentation; this
+ * screen does not build it.
  *
  * **Failures.** A `validation` refusal belongs to the surface that owns the
  * input: the delete dialog shows it, and a restore shows it beside its control.
@@ -43,6 +43,15 @@
  * moves focus to the row that took its place (its Restore control) or, when the
  * last row leaves, to the Back control. The dialog is told not to restore focus
  * to a trigger that is being removed.
+ *
+ * **The row's dashboard is reachable on every row (4.17; RAB-6, RAB-8,
+ * DASH-7).** A `ListRow` inside the card opens the rabbit's dashboard, where the
+ * read-only timeline lives, so reaching it never needs a deep link (NFR-9). It
+ * is a separate control from the lifecycle buttons: the row is a real button,
+ * the Restore and Delete controls stay siblings rather than nesting inside it,
+ * and the card itself is not the control. `onOpen` is supplied by the screen
+ * that owns the route, exactly as `RabbitList`'s `onOpenRabbit` is; without it
+ * the row offers no destination and paints no open affordance.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Badge } from '../../../components/ui/Badge';
@@ -51,6 +60,8 @@ import { Card } from '../../../components/ui/Card';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { ErrorState } from '../../../components/ui/ErrorState';
 import { Heading } from '../../../components/ui/Heading';
+import { List } from '../../../components/ui/List';
+import { ListRow } from '../../../components/ui/ListRow';
 import { LoadingIndicator } from '../../../components/ui/LoadingIndicator';
 import { Notice } from '../../../components/ui/Notice';
 import { useActiveHousehold } from '../../households/queries';
@@ -66,9 +77,18 @@ import { DeleteRabbitDialog } from './DeleteRabbitDialog';
 export type ArchivedRabbitListProps = {
   /** Returns to the dashboard without changing anything. */
   onClose: () => void;
+  /**
+   * Opens one archived rabbit's dashboard (4.17; RAB-6, RAB-8, DASH-7). The
+   * screen owns the route; absent, a row has no open affordance rather than a
+   * control without a destination.
+   */
+  onOpen?: (rabbitId: string) => void;
 };
 
-export function ArchivedRabbitList({ onClose }: ArchivedRabbitListProps) {
+export function ArchivedRabbitList({
+  onClose,
+  onOpen,
+}: ArchivedRabbitListProps) {
   const archived = useArchivedRabbits();
   const householdId = useActiveHousehold().data?.id;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -161,6 +181,7 @@ export function ArchivedRabbitList({ onClose }: ArchivedRabbitListProps) {
         onLeaving={(index) => {
           leavingIndex.current = index;
         }}
+        onOpen={onOpen}
         onRetry={() => {
           void archived.refetch();
         }}
@@ -179,12 +200,14 @@ function ArchivedContent({
   error,
   householdId,
   onLeaving,
+  onOpen,
   onRetry,
   rabbits,
 }: {
   error: RabbitListFailure | null;
   householdId: string | undefined;
   onLeaving: (index: number) => void;
+  onOpen: ((rabbitId: string) => void) | undefined;
   onRetry: () => void;
   rabbits: RabbitSummary[] | undefined;
 }) {
@@ -226,6 +249,7 @@ function ArchivedContent({
               householdId={householdId}
               index={index}
               onLeaving={onLeaving}
+              onOpen={onOpen}
               rabbit={rabbit}
             />
           </li>
@@ -236,14 +260,16 @@ function ArchivedContent({
 }
 
 /**
- * One archived rabbit: its name, its archived state, and the two lifecycle
- * actions. Each row owns its own mutations and its own dialog, so an attempt on
- * one rabbit cannot present its pending or refused state against another.
+ * One archived rabbit: its name, its archived state, the way into its
+ * dashboard, and the two lifecycle actions. Each row owns its own mutations and
+ * its own dialog, so an attempt on one rabbit cannot present its pending or
+ * refused state against another.
  */
 function ArchivedRabbit({
   householdId,
   index,
   onLeaving,
+  onOpen,
   rabbit,
 }: {
   householdId: string | undefined;
@@ -251,6 +277,8 @@ function ArchivedRabbit({
   index: number;
   /** The row is about to leave; the list hands focus on after the re-read. */
   onLeaving: (index: number) => void;
+  /** Opens this rabbit's dashboard; absent, the row offers no destination. */
+  onOpen: ((rabbitId: string) => void) | undefined;
   rabbit: RabbitSummary;
 }) {
   const restore = useRestoreRabbit();
@@ -334,6 +362,22 @@ function ArchivedRabbit({
       <div className="bs-archived__meta">
         <Badge tone="neutral">{t('rabbit.archived.label')}</Badge>
       </div>
+      {/*
+       * 4.17, NFR-9: a direct, visible way into the rabbit's dashboard. It is
+       * the list row's own affordance, not a nested control, so Restore and
+       * Delete below stay separate targets.
+       */}
+      {onOpen === undefined ? null : (
+        <List>
+          <ListRow
+            accessory="chevron"
+            onClick={() => {
+              onOpen(rabbit.id);
+            }}
+            title={t('rabbit.archived.open')}
+          />
+        </List>
+      )}
       {restoreValidation === null ? null : (
         <Notice tone="danger">{t(restoreValidation)}</Notice>
       )}
