@@ -6,6 +6,10 @@
  * "date of birth unknown" state, RAB-2's empty and whitespace-only refusal
  * before any command, the shape of the profile `create_rabbit` receives, and —
  * in edit mode — the threshold's own refusal before `update_rabbit`.
+ * In edit mode it also owns two behaviours this change added: a saved photo
+ * reference is carried through the whole-profile replacement instead of being
+ * erased, and a refused edit shows the backend's own copy rather than RAB-2's
+ * blank-name prompt.
  * It also owns the save's two edges: exactly one command while a submit is in
  * flight, and a form that closes when the shell's recorded retry is confirmed.
  * IPC is mocked at `invoke`, the seam the other rabbit specs use, so the real
@@ -131,13 +135,13 @@ function renderForm(onSaved = vi.fn()) {
 }
 
 /** The same form in edit mode: the saved profile, threshold included (RAB-5). */
-function renderEditForm(onSaved = vi.fn()) {
+function renderEditForm(onSaved = vi.fn(), profile: Rabbit = CREATED) {
   const onCancel = vi.fn();
 
   renderWithQueryClient(
     <RabbitForm
       householdId={HOUSEHOLD_ID}
-      initial={{ rabbitId: CREATED.id, profile: CREATED }}
+      initial={{ rabbitId: profile.id, profile }}
       onCancel={onCancel}
       onSaved={onSaved}
     />,
@@ -338,6 +342,68 @@ describeAtBothBaselines('Rabbit form (RAB-1, RAB-2, RAB-5)', () => {
     // `useCreateRabbit` deliberately does not record `validation` (task 3.4),
     // so the field owns it and no shell notice is produced.
     expect(getSaveRetryState().failure).toBeNull();
+  });
+
+  it('keeps the saved photo reference when an edit replaces the profile', async () => {
+    const saved: Rabbit = {
+      ...CREATED,
+      photo_ref: 'https://photos.example/hazel.jpg',
+    };
+
+    answers.push(() => ({ ...saved, name: 'Clover' }));
+
+    const { onSaved } = renderEditForm(vi.fn(), saved);
+
+    fireEvent.change(nameField(), { target: { value: 'Clover' } });
+    fireEvent.click(submitButton());
+
+    await waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
+
+    // RAB-5: `update_rabbit` is a whole-profile replacement, so every field is
+    // sent intact and a reference the saved profile already carries survives
+    // the edit rather than being replaced by `null`.
+    expect(calls[0]).toEqual({
+      command: 'update_rabbit',
+      args: {
+        rabbitId: saved.id,
+        profile: {
+          name: 'Clover',
+          photo_ref: 'https://photos.example/hazel.jpg',
+          breed: saved.breed,
+          dob: saved.dob,
+          dob_unknown: saved.dob_unknown,
+          sex: saved.sex,
+          neuter_status: saved.neuter_status,
+          adoption_date: saved.adoption_date,
+          weight_drop_threshold_percent: saved.weight_drop_threshold_percent,
+        },
+        requestId: expect.any(String),
+      },
+    });
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('surfaces the backend refusal, not the blank-name prompt, when an edit is refused', async () => {
+    answers.push(() => {
+      throw validationError();
+    });
+
+    renderEditForm();
+
+    fireEvent.click(submitButton());
+
+    // The reachable edit refusal is "the rabbit is already archived" (D1.5);
+    // RAB-2's blank-name copy would describe a name that is not blank. The
+    // refusal is form-level, so the copy is the claim this spec makes: the
+    // field's own validity flag belongs to the form's error mapping, not to a
+    // statement that the name itself is invalid.
+    expect(await screen.findByText(t('error.validation'))).toBeVisible();
+    expect(screen.queryByText(BLANK_NAME_PROMPT)).toBeNull();
   });
 
   it('refuses an unreadable edit threshold before writing', async () => {

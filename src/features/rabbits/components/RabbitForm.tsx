@@ -22,10 +22,11 @@
  * blank-name refusal cannot drift between them.
  *
  * **The photo field is carried, not collected.** Choosing a photo is PHOTO-2 in
- * P2 and brings its own capability (D1.11), so P1 has no picker. The form
- * therefore renders RAB-1's placeholder and submits `photo_ref: null`; the
- * field is still part of the profile, and a later photo flow fills the same
- * value without changing this shape.
+ * P2 and brings its own capability (D1.11), so P1 has no picker. A creation
+ * therefore submits `photo_ref: null`, while an edit carries the saved
+ * reference through unchanged: `update_rabbit` is a whole-profile replacement,
+ * so submitting `null` would erase a photo the person already supplied (RAB-5).
+ * A later photo flow fills the same value without changing this shape.
  *
  * **No `Sheet`/`Dialog`.** The design system defers both, and P0's own form
  * pattern is an inline one (Settings' "create another household" form). This
@@ -36,10 +37,10 @@
  * **Blank names never reach the command.** RAB-2 treats an empty name and a
  * whitespace-only name as the same refusal: the form trims first, shows
  * `rabbit.form.blankName` under the field and returns before the write is
- * called. A backend `validation` refusal gets the same field treatment; every
- * other cause is already recorded by the chosen write hook (task 3.4) for P0's
- * shell surface, so this component deliberately does not call
- * `recordFailedSave` a second time.
+ * called. A backend `validation` refusal gets the same field treatment in
+ * create mode; every other cause is already recorded by the chosen write hook
+ * (task 3.4) for P0's shell surface, so this component deliberately does not
+ * call `recordFailedSave` a second time.
  *
  * **An edit's threshold is refused before the write when it cannot be read.**
  * A cleared, negative or non-finite number would otherwise be saved as a value
@@ -213,14 +214,22 @@ export function RabbitForm({
     failure !== null && failure.cause === 'validation' ? failure : null;
 
   /*
-   * The reachable `validation` refusal is I8's contradiction or a blank name,
-   * and this form cannot produce the first, so the field says RAB-2's one thing
-   * for the prompt and the backend refusal alike.
+   * The local blank-name prompt is RAB-2's one thing for both modes. A backend
+   * refusal is different in an edit: the only reachable one there is "the
+   * rabbit is already archived" (D1.5), so the form shows the catalog's
+   * validation copy for this cause instead of claiming the name is blank.
+   * `describeSaveFailure` deliberately discards the backend's `message_key` and
+   * maps the cause to its own entry (`../sync/failure`), so the text is the
+   * cause's catalog copy (`error.validation`) rather than a message the command
+   * named.
    */
-  const fieldError =
-    prompted || validationFailure !== null
-      ? t('rabbit.form.blankName')
-      : undefined;
+  const fieldError = prompted
+    ? t('rabbit.form.blankName')
+    : validationFailure === null
+      ? undefined
+      : initial === undefined
+        ? t('rabbit.form.blankName')
+        : t(validationFailure.messageKey);
 
   const pending = write.isPending;
 
@@ -263,8 +272,9 @@ export function RabbitForm({
 
     return {
       name: trimmedName,
-      // PHOTO-2 (P2) supplies the picker; P1 carries the field as absent.
-      photo_ref: null,
+      // PHOTO-2 (P2) supplies the picker; an edit must not erase a reference
+      // the saved profile already carries (RAB-5, whole-profile replacement).
+      photo_ref: saved?.photo_ref ?? null,
       breed: trimmedBreed === '' ? null : trimmedBreed,
       dob: dobUnknown ? null : instantFromDate(dob),
       dob_unknown: dobUnknown,
