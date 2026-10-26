@@ -251,17 +251,17 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   anticipate the key. Add the two catalog keys the blocked UI tasks need — `weight.picker.label` (the
   rabbit-choice label for 4.20) and `weight.detail.photos` — and nothing else. Regenerate
   `src/routeTree.gen.ts` (gate stage 6). (WT-8, D1.2)
-- [ ] 4.20 [frontend-ui] **Added mid-change (Q12).** Build the quick-entry path's rabbit picker into the
+- [x] 4.20 [frontend-ui] **Added mid-change (Q12).** Build the quick-entry path's rabbit picker into the
   dashboard toolbar, opening 4.18's form route bound to the chosen rabbit. Per Q12 the picker is
   feature-local (a native `<select>` composed with `FormField` and the field class contract) rather
   than a promoted primitive; it lists the household's active rabbits by name including never-weighed,
   is keyboard- and screen-reader-operable, and is never a hidden menu or long press. (WT-2, NFR-9)
-- [ ] 4.21 [frontend-ui] **Added mid-change (Q12).** Build 4.10's weight entry detail on 4.19's route:
+- [x] 4.21 [frontend-ui] **Added mid-change (Q12).** Build 4.10's weight entry detail on 4.19's route:
   display-unit value, timestamp, the full note, the drop marker, the photos as a feature-local
   full-width horizontal strip when present and nothing when absent, Edit opening the pre-filled form
   (4.9 gains update mode), and a confirmed Delete stating the consequence. Cause copy on a failed read
   comes from 3.10, and every state has a way back. (WT-8, NFR-9)
-- [ ] 4.22 [frontend-ui] **Added mid-change (Q12).** Wire the history rows to 4.19's detail route and
+- [x] 4.22 [frontend-ui] **Added mid-change (Q12).** Wire the history rows to 4.19's detail route and
   make that reachable: `WeightHistoryList` has no rabbit id and its only caller
   (`RabbitDashboard`'s history view) does not pass one, so the row link 4.19 could not land. Pass the
   rabbit id and the two windows into the history list, open `/weights/$entryId` with the typed search
@@ -310,7 +310,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 5.9 [test-engineer] Rust tests for equal member access — covers "A member edits data created by
   another member", "A joining member writes into the same shared data" and "No member is offered a
   reduced view of household data" (HS-8).
-- [ ] 5.10 [test-engineer] Component tests for the dashboard — covers "Both active rabbits are listed
+- [x] 5.10 [test-engineer] Component tests for the dashboard — covers "Both active rabbits are listed
   with their details", "An archived rabbit is not listed" (DASH-1), "A rabbit with no entries is
   marked as never weighed" (DASH-2), "The most recently weighed rabbit sorts first", "A never-weighed
   rabbit sorts last" (DASH-3), "A rabbit with a flagged drop is flagged", "The flag clears when the
@@ -322,7 +322,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   may be marked unknown" (RAB-1), "An empty name is rejected" (RAB-2), "The edit control is directly
   visible on the rabbit's detail", "An archived rabbit's profile is not editable" (RAB-5), "Without
   confirmation nothing is deleted" (RAB-10) and the NFR-9 visibility and confirmation scenarios.
-- [ ] 5.12 [test-engineer] Component tests for the weight entry form — covers "A value entered in the
+- [x] 5.12 [test-engineer] Component tests for the weight entry form — covers "A value entered in the
   preferred unit is saved in the canonical unit", "The entry form offers no unit picker", "The form
   uses the regional default when no unit was chosen" (WT-3), "A zero value is rejected", "A negative
   value is rejected", "A value above the plausibility bound requires confirmation" (WT-4) and the
