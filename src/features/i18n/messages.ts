@@ -288,6 +288,9 @@ export const P0_MESSAGES = {
   // The weight entry detail (WT-8, NFR-9). Value, timestamp and note reuse the
   // form's labels above; only the entry's own actions need new copy.
   'weight.entry.title': 'Weight entry',
+  // Singular pending copy for one entry (4.21): `weight.loading` is the
+  // series' plural and wrong above a single record (NFR-8, NFR-9).
+  'weight.entry.loading': 'Loading the weight entry…',
   'weight.entry.edit': 'Edit entry',
   'weight.entry.delete': 'Delete entry',
   'weight.entry.deleting': 'Deleting…',

@@ -1,22 +1,28 @@
 /*
- * The weight entry detail's route (task 4.19; WT-8, D1.2).
+ * The weight entry detail's route (tasks 4.19 and 4.21; WT-8, D1.2, NFR-9).
  *
  * WT-8 names one entry as a destination of its own, and D1.2 keeps the detail's
  * context — the rabbit whose cache prefix the entry sits under, the surface Back
  * returns to and that surface's two windows — in typed search parameters rather
  * than in screen state. This spec launches the app's committed route tree on
  * `/weights/$entryId` as a deep link would, so what is asserted is the wiring
- * rather than `WeightEntryDetailScreen` in isolation:
+ * rather than `WeightEntryDetailScreen` in isolation. Task 4.21 replaced the
+ * placeholder with the real screen; the contract asserted here is therefore its
+ * positive one:
  *
- *   - a deep link renders the placeholder for the entry its parameter names,
- *     reading it with the search's rabbit and offering Back;
+ *   - a deep link renders the entry its parameter names, reading it with the
+ *     search's rabbit and offering Back;
+ *   - a loaded entry shows the value in the display unit, the timestamp, the
+ *     whole note, the derived drop marker only when it is flagged, and its
+ *     photos as a strip when it has any;
+ *   - Edit opens the pre-filled form and Cancel returns without writing; Delete
+ *     is confirmed, naming the consequence, and sends one identified removal
+ *     (WT-5, WT-8);
  *   - a failed read renders the cause's copy and still offers Back (Q11: a
  *     pushed screen is never a dead end);
  *   - Back returns to the rabbit dashboard with the windows the detail was
  *     opened at (WT-6, D1.4);
- *   - the placeholder is read-only: no Edit, Delete or save control exists
- *     until task 4.21 adds them, so this spec fails if a later change makes the
- *     detail writable without the task that owns it.
+ *   - an archived rabbit's entry is presented read-only (RAB-8, D1.5).
  *
  * The file is prefixed `-` because it lives beside the route files: the router
  * plugin's `routeFileIgnorePrefix` is `-`, so it is not treated as a route.
@@ -31,7 +37,13 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { cleanup, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DashboardRow } from '../features/dashboard/queries';
@@ -106,8 +118,21 @@ const POINTS: WeightTrend['points'] = [
   },
 ];
 
-/** The note the placeholder draws, and the proof the read reached it. */
+/** The note the entry read answers with, and the proof the read reached it. */
 const NOTE = 'Morning weigh-in';
+
+/**
+ * A note longer than a card would show if it truncated: the whole text is the
+ * assertion, so the last sentence has to be reachable (WT-8, NFR-9).
+ */
+const LONG_NOTE =
+  'Hazel was restless overnight and would not settle until the early hours, so this reading was taken once she was calm and eating again. She had already finished her hay and was drinking normally. The note continues past the point where a card would cut it off, and ends with the sentence that proves the whole note is still there: every word of the entry is the entry.';
+
+/** The references an entry with photos carries (WT-8). */
+const PHOTOS = [
+  'https://photos.example/hazel-1.jpg',
+  'https://photos.example/hazel-2.jpg',
+] as const;
 
 /** The entry the detail route reads. */
 const ENTRY: WeightEntry = {
@@ -167,6 +192,7 @@ beforeEach(() => {
       }),
     ],
     ['get_weight_entry', () => ENTRY],
+    ['delete_weight_entry', () => null],
   ]);
 
   mockIPC(
@@ -201,9 +227,20 @@ async function launch(path: string, seed?: (client: QueryClient) => void) {
 
   const router = createTestRouter({ client, initialEntries: [path] });
   await router.load();
-  renderWithQueryClient(<RouterProvider router={router} />, { client });
+  const view = renderWithQueryClient(<RouterProvider router={router} />, {
+    client,
+  });
 
-  return router;
+  return { ...view, router };
+}
+
+/** The moment a `datetime-local` control shows for an instant, in local time. */
+function localDateTimeValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /** The navigation bar's leading control: the way out of every state (Q11). */
@@ -220,7 +257,7 @@ function screenTitle(): HTMLElement {
 }
 
 describe('the weight entry detail route (WT-8, D1.2)', () => {
-  it('opens the placeholder for the entry its deep link names, with Back', async () => {
+  it('opens the entry its deep link names, with Back', async () => {
     await launch(ENTRY_PATH);
 
     // The route's parameter is the read's only argument; the search's rabbit
@@ -238,7 +275,7 @@ describe('the weight entry detail route (WT-8, D1.2)', () => {
   });
 
   it('returns to the rabbit dashboard with the windows it was opened at', async () => {
-    const router = await launch(ENTRY_PATH);
+    const { router } = await launch(ENTRY_PATH);
 
     await screen.findByText(NOTE);
     await userEvent.setup().click(backControl());
@@ -267,13 +304,146 @@ describe('the weight entry detail route (WT-8, D1.2)', () => {
     expect(backControl()).toBeVisible();
   });
 
-  it('renders nothing weight-writable until 4.21 owns the actions', async () => {
+  it('shows the value in the display unit, the timestamp and the whole note', async () => {
+    answers.set('get_display_weight_unit', () => 'kilograms');
+    answers.set('get_weight_entry', () => ({ ...ENTRY, note: LONG_NOTE }));
+
+    const { container } = await launch(ENTRY_PATH);
+
+    // WT-8: 2000 stored grams read as the person's unit, not as grams.
+    expect(await screen.findByText(/^2\s*kg$/)).toBeVisible();
+    expect(screen.getByText(LONG_NOTE)).toBeVisible();
+    expect(
+      container.querySelector(`time[datetime="${ENTRY.timestamp}"]`),
+    ).not.toBeNull();
+
+    // The flag is the backend's and this fixture carries none.
+    expect(screen.queryByText(t('weight.dropAlert'))).toBeNull();
+  });
+
+  it('shows the drop marker when the entry is flagged', async () => {
+    answers.set('get_weight_entry', () => ({
+      ...ENTRY,
+      has_weight_drop_alert: true,
+    }));
+
     await launch(ENTRY_PATH);
+
+    expect(await screen.findByText(t('weight.dropAlert'))).toBeVisible();
+  });
+
+  it('opens the pre-filled form from Edit and returns without writing on Cancel', async () => {
+    answers.set('get_display_weight_unit', () => 'kilograms');
+
+    await launch(ENTRY_PATH);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('weight.entry.edit') }),
+    );
+
+    // WT-8: the form starts on the entry's own fields — the value in the
+    // display unit, the entry's instant, and its note.
+    expect(
+      await screen.findByRole('textbox', {
+        name: `${t('weight.form.valueLabel')} (${t('settings.displayUnit.kilograms')})`,
+      }),
+    ).toHaveValue('2');
+    expect(screen.getByLabelText(t('weight.form.timestampLabel'))).toHaveValue(
+      localDateTimeValue(new Date(ENTRY.timestamp)),
+    );
+    expect(
+      screen.getByRole('textbox', { name: t('weight.form.noteLabel') }),
+    ).toHaveValue(NOTE);
+
+    fireEvent.click(screen.getByRole('button', { name: t('common.cancel') }));
+
+    // Cancel returns to the detail and writes nothing.
+    expect(await screen.findByText(NOTE)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: t('weight.entry.edit') }),
+    ).toBeVisible();
+    expect(
+      calls.filter((call) => call.command === 'update_weight_entry'),
+    ).toHaveLength(0);
+  });
+
+  it('confirms the consequence before deleting once with the entry identity', async () => {
+    const { router } = await launch(ENTRY_PATH);
 
     await screen.findByText(NOTE);
 
-    // The placeholder stops at the read and Back (its header says so): Edit,
-    // Delete and save are 4.21's, so their absence is this route's contract.
+    fireEvent.click(
+      screen.getByRole('button', { name: t('weight.entry.delete') }),
+    );
+
+    const dialog = screen.getByRole('alertdialog');
+
+    // NFR-9: the confirmation names what cannot be undone, before any write.
+    expect(dialog).toHaveAccessibleName(t('weight.entry.deleteConfirm.title'));
+    expect(dialog).toHaveAccessibleDescription(
+      new RegExp(t('weight.entry.deleteConfirm.body')),
+    );
+    expect(
+      within(dialog).getByText(t('weight.entry.deleteConfirm.body')),
+    ).toBeVisible();
+    expect(
+      calls.filter((call) => call.command === 'delete_weight_entry'),
+    ).toHaveLength(0);
+
+    fireEvent.click(
+      within(dialog).getByRole('button', {
+        name: t('weight.entry.deleteConfirm.cancel'),
+      }),
+    );
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(
+      calls.filter((call) => call.command === 'delete_weight_entry'),
+    ).toHaveLength(0);
+
+    // Confirming removes the entry the detail presented, so the surface closes.
+    fireEvent.click(
+      screen.getByRole('button', { name: t('weight.entry.delete') }),
+    );
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: t('weight.entry.deleteConfirm.confirm'),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'delete_weight_entry'),
+      ).toHaveLength(1);
+    });
+
+    const deletion = calls.find(
+      (call) => call.command === 'delete_weight_entry',
+    );
+
+    expect(deletion?.args).toEqual({
+      entryId: ENTRY.id,
+      requestId: expect.any(String),
+    });
+    expect(typeof deletion?.args.requestId).toBe('string');
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/rabbits/rabbit-hazel');
+    });
+  });
+
+  it("presents an archived rabbit's entry read-only", async () => {
+    answers.set('get_rabbit', () => ({ ...RABBIT, is_archived: true }));
+    answers.set('get_display_weight_unit', () => 'kilograms');
+
+    const { container } = await launch(ENTRY_PATH);
+
+    // RAB-8, D1.5: the facts stay readable…
+    expect(await screen.findByText(NOTE)).toBeVisible();
+    expect(screen.getByText(/^2\s*kg$/)).toBeVisible();
+    expect(container.querySelector('time')).not.toBeNull();
+
+    // …and neither write is offered.
     expect(
       screen.queryByRole('button', { name: t('weight.entry.edit') }),
     ).toBeNull();
@@ -283,6 +453,46 @@ describe('the weight entry detail route (WT-8, D1.2)', () => {
     expect(
       screen.queryByRole('button', { name: t('weight.form.save') }),
     ).toBeNull();
-    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('presents the photos as a strip when the entry has any', async () => {
+    answers.set('get_weight_entry', () => ({
+      ...ENTRY,
+      photo_refs: [...PHOTOS],
+    }));
+
+    await launch(ENTRY_PATH);
+
+    await screen.findByText(NOTE);
+
+    // WT-8: the strip is one labelled group, and each reference is a photo.
+    const heading = screen.getByRole('heading', {
+      level: 2,
+      name: t('weight.detail.photos'),
+    });
+    const section = heading.closest('section');
+
+    expect(heading).toBeVisible();
+    expect(section).not.toBeNull();
+    expect(
+      Array.from(section?.querySelectorAll('img') ?? []).map((image) =>
+        image.getAttribute('src'),
+      ),
+    ).toEqual([...PHOTOS]);
+  });
+
+  it('shows no photo strip when the entry has none', async () => {
+    const { container } = await launch(ENTRY_PATH);
+
+    await screen.findByText(NOTE);
+
+    // WT-8: no pager, and no empty frame that could stand in for one.
+    expect(
+      screen.queryByRole('heading', {
+        level: 2,
+        name: t('weight.detail.photos'),
+      }),
+    ).toBeNull();
+    expect(container.querySelector('img')).toBeNull();
   });
 });

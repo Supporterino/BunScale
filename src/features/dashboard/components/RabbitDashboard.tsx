@@ -19,6 +19,13 @@
  * `validateSearch: validateWeightRangeSearch` is then a prop swap, not a
  * rewrite here.
  *
+ * **A history row opens its entry** (task 4.22; WT-8). Both windows and the
+ * rabbit travel into the list, because 4.19's detail route validates them as its
+ * typed search and Back has to return to this dashboard at the windows it was
+ * left at (WT-6, D1.4). The trend window is therefore read here even though the
+ * link is drawn in the History card; it is passed through, never displayed
+ * below it.
+ *
  * **D1.16's read outcomes are three, not two.** A pending read is a labelled
  * spinner; a failed read is an `ErrorState` with the cause's copy and a refresh
  * when a fresh read can change the answer; only a resolved, empty series says
@@ -110,6 +117,7 @@ export function RabbitDashboard({
         onRangeChange={onHistoryRangeChange}
         rabbitId={rabbitId}
         range={search.history}
+        trend={search.trend}
       />
     </div>
   );
@@ -172,10 +180,14 @@ function WeightTrendSection({
 function WeightHistorySection({
   rabbitId,
   range,
+  trend,
   onRangeChange,
 }: {
   rabbitId: string;
+  /** The history's own window, shown by its control (WT-6). */
   range: WeightRange;
+  /** The trend's window, carried into a row's detail and not shown here (WT-6). */
+  trend: WeightRange;
   onRangeChange: (range: WeightRange) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -208,6 +220,7 @@ function WeightHistorySection({
           onRangeChange={onRangeChange}
           rabbitId={rabbitId}
           range={range}
+          trend={trend}
         />
       ) : (
         <div ref={entryRef}>
@@ -229,11 +242,13 @@ function WeightHistorySection({
 function WeightHistoryView({
   rabbitId,
   range,
+  trend,
   onRangeChange,
   onClose,
 }: {
   rabbitId: string;
   range: WeightRange;
+  trend: WeightRange;
   onRangeChange: (range: WeightRange) => void;
   onClose: () => void;
 }) {
@@ -264,8 +279,14 @@ function WeightHistoryView({
         title={t('weight.history.title')}
         unit={unit}
       >
-        {(trend, displayUnit) => (
-          <WeightHistoryList points={trend.points} unit={displayUnit} />
+        {(trendData, displayUnit) => (
+          <WeightHistoryList
+            history={range}
+            points={trendData.points}
+            rabbitId={rabbitId}
+            trend={trend}
+            unit={displayUnit}
+          />
         )}
       </SeriesContent>
     </div>

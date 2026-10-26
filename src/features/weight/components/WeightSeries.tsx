@@ -7,6 +7,11 @@
  * window it is asked for, so neither view can keep a selection of its own and
  * WT-6's independence stays structural (`../search`).
  *
+ * **A history row is a link to its entry** (task 4.22; WT-8). The listing is
+ * given the rabbit and both windows so it can open 4.19's detail with the typed
+ * search that route validates; it reads nothing and derives no destination of
+ * its own.
+ *
  * **The chart is the smallest accessible rendering, not a charting library.**
  * No dependency is added: the series is one SVG path plus one circle per point
  * in a fixed `viewBox`, so it scales with the card at both baselines without a
@@ -34,10 +39,10 @@
  * `entryHasDropAlert`; nothing here looks at a value or the threshold, so a
  * point flagged by a predecessor outside the window still carries its marker.
  */
+import { Link } from '@tanstack/react-router';
 import { Badge } from '../../../components/ui/Badge';
 import { FormField } from '../../../components/ui/FormField';
 import { List } from '../../../components/ui/List';
-import { ListRow } from '../../../components/ui/ListRow';
 import {
   SegmentedControl,
   type SegmentedControlOption,
@@ -289,39 +294,75 @@ export type WeightHistoryListProps = {
   /** Oldest first, as `WeightTrend.points` arrives. */
   points: readonly WeightPoint[];
   unit: DisplayWeightUnit;
+  /**
+   * The entry's rabbit. It scopes the detail's cache entry (`../keys`' `detail`)
+   * and the return, and it is not part of the read this listing already made
+   * (WT-8).
+   */
+  rabbitId: string;
+  /** The dashboard's trend window, carried into the detail so Back returns to it (WT-6). */
+  trend: WeightRange;
+  /** The dashboard's history window, carried for the same return (WT-6). */
+  history: WeightRange;
 };
 
 /**
- * The weight-only history listing (DASH-7, WT-6, WT-7).
+ * The weight-only history listing (DASH-7, WT-6, WT-7, WT-8).
  *
  * Newest first, because a history is read from the most recent entry — the
  * reversal is a presentation decision on an ordered payload, not a re-sort.
- * Rows are the frozen `List`/`ListRow` pair in its static mode: no control, no
- * chevron, because opening one entry is task 4.10's detail and this task adds no
- * action the route tree cannot honour. The drop marker is a `Badge` with the
- * catalog's words, so the flag is never a colour-only dot (DASH-4, WT-7).
  *
- * `ListRow.detail` is a string, so the timestamp here is text rather than a
- * `<time>` element; the chart's hidden series keeps the element because it
- * builds its own markup, and no meaning is lost — the value shown is the same
- * instant.
+ * **Every row opens its entry** (task 4.22; WT-8). The row is a router `Link` to
+ * 4.19's detail with the typed search that route validates: the entry's rabbit,
+ * the `rabbit` origin, and both of this dashboard's windows, so Back lands where
+ * the person left (WT-6, D1.4). It composes `ListRow`'s class contract instead of
+ * using the primitive, because `ListRow`'s `to` carries no `params` or `search`
+ * and this destination needs both — the same composition `RabbitRow` makes for
+ * the rows it can only express itself. The target keeps the `--interactive`
+ * modifier, so the pressed and hover surfaces are the ones `ui.css` already
+ * defines for a real control. The drop marker is a `Badge` with the catalog's
+ * words, so the flag is never a colour-only dot (DASH-4, WT-7).
+ *
+ * The row's detail line is text rather than a `<time>` element, as it was when
+ * the primitive's `detail` prop carried it; the chart's hidden series keeps the
+ * element because it builds its own markup, and no meaning is lost — the value
+ * shown is the same instant.
  */
-export function WeightHistoryList({ points, unit }: WeightHistoryListProps) {
+export function WeightHistoryList({
+  points,
+  unit,
+  rabbitId,
+  trend,
+  history,
+}: WeightHistoryListProps) {
   const newestFirst = [...points].reverse();
 
   return (
     <List>
       {newestFirst.map((point) => (
-        <ListRow
-          control={
-            entryHasDropAlert(point) ? (
-              <Badge tone="warning">{t('weight.dropAlert')}</Badge>
-            ) : undefined
-          }
-          detail={POINT_TIMESTAMP_FORMAT.format(new Date(point.timestamp))}
-          key={point.id}
-          title={formatWeight(point.value_grams, unit)}
-        />
+        <li className="bs-list-row" key={point.id}>
+          <Link
+            activeProps={{ 'aria-current': 'page' }}
+            className="bs-list-row__target bs-list-row__target--interactive"
+            params={{ entryId: point.id }}
+            search={{ rabbit: rabbitId, from: 'rabbit', trend, history }}
+            to="/weights/$entryId"
+          >
+            <span className="bs-list-row__text">
+              <span className="bs-list-row__title">
+                {formatWeight(point.value_grams, unit)}
+              </span>
+              <span className="bs-list-row__detail">
+                {POINT_TIMESTAMP_FORMAT.format(new Date(point.timestamp))}
+              </span>
+            </span>
+            {entryHasDropAlert(point) ? (
+              <span className="bs-list-row__control">
+                <Badge tone="warning">{t('weight.dropAlert')}</Badge>
+              </span>
+            ) : null}
+          </Link>
+        </li>
       ))}
     </List>
   );

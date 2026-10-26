@@ -49,6 +49,19 @@
  * established pattern is the inline form that replaces the surface that opened
  * it (`RabbitForm`). Its mount point is 4.7/4.8's control; this component is
  * what those tasks and 4.10's edit mode render.
+ *
+ * **Update mode is the same form on an existing entry (task 4.21; WT-5, WT-8).**
+ * `entry` turns the form into a correction: the three fields start on the
+ * entry's current value, timestamp and note, submit calls `update_weight_entry`
+ * with the same rules (the draft is a whole-entry replacement), and the heading
+ * says so. Two differences are deliberate. The value is pre-filled in grams
+ * through `formatDisplayWeight`, the product's one conversion, so what the
+ * person sees re-enters as exactly the stored value; and the timestamp field
+ * starts on the entry's own instant rather than "now", because a correction
+ * never restamps a back-dated entry (WT-5) — leaving the field untouched
+ * re-sends that instant, and clearing it would mean "keep", which the form does
+ * not offer as a separate action. Cancel returns to the surface that opened the
+ * form on both paths.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
@@ -66,6 +79,7 @@ import {
 } from '../../settings/display-unit';
 import { describeReadFailure } from '../../sync/read-failure';
 import { dismissFailedSave } from '../../sync/save-retry';
+import { formatDisplayWeight } from '../api';
 import {
   beginWeightForm,
   confirmWeightOutlier,
@@ -78,7 +92,12 @@ import {
   type WeightPromptState,
   weightFormError,
 } from '../form';
-import { useCreateWeightEntry, type WeightEntryInput } from '../mutations';
+import {
+  useCreateWeightEntry,
+  useUpdateWeightEntry,
+  type WeightEntryInput,
+} from '../mutations';
+import type { WeightEntry } from '../queries';
 
 /**
  * One prompt per refusal state `../form.ts` classifies (WT-4). The mapping is
@@ -154,11 +173,28 @@ function instantFromLocalDateTime(value: string): string | null {
   return Number.isNaN(instant.getTime()) ? null : instant.toISOString();
 }
 
+/**
+ * The entry an update mode starts from (WT-5, WT-8).
+ *
+ * Exactly the fields the form edits, taken from the detail read's payload so a
+ * caller passes the whole entry it loaded rather than restating its shape.
+ */
+export type WeightFormEntry = Pick<
+  WeightEntry,
+  'id' | 'value_grams' | 'timestamp' | 'note'
+>;
+
 export type WeightFormProps = {
   /** The active household the rabbit belongs to (NFR-10). */
   householdId: string;
   /** The rabbit this entry is bound to (WT-2). */
   rabbitId: string;
+  /**
+   * The entry to correct. Absent, the form records a new one; present, it
+   * starts on that entry's fields and submits with `update_weight_entry`
+   * (WT-5).
+   */
+  entry?: WeightFormEntry;
   /** Returns to the surface that opened the form without writing anything. */
   onCancel: () => void;
   /** The backend confirmed the entry; the caller can present it. */
@@ -176,6 +212,7 @@ export type WeightFormProps = {
 export function WeightForm({
   householdId,
   rabbitId,
+  entry,
   onCancel,
   onSaved,
 }: WeightFormProps) {
@@ -184,6 +221,7 @@ export function WeightForm({
   if (unit.data !== undefined) {
     return (
       <WeightFormFields
+        entry={entry}
         householdId={householdId}
         onCancel={onCancel}
         onSaved={onSaved}
@@ -244,19 +282,32 @@ type WeightFormFieldsProps = WeightFormProps & {
 function WeightFormFields({
   householdId,
   rabbitId,
+  entry,
   unit,
   onCancel,
   onSaved,
 }: WeightFormFieldsProps) {
   const [form, setForm] = useState<WeightFormState>(() =>
-    beginWeightForm({ text: '', unit, timestamp: null, note: null }),
+    beginWeightForm({
+      // The stored value in the person's unit, through the product's one
+      // conversion, so an untouched field re-enters as exactly that value.
+      text:
+        entry === undefined ? '' : formatDisplayWeight(entry.value_grams, unit),
+      unit,
+      timestamp: entry?.timestamp ?? null,
+      note: entry?.note ?? null,
+    }),
   );
   const [prompt, setPrompt] = useState<WeightPromptState | null>(null);
   const [outlierGrams, setOutlierGrams] = useState<number | null>(null);
   const [timestampText, setTimestampText] = useState(() =>
-    localDateTimeValue(new Date()),
+    localDateTimeValue(
+      entry === undefined ? new Date() : new Date(entry.timestamp),
+    ),
   );
   const create = useCreateWeightEntry();
+  const update = useUpdateWeightEntry();
+  const saveEntry = entry === undefined ? create : update;
   const valueRef = useRef<HTMLInputElement>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
   const closed = useRef(false);
@@ -276,14 +327,14 @@ function WeightFormFields({
    * instance. `closed` keeps a re-render from closing twice.
    */
   useEffect(() => {
-    if (!create.isSuccess || closed.current) {
+    if (!saveEntry.isSuccess || closed.current) {
       return;
     }
 
     closed.current = true;
     dismissFailedSave();
     onSaved();
-  }, [create.isSuccess, onSaved]);
+  }, [saveEntry.isSuccess, onSaved]);
 
   /*
    * The confirmation appears after a submit and contains the two controls that
@@ -300,8 +351,8 @@ function WeightFormFields({
   }, [outlierGrams]);
 
   const validation =
-    create.error === null ? null : weightFormError(create.error);
-  const pending = create.isPending;
+    saveEntry.error === null ? null : weightFormError(saveEntry.error);
+  const pending = saveEntry.isPending;
 
   /*
    * The field's one error slot: a refusal the machine just classified wins over
@@ -326,7 +377,7 @@ function WeightFormFields({
     setOutlierGrams(null);
 
     if (validation !== null) {
-      create.reset();
+      saveEntry.reset();
     }
   }
 
@@ -342,7 +393,13 @@ function WeightFormFields({
   }
 
   function save(input: WeightEntryInput) {
-    create.mutate({ householdId, rabbitId, input });
+    if (entry === undefined) {
+      create.mutate({ householdId, rabbitId, input });
+      return;
+    }
+
+    // The same fields, as a whole-entry replacement (WT-5).
+    update.mutate({ entryId: entry.id, householdId, rabbitId, input });
   }
 
   function submit() {
@@ -366,7 +423,7 @@ function WeightFormFields({
 
     if (submission.kind === 'prompt') {
       setPrompt(submission.value);
-      create.reset();
+      saveEntry.reset();
       return;
     }
 
@@ -400,7 +457,12 @@ function WeightFormFields({
   }
 
   return (
-    <Card className="bs-weight-form" heading={t('weight.log')}>
+    <Card
+      className="bs-weight-form"
+      heading={
+        entry === undefined ? t('weight.log') : t('weight.form.editTitle')
+      }
+    >
       <form
         aria-busy={pending ? true : undefined}
         className="bs-weight-form__form"

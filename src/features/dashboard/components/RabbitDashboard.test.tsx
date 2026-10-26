@@ -20,13 +20,22 @@
  * two windows the way `HouseholdDashboardScreen` does — one state, one key per
  * update — because that is the shape the rabbit route's `validateSearch` will
  * supply.
+ *
+ * **The harness is mounted in a test router** (task 4.22). Every history row is
+ * now a `Link` to the entry detail, and a `Link` needs the router's context, so
+ * the render supplies the same in-memory router the route specs use rather than
+ * a bare render. The assertions are unchanged: they read the rendered rows, not
+ * the navigation.
  */
+import { RouterContextProvider } from '@tanstack/react-router';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
+  createTestQueryClient,
+  createTestRouter,
   describeAtBothBaselines,
   renderWithQueryClient,
 } from '../../../test/setup';
@@ -214,7 +223,15 @@ function Harness({
 }
 
 function renderDashboard() {
-  return renderWithQueryClient(<Harness />);
+  const client = createTestQueryClient();
+  const router = createTestRouter({ client });
+
+  return renderWithQueryClient(
+    <RouterContextProvider router={router}>
+      <Harness />
+    </RouterContextProvider>,
+    { client },
+  );
 }
 
 function trendRegion(): HTMLElement {
@@ -424,6 +441,52 @@ describeAtBothBaselines('Rabbit dashboard (DASH-6, DASH-7)', () => {
     ).toBeChecked();
     expect(historyRows(historyRegion())).toHaveLength(SEVEN_DAY_POINTS.length);
     expect(rangeCalls()).toEqual(expect.arrayContaining(['days_30', 'days_7']));
+  });
+
+  it('opens each history row at its entry with both windows as the return context (WT-6, WT-8)', async () => {
+    renderDashboard();
+
+    await waitForTrend(THIRTY_DAY_POINTS.length);
+    await openHistory();
+
+    const history = historyRegion();
+
+    await waitFor(() => {
+      expect(historyRows(history)).toHaveLength(THIRTY_DAY_POINTS.length);
+    });
+
+    // Every row is a link, and the listing reads newest first — so the first
+    // row is the last entry of the read. The destination carries the entry's
+    // id, its rabbit, the `rabbit` origin and both of this dashboard's
+    // windows, so a dropped parameter loses the return context (WT-8, D1.4).
+    const destinations = within(history)
+      .getAllByRole('link')
+      .map((link) => {
+        const url = new URL(
+          link.getAttribute('href') ?? '',
+          'http://localhost',
+        );
+
+        return {
+          pathname: url.pathname,
+          search: Object.fromEntries(url.searchParams),
+        };
+      });
+
+    expect(destinations).toEqual(
+      [...THIRTY_DAY_POINTS].reverse().map((point) => ({
+        pathname: `/weights/${point.id}`,
+        search: {
+          rabbit: RABBIT.id,
+          from: 'rabbit',
+          trend: DEFAULT_SEARCH.trend,
+          history: DEFAULT_SEARCH.history,
+        },
+      })),
+    );
+
+    // The row a person sees first is the newest entry's, named by its id.
+    expect(destinations[0]?.pathname).toBe(`/weights/${NEWEST.id}`);
   });
 
   it('marks a flagged entry with the drop warning (WT-7)', async () => {
