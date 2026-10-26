@@ -30,9 +30,8 @@
  * spinner; a failed read is an `ErrorState` with the cause's copy and a refresh
  * when a fresh read can change the answer; only a resolved, empty series says
  * "No weight entries yet." A failed read is never rendered as empty. Task 4.15
- * owns the shared read-failure surface and will fold this one into it; until
- * then each section names itself as the failed surface and uses the shared
- * mapper rather than inventing copy.
+ * owns that state across P1: each section names itself as the failed surface and
+ * uses 3.10's shared mapper rather than inventing copy.
  *
  * **The unit read gates the values, not the geometry.** Grams are canonical and
  * the display unit is the device's preference (WT-3, DM-1), so a value is only
@@ -353,8 +352,9 @@ function SeriesContent({
  *
  * `describeReadFailure` decides whether a fresh read can change the answer, so
  * a `validation` refusal offers no refresh; every other cause's copy promises
- * another attempt and gets the control. Task 4.15 will replace this with the
- * shared surface; it already speaks the same mapper rather than its own copy.
+ * another attempt and gets the control. Task 4.15 keeps this gate as the
+ * section's own failure state: the shared piece is 3.10's mapper, not a second
+ * component, so every P1 surface names its cause the same way.
  */
 function ReadFailure({
   error,

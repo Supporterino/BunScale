@@ -48,6 +48,7 @@ import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { DashboardRow } from '../features/dashboard/queries';
 import { householdKeys } from '../features/households/keys';
 import type {
   Household,
@@ -114,6 +115,27 @@ const HOME_ACTIVE: Household = {
   is_active: true,
   is_owner: true,
 };
+
+/**
+ * The household's own rabbit, as the dashboard read answers it (DASH-1 …
+ * DASH-4): the previously loaded data SYNC-3 keeps on screen while the service
+ * is unreachable. Never weighed and unflagged, so the row prints DASH-2's
+ * indication in place of a date and nothing is flagged.
+ */
+const HOME_RABBIT: DashboardRow = {
+  rabbit: {
+    id: 'rabbit-hazel',
+    name: 'Hazel',
+    thumbnail_ref: null,
+    is_archived: false,
+  },
+  last_weighed_at: null,
+  never_weighed: true,
+  has_weight_drop_alert: false,
+};
+
+/** DASH-2's indication, as the row presents it in place of a date. */
+const NEVER_WEIGHED = 'Never weighed';
 
 /** The collection as the device's own copy answers it while unreachable. */
 const LOADED_LOCAL: HouseholdCollection = {
@@ -332,6 +354,12 @@ describeAtBothBaselines('Connectivity surfaces (SYNC-3)', () => {
       handlers.set('get_active_household', () => HOME_ACTIVE);
       handlers.set('get_service_status', () => OFFLINE);
       handlers.set('load_household', () => LOADED_LOCAL);
+      /*
+       * The content the notice stands beside is the dashboard read's. Without
+       * an answer the list has a failed read (task 4.15), which is its own
+       * state and not "previously loaded data".
+       */
+      handlers.set('get_dashboard', () => [HOME_RABBIT]);
 
       await launch();
 
@@ -357,8 +385,21 @@ describeAtBothBaselines('Connectivity surfaces (SYNC-3)', () => {
 
       expect(notice).toHaveTextContent(LOCAL_COPY);
 
-      // Beside, never instead: the screen's own content is still presented.
-      expect(screen.getByRole('main')).toHaveTextContent(/shared space/);
+      // Beside, never instead: the previously loaded rabbit is still presented,
+      // with its own row (DASH-1, DASH-2) rather than the pending intro or
+      // 4.15's failed-read state.
+      const main = screen.getByRole('main');
+      const rabbitRow = within(main)
+        .getAllByRole('listitem')
+        .find(
+          (item) => within(item).queryByText(HOME_RABBIT.rabbit.name) !== null,
+        );
+
+      if (rabbitRow === undefined) {
+        throw new Error('the previously loaded rabbit is not presented');
+      }
+
+      expect(rabbitRow).toHaveTextContent(NEVER_WEIGHED);
 
       // Non-blocking: a stale copy is stated, not something to act on here.
       expect(within(notice).queryByRole('button')).toBeNull();

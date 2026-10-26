@@ -37,9 +37,12 @@
  *     it honest — a household with a rabbit shows the list instead, and a
  *     household whose only rabbits are archived still shows the empty state,
  *     because the state is keyed on the active list (design.md D1.6).
- *   - **A read that fails never becomes the empty state.** A failed attempt that
- *     never succeeded leaves the fallback in place; DASH-8 is a fact about a
- *     successful answer, and 4.15 owns the failure surface.
+ *   - **A read that fails is its own state, never "no rabbits" and never
+ *     "nothing loaded yet"** (task 4.15; NFR-8, D1.16). The surface is
+ *     `describeReadFailure`'s cause copy — D1.16's surface key when the backend
+ *     named one — with a refresh that re-reads when the mapper says a fresh read
+ *     can change the answer. DASH-8's empty state stays a fact about a
+ *     successful answer, so no failed read draws it.
  *
  * The renders run at both component baselines (390×844 and 1280×800) through
  * `describeAtBothBaselines`. Both platforms share this layer: nothing here is
@@ -64,6 +67,7 @@ import {
 } from '../../../test/setup';
 import type { Household } from '../../households/queries';
 import { t } from '../../i18n';
+import type { SaveCommandError } from '../../sync/failure';
 import { dashboardKeys } from '../keys';
 import type { DashboardRow } from '../queries';
 import { RabbitList } from './RabbitList';
@@ -142,6 +146,36 @@ const CLOVER_ROW = dashboardRow(CLOVER, null);
 /** Hazel's row once an entry's drop exceeds her threshold (DASH-4, WT-7). */
 const HAZEL_FLAGGED_ROW = dashboardRow(HAZEL, TODAY, true);
 
+/**
+ * D1.16's unknown-content refusal, as a dashboard read answers it: the read
+ * derives a last-weighed instant and an alert flag from rows, so a row this
+ * version cannot describe refuses the read instead of answering a partial list
+ * (task 3.8's `error.household_content_unloaded`).
+ *
+ * `retryable: false` is the failure's real value — a read carries no
+ * `request_id` for a write-style retry — and it is deliberately not what decides
+ * the refresh: 3.10's read mapper keys that on the cause, so a cause a fresh read
+ * can change still offers one.
+ */
+const CONTENT_UNLOADED_ERROR: SaveCommandError = {
+  cause: 'unknown',
+  retryable: false,
+  message_key: 'error.household_content_unloaded',
+  request_id: null,
+};
+
+/**
+ * The one cause whose copy asks for corrected input rather than another read,
+ * which is why 3.10 withholds the refresh for it: a fresh read cannot change the
+ * answer.
+ */
+const VALIDATION_ERROR: SaveCommandError = {
+  cause: 'validation',
+  retryable: false,
+  message_key: 'error.validation',
+  request_id: null,
+};
+
 /** The order the read model produces: newest weigh-in first, never weighed last. */
 const SORTED_ROWS: DashboardRow[] = [HAZEL_ROW, BRAMBLE_ROW, CLOVER_ROW];
 
@@ -161,12 +195,13 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 const NO_ROWS_YET = t('dashboard.body');
 
 let answer: DashboardRow[] | Promise<DashboardRow[]>;
-let failRead: boolean;
+/** The failure `get_dashboard` answers with, or `null` for a successful read. */
+let readFailure: SaveCommandError | null;
 let calls: string[];
 
 beforeEach(() => {
   answer = [];
-  failRead = false;
+  readFailure = null;
   calls = [];
 
   mockIPC((command) => {
@@ -176,10 +211,12 @@ beforeEach(() => {
       case 'get_active_household':
         return HOUSEHOLD;
       case 'get_dashboard':
-        if (failRead) {
+        if (readFailure !== null) {
           // Thrown at call time, not stored as a rejected promise, so the test
           // owns exactly one failure and nothing leaks an unhandled rejection.
-          throw new Error('dashboard unavailable');
+          // A non-`Error` throw is the backend's `CommandError` arriving
+          // unchanged, which is the value 3.10's mapper reads.
+          throw readFailure;
         }
 
         return answer;
@@ -579,23 +616,67 @@ describeAtBothBaselines(
     });
 
     it('never presents the empty state for a read that failed', async () => {
-      // A failure that never resolved is not "no rabbits"; 4.15 owns the
-      // failure surface, so this list keeps the nothing-loaded fallback.
-      failRead = true;
+      // A failed read is its own surface (task 4.15), not "no rabbits" and not
+      // "nothing loaded yet". The cause is D1.16's unknown-content refusal, so
+      // the copy has to come from 3.10's read mapper rather than from a guess.
+      readFailure = CONTENT_UNLOADED_ERROR;
 
-      const { client } = renderWithQueryClient(
-        <RabbitList fallback={<p>{NO_ROWS_YET}</p>} />,
-      );
+      renderWithQueryClient(<RabbitList fallback={<p>{NO_ROWS_YET}</p>} />);
 
-      await waitFor(() => {
-        expect(
-          client.getQueryState(dashboardKeys.rows(HOUSEHOLD.id))?.status,
-        ).toBe('error');
+      const failure = await screen.findByRole('alert');
+
+      expect(
+        within(failure).getByText(t('error.household_content_unloaded')),
+      ).toBeVisible();
+
+      /*
+       * A fresh read can fill the missing content — `describeReadFailure` decides
+       * that from the cause, not from the write-side `retryable` flag this
+       * failure carries as `false` — so the failure offers exactly that action.
+       */
+      const refresh = within(failure).getByRole('button', {
+        name: t('error.retry'),
       });
 
-      expect(screen.getByText(NO_ROWS_YET)).toBeVisible();
+      expect(refresh).toBeEnabled();
+
+      // No empty-state prompt, no rows and no pending intro: DASH-8 is a fact
+      // about a successful answer, and the fallback is the pending state.
       expect(screen.queryByText(t('dashboard.emptyTitle'))).toBeNull();
       expect(screen.queryByText(t('dashboard.emptyBody'))).toBeNull();
+      expect(screen.queryByText(NO_ROWS_YET)).toBeNull();
+      expect(screen.queryByRole('list')).toBeNull();
+      expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+
+      // The refresh is a fresh read, and the next answer has the rows.
+      readFailure = null;
+      answer = SORTED_ROWS;
+
+      fireEvent.click(refresh);
+
+      await within(await screen.findByRole('list')).findByText(HAZEL.name);
+
+      expect(renderedNames()).toEqual([HAZEL.name, BRAMBLE.name, CLOVER.name]);
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.queryByText(t('dashboard.emptyTitle'))).toBeNull();
+    });
+
+    it('offers no refresh for a failed read a fresh read cannot change', async () => {
+      // 3.10's only non-refreshable cause: the copy asks for corrected input, so
+      // another identical read cannot answer differently and no control promises
+      // one. The failure surface itself is still the failure surface.
+      readFailure = VALIDATION_ERROR;
+
+      renderWithQueryClient(<RabbitList fallback={<p>{NO_ROWS_YET}</p>} />);
+
+      expect(await screen.findByText(t('error.validation'))).toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: t('error.retry') }),
+      ).toBeNull();
+
+      expect(screen.queryByText(t('dashboard.emptyTitle'))).toBeNull();
+      expect(screen.queryByText(t('dashboard.emptyBody'))).toBeNull();
+      expect(screen.queryByRole('list')).toBeNull();
     });
   },
 );

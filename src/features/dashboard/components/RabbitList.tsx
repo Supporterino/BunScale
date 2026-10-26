@@ -29,8 +29,15 @@
  * never consults the archived read to decide: the empty state belongs to the
  * active list, not to a household rabbit count.
  *
- * **A failure is 4.15's surface, not this one.** A read that never resolved
- * falls back exactly as before; nothing here invents failure copy.
+ * **A failure is its own state, not "nothing loaded yet" (task 4.15; NFR-8,
+ * D1.16).** The caller's fallback is only the pending state: once the read has
+ * failed without ever answering, the surface is `describeReadFailure`'s cause
+ * copy with a refresh that re-reads, and only a cause a fresh read can change
+ * (`validation` cannot) offers that control. A failed read is never drawn as the
+ * pending intro or as the zero-row empty state, because DASH-8 is a fact about a
+ * successful answer. A resolved empty list stays a success and keeps DASH-8's
+ * empty state; a never-loaded local set (`loaded_at: null`) is that same success
+ * value, SYNC-3's explicit state, and is not a failure either.
  *
  * **DASH-9's quick-weight control opens the weight-form route** (task 4.7
  * rework; DASH-9, WT-2, NFR-9, D1.10). Every row carries the control
@@ -68,8 +75,10 @@ import { useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
+import { ErrorState } from '../../../components/ui/ErrorState';
 import { List } from '../../../components/ui/List';
 import { t } from '../../i18n';
+import { describeReadFailure } from '../../sync/read-failure';
 import { dashboardRowHasDropAlert } from '../../weight/alerts';
 import { useDashboardRows } from '../queries';
 import { EmptyRabbitList } from './EmptyRabbitList';
@@ -78,9 +87,9 @@ import { RabbitRow } from './RabbitRow';
 
 export type RabbitListProps = {
   /**
-   * Shown while no answer has resolved — before the first one, and when the read
-   * failed and never succeeded. Zero resolved rows is DASH-8's empty state, not
-   * this fallback.
+   * Shown only while the first read is pending. Zero resolved rows is DASH-8's
+   * empty state, and a failed read is its own failure state with a refresh
+   * (4.15); neither is this fallback.
    */
   fallback?: ReactNode;
   /** Opens a row's rabbit dashboard (DASH-6; task 4.11 supplies this). */
@@ -104,11 +113,22 @@ export function RabbitList({
   /*
    * `data` is the last successful answer: `undefined` before the first one,
    * still present during a refetch, and undefined again when the read failed
-   * and never succeeded. A failed read has no cause copy that belongs to this
-   * task's catalog, so it keeps the nothing-loaded fallback rather than
-   * presenting an invented message (4.15 owns the failure surface).
+   * and never succeeded. A resolved empty list is a success (DASH-8's empty
+   * state), never a failure.
    */
   const data = rows.data;
+
+  /*
+   * A failed read that never answered is its own state (task 4.15; NFR-8,
+   * D1.16). `describeReadFailure` keeps the backend's surface key, so D1.16's
+   * unknown-content refusal reads as `error.household_content_unloaded` rather
+   * than the operation-neutral `error.unknown`, and it withholds the refresh for
+   * the one cause whose copy asks for corrected input instead of another read.
+   */
+  const readFailure =
+    data === undefined && rows.error !== null
+      ? describeReadFailure(rows.error)
+      : null;
 
   /*
    * DASH-9's control opens the one weight-form route, bound to the row's rabbit
@@ -121,6 +141,11 @@ export function RabbitList({
       to: '/weight',
       search: { rabbit: rabbitId, mode: 'quick', from: 'dashboard' },
     });
+  }
+
+  /* A read's only action is a fresh read; the mapper decides when to offer it. */
+  function refreshRows(): void {
+    void rows.refetch();
   }
 
   if (data !== undefined && data.length === 0) {
@@ -150,7 +175,17 @@ export function RabbitList({
       </div>
 
       {data === undefined ? (
-        fallback
+        readFailure === null ? (
+          fallback
+        ) : (
+          <ErrorState
+            {...(readFailure.refreshable ? { onRetry: refreshRows } : {})}
+            retryLabel={t('error.retry')}
+            title={t('dashboard.title')}
+          >
+            {t(readFailure.messageKey)}
+          </ErrorState>
+        )
       ) : (
         <List>
           {data.map((row) => (

@@ -135,6 +135,9 @@ export const P0_MESSAGES = {
   'dashboard.body':
     'This is your household’s shared space. Rabbit and care records will appear here.',
   'dashboard.settings': 'Open Settings & Profile',
+  // The list read's failure heading (DASH-1, task 4.15): names the rabbits that
+  // failed to load, so the surface does not reuse `dashboard.title` above a cause.
+  'dashboard.loadFailed.title': 'Your rabbits could not be loaded.',
   // The P1 dashboard list (DASH-1, DASH-2, DASH-4, DASH-8, DASH-9).
   'dashboard.lastWeighed': 'Last weighed',
   // DASH-2's indication in place of a last-weighed date.
