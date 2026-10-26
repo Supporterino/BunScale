@@ -208,7 +208,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   range control and **no baseline or healthy-range band** (D5), and the History section contributing
   the weight-only history entry point with its own independent range control and the drop-alert marker
   on affected entries (DASH-6, DASH-7, WT-6, WT-7).
-- [ ] 4.12 [frontend-ui] Build the dashboard drop-alert flag on rabbit rows, visually distinct from an
+- [x] 4.12 [frontend-ui] Build the dashboard drop-alert flag on rabbit rows, visually distinct from an
   informational badge and cleared when no entry is flagged (DASH-4).
 - [ ] 4.13 [frontend-ui] Apply the NFR-9 conventions across the P1 surfaces: every primary and
   destructive action is a directly visible control, no action is reachable only through a long press
@@ -244,6 +244,29 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   mount, which contradicted D1.10, is replaced by a navigation to this route; 4.8 (the picker) opens
   the same route. Regenerate `src/routeTree.gen.ts` (gate stage 6) and keep the route out of the
   adaptive layout fork. (WT-2, DASH-9, D1.10)
+- [x] 4.19 [frontend-logic] **Added mid-change (Q12).** Give the weight entry its detail read and route:
+  add `weightKeys.detail`, a `useWeightEntry` hook over the existing `get_weight_entry` command, the
+  route the entry detail lives on (typed entry id, the rabbit and the return context it needs), a link
+  from 4.11's history rows to it, and the `detail` invalidation in the weight mutations that already
+  anticipate the key. Add the two catalog keys the blocked UI tasks need — `weight.picker.label` (the
+  rabbit-choice label for 4.20) and `weight.detail.photos` — and nothing else. Regenerate
+  `src/routeTree.gen.ts` (gate stage 6). (WT-8, D1.2)
+- [ ] 4.20 [frontend-ui] **Added mid-change (Q12).** Build the quick-entry path's rabbit picker into the
+  dashboard toolbar, opening 4.18's form route bound to the chosen rabbit. Per Q12 the picker is
+  feature-local (a native `<select>` composed with `FormField` and the field class contract) rather
+  than a promoted primitive; it lists the household's active rabbits by name including never-weighed,
+  is keyboard- and screen-reader-operable, and is never a hidden menu or long press. (WT-2, NFR-9)
+- [ ] 4.21 [frontend-ui] **Added mid-change (Q12).** Build 4.10's weight entry detail on 4.19's route:
+  display-unit value, timestamp, the full note, the drop marker, the photos as a feature-local
+  full-width horizontal strip when present and nothing when absent, Edit opening the pre-filled form
+  (4.9 gains update mode), and a confirmed Delete stating the consequence. Cause copy on a failed read
+  comes from 3.10, and every state has a way back. (WT-8, NFR-9)
+- [ ] 4.22 [frontend-ui] **Added mid-change (Q12).** Wire the history rows to 4.19's detail route and
+  make that reachable: `WeightHistoryList` has no rabbit id and its only caller
+  (`RabbitDashboard`'s history view) does not pass one, so the row link 4.19 could not land. Pass the
+  rabbit id and the two windows into the history list, open `/weights/$entryId` with the typed search
+  4.19 defined, and wrap the dashboard test harness in the test router so the link is testable. (WT-8,
+  DASH-7)
 
 ## 5. Tests
 
@@ -281,10 +304,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [x] 5.7 [test-engineer] Rust tests for trend and history ranges — covers "Selecting a range limits
   the trend to that window", "The full-history range presents every entry", "The weight history range
   is independent of the trend range" (WT-6).
-- [ ] 5.8 [test-engineer] Rust tests for the weight entry detail read — covers "The detail shows the
+- [x] 5.8 [test-engineer] Rust tests for the weight entry detail read — covers "The detail shows the
   value in the display unit and the untruncated note" and "The drop-alert flag appears in the detail
   when it applies" (WT-8), asserting the note is returned whole.
-- [ ] 5.9 [test-engineer] Rust tests for equal member access — covers "A member edits data created by
+- [x] 5.9 [test-engineer] Rust tests for equal member access — covers "A member edits data created by
   another member", "A joining member writes into the same shared data" and "No member is offered a
   reduced view of household data" (HS-8).
 - [ ] 5.10 [test-engineer] Component tests for the dashboard — covers "Both active rabbits are listed
@@ -293,7 +316,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   rabbit sorts last" (DASH-3), "A rabbit with a flagged drop is flagged", "The flag clears when the
   threshold is raised" (DASH-4), "The empty state prompts for the first rabbit" (DASH-8) and "The row
   control opens the form bound to that rabbit" (DASH-9).
-- [ ] 5.11 [test-engineer] Component tests for rabbit creation, profile editing and deletion — covers
+- [x] 5.11 [test-engineer] Component tests for rabbit creation, profile editing and deletion — covers
   "The add control is available whenever the dashboard is shown", "The empty state includes an
   add-first-rabbit prompt" (RAB-4), "A profile is created with the supplied identifying details", "Date of birth
   may be marked unknown" (RAB-1), "An empty name is rejected" (RAB-2), "The edit control is directly

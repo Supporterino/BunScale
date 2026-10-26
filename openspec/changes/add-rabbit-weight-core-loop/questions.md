@@ -173,6 +173,31 @@ directly visible row control but navigates to that route instead of mounting the
 opens the same route. The Q9/4.16 precedent applies: when a decided design needs a route, the plan
 gains the task rather than the implementation choosing an alternative.
 
+## Q12 — 4.8 and 4.10 were blocked on primitives and a route that no task owned
+
+**Status: settled by adding tasks and by one recorded deviation.** Raised 2026-10-25.
+
+Both UI tasks stopped before writing code. 4.8 needs a rabbit picker, and the design system's frozen
+inventory lists `Select`/`Picker` under *deferred* primitives ("a later task adds the inventory entry
+first, rather than inventing a component"); the inventory lives in `.opencode/skills/design-system/`,
+which no implementation agent may edit, so "add the inventory entry first" has no owner. 4.10 needs a
+detail **route**, a `weightKeys.detail`/`useWeightEntry` read (the command exists at `api.ts` with no
+caller, and the mutations already anticipate the key), a link from the history rows, and a photo
+pager — none of which any task owned.
+
+**Resolution, two parts.**
+
+1. **Plan:** task 4.19 added (frontend-logic) for the detail route, the read hook/key, the history-row
+   link, the mutation invalidation and the two catalog keys both tasks need (`weight.picker.label`,
+   `weight.detail.photos`). 4.20 (picker) and 4.21 (detail screen) follow it.
+2. **Deviation, recorded:** neither 4.8's picker nor 4.10's photo strip waits for a promoted primitive.
+   Both are built feature-locally — the picker as a native `<select>` composed with `FormField` and the
+   field class contract, the photos as a horizontal full-width strip — because the inventory cannot be
+   edited from an implementation session and both are single-use controls. This follows the
+   `DeleteRabbitDialog` precedent (a feature component for a deferred `Dialog`) and is the smallest
+   change that ships the requirement; promoting either into `src/components/ui/` is a follow-up for the
+   owner of the design-system record, not a blocker for P1.
+
 
 
 
