@@ -1,7 +1,7 @@
 ---
 description: Implements custom Tauri plugins in Swift for iOS/macOS native APIs. Use only when no existing plugin covers the need.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash   # see "Model routing" in orchestrator.md
+model: deepseek/deepseek-flash # see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"

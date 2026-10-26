@@ -1,7 +1,7 @@
 ---
 description: Implements Tauri commands, state, errors, async logic and plugins in src-tauri.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash   # see "Model routing" in orchestrator.md
+model: deepseek/deepseek-flash # see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"

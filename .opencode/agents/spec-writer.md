@@ -1,7 +1,7 @@
 ---
 description: Converts requirements and user stories into OpenSpec specs, change proposals and atomic tasks.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash   # see "Model routing" in orchestrator.md
+model: deepseek/deepseek-flash # see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"

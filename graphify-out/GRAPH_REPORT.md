@@ -1,85 +1,87 @@
-# Graph Report - BunScale  (2026-10-22)
+# Graph Report - BunScale  (2026-10-26)
 
 ## Corpus Check
-- 412 files · ~655,461 words
+- 482 files · ~844,913 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 79 file(s) not represented in the graph (top: .csv 53, .css 7, (none) 5)
 
 ## Summary
-- 4500 nodes · 9713 edges · 225 communities (172 shown, 53 thin omitted)
-- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 425 edges (avg confidence: 0.87)
+- 5995 nodes · 15847 edges · 278 communities (207 shown, 71 thin omitted)
+- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 615 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `006d8406`
+- Built from commit: `e4eb87a2`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- entry.ts
+- domain/rabbit.rs
 - scripts/core.py
 - gray
-- design_system.py
+- weight/queries.ts
 - P1 IPC contract (proposal, architect-owned)
 - slide_search_core.py
 - Export & Reminders Decisions
 - DM-4 An archived rabbit is read-only everywhere
 - Health & Photos Design
-- commands/identity.rs
+- domain/weight.rs
 - Design Skill References
 - local.rs
 - html-token-validator.py
 - Reimplementation Domain Model
 - Component Token Values
-- status.rs
-- Icon Generation Pipeline
+- instant
+- argparse
 - UI Styling Concepts
 - multiple_households.rs
 - OpenSpec Workflow Skills
 - read_path.rs
-- queries.ts
-- storage_boundary.rs
+- WeightForm.tsx
+- unwrapCommandResult
 - Open items
-- failure_surface.rs
-- Tailwind Config Tests
+- status.rs
+- TestTailwindConfigGenerator
 - Sharing Runtime Behavior
-- lifecycle.rs
+- households/queries.ts
 - color
 - Sharing Delivery Ordering
 - Household Invitation Design
 - Design Token Layers
 - guards.rs
 - fontSize
+- dashboard.rs
 - Slides Copywriting & Template
 - Brand Color Extraction
-- identity_and_unit.rs
+- domain/identity.rs
 - biome.json
 - Catalog Refresh Tests
 - OpenSpec CLI Commands
 - Brand Asset Validation
-- conflict_convergence.rs
-- TailwindConfigGenerator
+- StoredItem
+- households/queries.ts
 - desktop-settings.spec.ts
 - Brand Guidelines References
 - tauri.conf.json
-- Tailwind Breakpoints Tests
+- SaveCause
 - compilerOptions
 - timestamps.rs
 - DesignSystemGenerator
 - json
-- read.rs
+- tests/diagnostics.rs
 - Embed Tokens Script
 - Token Validator Script
 - card
 - css-invariants.ts
 - Brand Context Injection
 - Motion Token Values
-- Tailwind Fonts & Spacing Tests
+- identity_and_unit.rs
 - package.json
+- design_system.py
 - Brand Token Sync Script
 - Generate Tokens Script
-- @tanstack/react-router
-- scaffold-files.ts
+- Shared types
+- save-retry.ts
 - Component Specs & States
 - Rust & Tauri Conventions
 - design-tokens-starter.json
@@ -87,37 +89,39 @@
 - Weight Drop Alert Rules
 - probe.rs
 - Requirements
+- household_creation.rs
+- weight_entry_detail.rs
 - validate_data.py
 - store.rs
+- commands/weight.rs
 - default.json
 - ADR 0002 — Shared service mechanism: where the shared service runs and how it is written to and read from
 - Release & Definition of Done
 - Tauri Security Rules
 - radius
 - merge.rs
-- records.rs
+- commands/rabbit.rs
 - Frontend IPC & Errors
 - Mobile Router & History
-- AppState
+- read.rs
 - ADDED Requirements
 - gate.rs
 - Weight Validation Rules
 - Frontend State & Routing
 - Design Dials & Generation
-- argparse
+- ScriptedService
 - save-failure.spec.ts
 - create.rs
-- xl
-- manifest-pins.ts
+- design_system.py
+- BoundaryRefusal
 - Owner Attribution Sharing
 - DASH-3 Rabbits are sorted by most recent weigh-in with never-weighed last
-- region.rs
+- weight_ranges.rs
 - Slide System & Tokens
 - UI Styling Dependencies
 - app
-- none
-- AppState
-- household_creation.rs
+- shadcn_add.py
+- weight_entries.rs
 - service.rs
 - Quick Log Loop Rules
 - Banner Design Skill
@@ -125,125 +129,147 @@
 - Member List Resolution
 - Archive order P0 to P1 to P2 to P3 to P5 to P4 to P6
 - Dashboard Empty States
-- failure.rs
+- commands/identity.rs
 - Card Component Spec
 - Dialog Component Spec
 - Route Guards
 - Dashboard Never-Weighed State
 - Multi-Rabbit Household
 - Weight Entry Detail
-- DisplayUnitStore
-- Implementation findings — tasks 3.1–3.3 and 5.1–5.5 (2026-10-20)
+- lifecycle.rs
+- @tanstack/react-router
 - Decisions
 - Requirements
 - ADDED Requirements
 - Requirement: Connectivity model: reachability-gated writes, loaded-data reads
 - Requirements
 - P4 Frontend UI Tasks
-- devDependencies
-- status.ts
-- persist.rs
-- PersistedHousehold
+- read_weight_entry
+- rabbit-list.test.tsx
+- dashboard_rows.rs
 - write_path.rs
 - super
-- ServiceReply
-- tests/diagnostics.rs
-- sink.rs
+- manifest-pins.ts
+- state_with_one_rabbit
+- devDependencies
 - ADDED Requirements
-- HouseholdOnboardingScreen.tsx
-- setup.ts
+- persist.rs
+- unittest
 - fixtures.ts
 - ADDED Requirements
 - collection_identity.rs
-- cip/generate.py
+- rabbits/mutations.ts
 - Requirement: Display weight unit is per-device and applied at the boundary
-- e2e-fixture-consumption.spec.ts
-- sync/mod.rs
-- vitest
-- csv
-- test_design_system_mode.py
-- TestNativeDesktopStackFreshness
-- ring
-- http.rs
-- bindings.ts
-- ADDED Requirements
-- settings.rs
-- DeviceSnapshot
-- SharedService
-- Tasks — add-household-sharing-hardening (P3)
-- BM25
-- Working agreement
-- BM25
-- TestFixtureValidation
-- types
-- TestSearchDomains
-- TestThresholdGate
-- SettingsScreen.tsx
-- TestWebStackFreshness
-- Requirement: Household-scoped isolation and canonical storage at the boundary
-- scripts
-- D0.9 — The bindings pipeline ships with an empty command set
+- sink.rs
+- types.rs
+- scaffold-files.ts
+- SaveCause
+- settings-households.component.test.tsx
+- input
 - diagnostics/mod.rs
-- dependencies
+- scripts
+- ADDED Requirements
+- failure_surface.rs
+- offline-launch.spec.ts
+- NeuterStatus
+- Tasks — add-household-sharing-hardening (P3)
+- Working agreement
+- test_core.py
+- rabbit_profiles.rs
+- e2e-fixture-consumption.spec.ts
+- archived_rabbit.rs
+- .admit
+- rabbit_lifecycle.rs
+- logo/core.py
+- Requirement: Household-scoped isolation and canonical storage at the boundary
+- DiagnosticOutcome
+- D0.9 — The bindings pipeline ships with an empty command set
+- $type
 - Requirement: Household-scoped isolation and canonical storage at the boundary
 - Design — add-shared-household-foundation (P0)
 - household-flow.spec.ts
-- TestStyleTaxonomy
-- commands/household.rs
+- Requirement: Continuous integration runs the same gate as the definition of done
+- drop_alert.rs
 - events.rs
-- status.ts
-- path
-- offline-launch.spec.ts
+- config-agreement.ts
+- radius
+- member_access.rs
 - ShadcnInstaller
-- json
+- generate-slide.py
+- TestWebStackFreshness
 - button
 - Tasks — add-read-path-performance (P6)
+- cip/generate.py
 - add-shared-household-foundation
-- input
-- $type
-- radius
+- Questions — add-shared-household-foundation (P0)
+- storage_boundary.rs
+- fs
 - sync.rs
+- destructive
+- SettingsScreen.tsx
+- mock-ipc.ts
+- DeviceSnapshot
+- padding-y
+- destructive-foreground
+- muted
+- TailwindConfigGenerator
+- .test_node_check_parses_generated_config
+- primary-foreground
+- ring
+- Implementation findings — tasks 3.1–3.3 and 5.1–5.5 (2026-10-20)
+- secondary-foreground
+- Verification record — task 0.26 (2026-10-22, orchestrator)
+- History — how Q10–Q12 were raised (2026-10-16, orchestrator)
+- get_weight_entries
+- Resolutions (2026-10-16, product owner)
+- D1.2 Grams are canonical; the display unit exists only at the boundary
+- RabbitChangeKind
+- main
+- TestNativeDesktopStackFreshness
+- P1 — MVP core loop
+- RAB-2 A rabbit profile requires a non-blank name
+- WeightRange
+- main.tsx
+- block_on_ready
+- D0.8 — Scaffold baseline and exact pins (section 0)
+- cip/core.py
+- Verification record — task 0.27 (2026-10-22, orchestrator)
+- dependencies
+- bindings.ts
+- Review findings — task 6.1 (2026-10-22, reviewer)
+- ItemPayload
+- CollectionStore
+- Tasks — add-medication-tracking (P5)
+- CollectionSource
 - lg
 - sm
-- padding-y
+- xl
+- none
 - 16
-- D0.8 — Scaffold baseline and exact pins (section 0)
 - 1
 - 3
 - 8
-- destructive
-- destructive-foreground
-- Requirement: Continuous integration runs the same gate as the definition of done
-- muted
-- primary-foreground
-- secondary-foreground
-- D1.2 Grams are canonical; the display unit exists only at the boundary
-- D0.16 — Deployment targets are derived, not chosen (Q5)
-- TestDomainDetection
-- Window
-- D0.11 — The baseline is generated by the official Tauri v2 CLI, then refined
-- P1 — MVP core loop
-- RAB-2 A rabbit profile requires a non-blank name
+- WeightUnit
 
 ## God Nodes (most connected - your core abstractions)
-1. `block_on_ready()` - 80 edges
-2. `AppState` - 75 edges
-3. `ServiceReply` - 67 edges
-4. `TailwindConfigGenerator` - 58 edges
-5. `ScriptedService` - 54 edges
-6. `classNames()` - 45 edges
-7. `react` - 39 edges
-8. `HouseholdRecord` - 36 edges
-9. `TestTailwindConfigGenerator` - 35 edges
-10. `DesignSystemGenerator` - 35 edges
+1. `block_on_ready()` - 245 edges
+2. `AppState` - 224 edges
+3. `ScriptedService` - 151 edges
+4. `ServiceReply` - 91 edges
+5. `TailwindConfigGenerator` - 58 edges
+6. `request_id()` - 56 edges
+7. `react` - 54 edges
+8. `vitest` - 53 edges
+9. `household()` - 49 edges
+10. `at()` - 47 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `Q31 — The held-set list and the active household are deliberately not household-keyed` --references--> `activeHouseholdQueryOptions()`  [INFERRED]
+  openspec/changes/archive/2026-10-22-add-shared-household-foundation/questions.md → src/features/households/queries.ts
 - `Q52 — Tasks 7.7 and 7.9 share one commit, and 7.9's focus claim was corrected` --references--> `Button()`  [INFERRED]
   openspec/changes/archive/2026-10-22-add-shared-household-foundation/questions.md → src/components/ui/Button.tsx
-- `Q43 — `src/routes/onboarding.tsx` still imports the placeholder alias` --references--> `HouseholdOnboardingScreen()`  [INFERRED]
-  openspec/changes/archive/2026-10-22-add-shared-household-foundation/questions.md → src/features/households/components/HouseholdOnboardingScreen.tsx
-- `Q58 — `error.unknown`'s copy is the bare message NFR-8 forbids, and it promises a retry that does not exist` --references--> `SaveFailureNotice()`  [INFERRED]
-  openspec/changes/archive/2026-10-22-add-shared-household-foundation/questions.md → src/features/sync/components/SaveFailureNotice.tsx
+- `Q53 — Tasks 7.5 and 7.6 share one commit` --references--> `LoadingIndicator()`  [INFERRED]
+  openspec/changes/archive/2026-10-22-add-shared-household-foundation/questions.md → src/components/ui/LoadingIndicator.tsx
 - `Q21 — the keyboard inset has no owner until the first real form screen (resolved by assignment, 2026-10-19)` --references--> `Screen()`  [INFERRED]
   openspec/changes/archive/2026-10-22-add-shared-household-foundation/questions.md → src/components/ui/Screen.tsx
 - `4. Frontend UI` --references--> `Screen()`  [INFERRED]
@@ -251,14 +277,16 @@
 
 ## Import Cycles
 - 1-file cycle: `src-tauri/src/ipc/events.rs -> src-tauri/src/ipc/events.rs`
-- 2-file cycle: `src-tauri/src/sync/gate.rs -> src-tauri/src/sync/mod.rs -> src-tauri/src/sync/gate.rs`
-- 2-file cycle: `src-tauri/src/sync/mod.rs -> src-tauri/src/sync/probe.rs -> src-tauri/src/sync/mod.rs`
-- 2-file cycle: `src-tauri/src/sync/mod.rs -> src-tauri/src/sync/status.rs -> src-tauri/src/sync/mod.rs`
 - 2-file cycle: `src-tauri/src/settings/region.rs -> src-tauri/src/settings/unit.rs -> src-tauri/src/settings/region.rs`
-- 3-file cycle: `src-tauri/src/sync/gate.rs -> src-tauri/src/sync/probe.rs -> src-tauri/src/sync/mod.rs -> src-tauri/src/sync/gate.rs`
+- 2-file cycle: `src-tauri/src/sync/mod.rs -> src-tauri/src/sync/status.rs -> src-tauri/src/sync/mod.rs`
+- 2-file cycle: `src-tauri/src/domain/rabbit.rs -> src-tauri/src/domain/weight.rs -> src-tauri/src/domain/rabbit.rs`
+- 2-file cycle: `src-tauri/src/sync/mod.rs -> src-tauri/src/sync/probe.rs -> src-tauri/src/sync/mod.rs`
+- 2-file cycle: `src-tauri/src/sync/gate.rs -> src-tauri/src/sync/mod.rs -> src-tauri/src/sync/gate.rs`
 - 3-file cycle: `src-tauri/src/sync/mod.rs -> src-tauri/src/sync/status.rs -> src-tauri/src/sync/probe.rs -> src-tauri/src/sync/mod.rs`
+- 3-file cycle: `src-tauri/src/sync/gate.rs -> src-tauri/src/sync/probe.rs -> src-tauri/src/sync/mod.rs -> src-tauri/src/sync/gate.rs`
 - 4-file cycle: `src-tauri/src/state.rs -> src-tauri/src/sync/status.rs -> src-tauri/src/sync/mod.rs -> src-tauri/src/sync/merge.rs -> src-tauri/src/state.rs`
 - 5-file cycle: `src-tauri/src/state.rs -> src-tauri/src/sync/status.rs -> src-tauri/src/sync/probe.rs -> src-tauri/src/sync/mod.rs -> src-tauri/src/sync/merge.rs -> src-tauri/src/state.rs`
+- 5-file cycle: `src-tauri/src/domain/rabbit.rs -> src-tauri/src/sync/gate.rs -> src-tauri/src/sync/mod.rs -> src-tauri/src/sync/merge.rs -> src-tauri/src/state.rs -> src-tauri/src/domain/rabbit.rs`
 
 ## Hyperedges (group relationships)
 - **Bounded load-once read path** — openspec_changes_add_read_path_performance_design_fixed_two_request_bound, openspec_changes_add_read_path_performance_design_freshness_window, openspec_changes_add_read_path_performance_design_load_once_per_area, openspec_changes_add_read_path_performance_design_scoped_invalidation [EXTRACTED 0.90]
@@ -287,11 +315,11 @@
 - **One unified reminder mechanism (D3) spanning weigh and medication reminders** — openspec_changes_add_vet_export_and_reminders_design_d4_1_one_reminder_mechanism, openspec_changes_add_vet_export_and_reminders_specs_reminders_spec_unified_mechanism, openspec_changes_add_vet_export_and_reminders_specs_medication_tracking_spec_med_9, openspec_changes_add_vet_export_and_reminders_specs_reminders_spec_rem_1 [INFERRED 0.85]
 - **AppError Contract Chain** — _opencode_skills_tauri_ipc_contract_skill_apperror, _opencode_skills_tauri_ipc_contract_skill_command_rules, _opencode_skills_rust_conventions_skill_error_conventions, _opencode_skills_tauri_apple_plugins_skill_plugin_rules [INFERRED 0.90]
 
-## Communities (225 total, 53 thin omitted)
+## Communities (278 total, 71 thin omitted)
 
-### Community 0 - "entry.ts"
-Cohesion: 0.15
-Nodes (18): Q31 — The held-set list and the active household are deliberately not household-keyed, getActiveHousehold(), hasHousehold(), HouseholdEntry, householdEntryDecision(), HouseholdPresence, isFreshReachableAccount(), resolveHouseholdEntry() (+10 more)
+### Community 0 - "domain/rabbit.rs"
+Cohesion: 0.07
+Nodes (89): a_blank_operation_identity_is_refused_before_anything_is_sent(), a_calendar_date_is_recorded_as_supplied_and_never_timezone_shifted(), a_cascade_stops_before_the_rabbit_when_a_tombstone_does_not_apply(), a_created_rabbit_carries_its_operation_as_a_stable_item_identity(), a_deduplicated_tombstone_is_a_completed_write_and_the_cascade_continues(), a_deletion_is_never_reported_as_removed_when_its_rabbit_tombstone_does_not_apply(), a_deletion_plan_names_the_archived_rabbit_and_only_its_own_entries(), a_deletion_plan_refuses_a_rabbit_that_is_already_removed_or_not_a_rabbit() (+81 more)
 
 ### Community 1 - "scripts/core.py"
 Cohesion: 0.06
@@ -301,9 +329,9 @@ Nodes (31): BM25, _contains_phrase(), detect_domain(), _domain_keywords(), _exac
 Cohesion: 0.05
 Nodes (53): $type, $value, $type, $value, $type, $value, $type, $value (+45 more)
 
-### Community 3 - "design_system.py"
-Cohesion: 0.04
-Nodes (19): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_markdown(), format_master_md(), format_page_override_md(), generate_design_system(), _generate_intelligent_overrides() (+11 more)
+### Community 3 - "weight/queries.ts"
+Cohesion: 0.09
+Nodes (29): openRabbit(), getWeightEntries(), getWeightEntry(), leave(), useWeightEntry(), useWeightHistory(), useWeightTrend(), WeightEntryDetailKey (+21 more)
 
 ### Community 4 - "P1 IPC contract (proposal, architect-owned)"
 Cohesion: 0.12
@@ -325,17 +353,17 @@ Nodes (7): DM-4 An archived rabbit is read-only everywhere, RAB-7 An archived ra
 Cohesion: 0.08
 Nodes (24): Design — add-health-and-photo-history (P2), P2 IPC contract (proposed commands, events, shared types), Proposal — add-health-and-photo-history, P2 — Health & evidence phase, Questions — add-health-and-photo-history (P2), dashboard delta spec (DASH-4, DASH-7, HL-3), Dashboard severe-health flag (DASH-4 severe clause), History views (weight-only | health-only | combined) (+16 more)
 
-### Community 9 - "commands/identity.rs"
-Cohesion: 0.05
-Nodes (56): a_blank_name_is_absent_and_the_chain_falls_through(), a_local_name_without_an_account_is_not_attributable_and_the_identity_is_unresolved(), a_name_is_never_taken_from_another_account(), account(), an_account_name_without_an_account_is_not_used(), an_unresolved_identity_is_the_marker_and_not_a_failure(), local_member_name(), member() (+48 more)
+### Community 9 - "domain/weight.rs"
+Cohesion: 0.06
+Nodes (109): a_blank_operation_identity_is_refused(), a_correction_after_the_later_entry_does_not_reorder_the_series(), a_correction_preserves_the_recorded_creation_instant(), a_drop_beyond_the_threshold_is_flagged(), a_drop_exactly_at_the_threshold_is_not_flagged_and_one_gram_beyond_is(), a_drop_within_the_threshold_is_not_flagged(), a_future_timestamp_is_outside_a_bounded_range_but_inside_the_full_history(), a_live_row_with_unknown_content_refuses_the_detail() (+101 more)
 
 ### Community 10 - "Design Skill References"
 Cohesion: 0.11
 Nodes (34): Banner Sizes & Art Direction Styles Reference, 22 Art Direction Styles, CIP Deliverable Guide, CIP Design Reference, CIP Mockup Prompt Engineering, CIP Base Prompt Structure, CIP Design Style Guide, CIP Color Psychology (+26 more)
 
 ### Community 11 - "local.rs"
-Cohesion: 0.08
-Nodes (42): a_collection_carries_the_household_it_belongs_to(), a_new_collection_holds_nothing(), a_removal_is_a_tombstone_rather_than_a_vanished_row(), a_second_load_of_the_same_batch_does_not_duplicate_an_item(), a_second_upsert_of_the_same_item_keeps_exactly_one_copy(), a_wire_item_round_trips_through_the_stored_row_unchanged(), at(), CollectionItem (+34 more)
+Cohesion: 0.15
+Nodes (23): a_batch_lands_only_in_the_copy_of_the_household_it_was_loaded_for(), a_copy_resolves_the_stored_rows_it_was_given(), a_device_holds_one_copy_per_household(), a_household_this_device_holds_but_has_not_loaded_reads_as_never_loaded(), a_loaded_copy_with_no_rows_is_not_the_never_loaded_state(), a_merge_that_is_not_a_load_leaves_the_marker_alone(), a_never_loaded_copy_holds_no_rows_and_no_marker(), a_refresh_never_regresses_a_loaded_copy_to_never_loaded() (+15 more)
 
 ### Community 12 - "html-token-validator.py"
 Cohesion: 0.13
@@ -349,13 +377,13 @@ Nodes (52): Apple-Native Agent, Custom Swift Tauri Plugin, Architect Agent, IPC 
 Cohesion: 0.09
 Nodes (22): $type, $value, $type, $value, $type, $value, $type, $value (+14 more)
 
-### Community 15 - "status.rs"
-Cohesion: 0.18
-Nodes (16): AccountOutcome, Identified, NoAccount, RateLimited, Unreadable, a_success_between_failures_resets_the_count(), account_valid(), an_account_check_that_gets_no_answer_counts_towards_the_threshold() (+8 more)
+### Community 15 - "instant"
+Cohesion: 0.15
+Nodes (19): at(), DECLARED_KEYS, DiagnosticRecord, DiagnosticSubject, Household, Request, every_constructor_records_the_outcome_and_identifier_it_names(), every_constructor_serialises_exactly_its_declared_keys() (+11 more)
 
-### Community 16 - "Icon Generation Pipeline"
-Cohesion: 0.11
-Nodes (13): apply_color(), apply_viewbox_size(), extract_svgs(), generate_batch(), generate_icon(), generate_sizes(), load_env(), main() (+5 more)
+### Community 16 - "argparse"
+Cohesion: 0.08
+Nodes (17): generate_html(), get_deliverable_info(), get_image_base64(), main(), apply_color(), apply_viewbox_size(), extract_svgs(), generate_batch() (+9 more)
 
 ### Community 17 - "UI Styling Concepts"
 Cohesion: 0.11
@@ -373,29 +401,29 @@ Nodes (20): OpenSpec Apply Change Skill, OpenSpec Store Selection, OpenSpec Arch
 Cohesion: 0.26
 Nodes (14): a_failed_refresh_leaves_the_previous_copy_exactly_as_it_was(), a_start_with_connectivity_refreshes_loaded_data(), at(), collection(), feed(), household_id(), item(), item_id() (+6 more)
 
-### Community 21 - "queries.ts"
+### Community 21 - "WeightForm.tsx"
 Cohesion: 0.04
-Nodes (60): @tauri-apps/api, makeEvent(), AVAILABLE, HOUSEHOLD, SUMMARY, UNOBSERVED, HouseholdChange, loadHousehold() (+52 more)
+Nodes (83): Grams, RabbitId, WeightChanged, WeightEntry, WeightEntryDraft, WeightEntryId, WeightRange, WeightTrend (+75 more)
 
-### Community 22 - "storage_boundary.rs"
-Cohesion: 0.11
-Nodes (19): CanonicalForm, .FORM, a_removal_keeps_its_households_claim(), Amount, .FORM, at(), collection(), household_id() (+11 more)
+### Community 22 - "unwrapCommandResult"
+Cohesion: 0.05
+Nodes (52): 2. Backend (Rust), 3. Frontend logic, 4. Frontend UI, 5. Tests, 6. Review, Tasks — add-shared-household-foundation (P0), CommandError, commands (+44 more)
 
 ### Community 23 - "Open items"
-Cohesion: 0.05
-Nodes (42): 6.2 review — APPROVE (2026-10-22), Gate — all green, History — how Q10–Q12 were raised (2026-10-16, orchestrator), iOS — iOS 27.0 simulator (24A434), iPhone 18 Pro, macOS — macOS 27.0.1 (26A434), Open items, Q10 — decided: fix the harness configuration first, then delegate, Q10 — Specialists could not execute shell commands in this harness (+34 more)
+Cohesion: 0.12
+Nodes (17): Open items, Q13 — `cargo tauri capability new` cannot run headless, and its artefact already exists (resolved 2026-10-16: harden the generated capability, no second file), Q14 — the generator's logging plugin broke the iOS compile check; the decision is taken and implemented, Q15 — CoreSimulator did not respond in this environment (resolved 2026-10-20: it responds again), Q16 — two decisions task 0.14's config carried that the gate could not decide (resolved 2026-10-20: Vite's default target, with the floor raised; the route-tree half was settled by 0.18), Q17 — a specialist session cannot stage a file, so TOOL-4's drift check was still vacuous at 0.15 (open, `frontend-logic`, 2026-10-17), Q18 — the generated route tree does attract a lint diagnostic, and `src/bindings.ts` does not (measured for 0.18, `frontend-logic`, 2026-10-17), Q19 — task 0.18's "every remaining format diagnostic" clause assumed a repository that is frontend plus Rust (resolved by measurement, `frontend-logic` + orchestrator, 2026-10-19) (+9 more)
 
-### Community 24 - "failure_surface.rs"
-Cohesion: 0.09
-Nodes (14): a_failed_save_is_visible_and_specific(), account(), assert_check_service_reachability_shape(), assert_get_active_household_shape(), assert_get_identity_shape(), assert_get_service_status_shape(), assert_list_households_shape(), create_failure() (+6 more)
+### Community 24 - "status.rs"
+Cohesion: 0.18
+Nodes (16): AccountOutcome, Identified, NoAccount, RateLimited, Unreadable, a_success_between_failures_resets_the_count(), account_valid(), an_account_check_that_gets_no_answer_counts_towards_the_threshold() (+8 more)
 
 ### Community 26 - "Sharing Runtime Behavior"
 Cohesion: 0.11
 Nodes (16): Live updates and background delivery handoff (D-H6), Status derived from fresh outcomes (D-H8), NotificationAuthorization state, Set-up-again recovery from shared service (D-H9), SharingPolicy configuration values, Visible household-naming notification (D-H14), HS-11 Changes reach every member without manual refresh, NFR-6 Honest service status (+8 more)
 
-### Community 27 - "lifecycle.rs"
-Cohesion: 0.08
-Nodes (32): a_probe_that_gets_no_answer_counts_towards_the_threshold(), a_re_evaluation_probes_with_the_reachability_bound(), a_re_evaluation_publishes_the_fresh_status_it_returns(), a_trigger_during_an_in_flight_re_evaluation_runs_exactly_one_follow_up(), a_trigger_whose_probe_gets_no_answer_publishes_no_refresh_for_a_retained_status(), a_trigger_with_a_reachable_service_and_an_active_household_publishes_one_refreshed(), a_trigger_with_an_invalid_account_publishes_no_household_change(), a_trigger_with_no_active_household_publishes_no_household_change() (+24 more)
+### Community 27 - "households/queries.ts"
+Cohesion: 0.02
+Nodes (154): @tauri-apps/api, @testing-library/react, @testing-library/user-event, vitest, BRAMBLE, BRAMBLE_ROW, findRow(), Handler (+146 more)
 
 ### Community 28 - "color"
 Cohesion: 0.11
@@ -414,12 +442,16 @@ Cohesion: 0.17
 Nodes (10): Table Component Spec, Component Tokens Layer, Primitive Color Scales, Primitive Tokens, 4px Spacing Scale, Typography Scale, Semantic Tokens, shadcn/ui Alignment (+2 more)
 
 ### Community 32 - "guards.rs"
-Cohesion: 0.11
-Nodes (41): a_batch_containing_a_foreign_item_is_refused_whole(), a_guarded_load_carrying_a_marked_row_unchanged_succeeds_and_records_the_marker(), a_guarded_load_containing_another_households_item_is_refused_whole(), a_guarded_load_describing_another_household_is_refused(), a_guarded_load_of_an_empty_collection_is_a_loaded_empty_copy(), a_guarded_load_records_the_load_instant_beside_the_rows(), a_guarded_load_that_would_omit_a_marked_entity_is_refused_and_changes_nothing(), a_guarded_load_that_would_rewrite_a_marked_entity_is_refused_and_changes_nothing() (+33 more)
+Cohesion: 0.23
+Nodes (29): a_batch_containing_a_foreign_item_is_refused_whole(), a_guarded_load_carrying_a_marked_row_unchanged_succeeds_and_records_the_marker(), a_guarded_load_containing_another_households_item_is_refused_whole(), a_guarded_load_describing_another_household_is_refused(), a_guarded_load_of_an_empty_collection_is_a_loaded_empty_copy(), a_guarded_load_records_the_load_instant_beside_the_rows(), a_guarded_load_that_would_change_a_marked_rows_content_is_refused(), a_guarded_load_that_would_omit_a_marked_entity_is_refused_and_changes_nothing() (+21 more)
 
 ### Community 33 - "fontSize"
 Cohesion: 0.12
 Nodes (16): $type, $value, $type, $value, $type, $value, $type, $value (+8 more)
+
+### Community 34 - "dashboard.rs"
+Cohesion: 0.23
+Nodes (13): a_blank_household_id_is_refused_as_validation_rather_than_answered_with_an_empty_list(), at(), dashboard_rows(), entry_row(), get_dashboard(), household(), profile(), rabbit_row() (+5 more)
 
 ### Community 35 - "Slides Copywriting & Template"
 Cohesion: 0.15
@@ -429,9 +461,9 @@ Nodes (15): AIDA Copywriting Formula, Copywriting Formulas Reference, FAB Copywr
 Cohesion: 0.20
 Nodes (11): calculateCompliance(), colorDistance(), displayPalette(), extractHexColors(), findNearestBrandColor(), fs, generateImageMagickCommand(), hexToRgb() (+3 more)
 
-### Community 37 - "identity_and_unit.rs"
-Cohesion: 0.11
-Nodes (9): account(), default_unit_follows_the_device_region(), household_id(), remove_temp_data_dir(), resolved_account_name_is_shown_read_only(), shipped_commands(), temp_data_dir(), unit_choice_is_stored_on_the_device() (+1 more)
+### Community 37 - "domain/identity.rs"
+Cohesion: 0.23
+Nodes (14): a_blank_name_is_absent_and_the_chain_falls_through(), a_local_name_without_an_account_is_not_attributable_and_the_identity_is_unresolved(), a_name_is_never_taken_from_another_account(), account(), an_account_name_without_an_account_is_not_used(), an_unresolved_identity_is_the_marker_and_not_a_failure(), local_member_id(), local_member_name() (+6 more)
 
 ### Community 38 - "biome.json"
 Cohesion: 0.08
@@ -445,9 +477,13 @@ Nodes (10): opsx-apply command, opsx-archive command, opsx-continue command, ops
 Cohesion: 0.25
 Nodes (13): checkManifest(), formatBytes(), formatOutput(), fs, main(), parseFilename(), path, RULES (+5 more)
 
-### Community 42 - "conflict_convergence.rs"
-Cohesion: 0.09
-Nodes (36): a_supplied_instant_is_never_rounded_or_clamped(), a_supplied_past_instant_survives_creation_unchanged(), AbsoluteInstant, an_instant_whose_utc_year_exceeds_the_rfc_3339_range_is_refused(), an_instant_whose_utc_year_precedes_the_rfc_3339_range_is_refused(), an_invalid_supplied_instant_is_refused_rather_than_replaced_with_now(), creation_without_a_supplied_instant_defaults_to_the_creation_moment(), instant() (+28 more)
+### Community 42 - "StoredItem"
+Cohesion: 0.14
+Nodes (21): a_collection_carries_the_household_it_belongs_to(), a_new_collection_holds_nothing(), a_removal_is_a_tombstone_rather_than_a_vanished_row(), a_second_load_of_the_same_batch_does_not_duplicate_an_item(), a_second_upsert_of_the_same_item_keeps_exactly_one_copy(), a_wire_item_round_trips_through_the_stored_row_unchanged(), at(), CollectionItem (+13 more)
+
+### Community 43 - "households/queries.ts"
+Cohesion: 0.03
+Nodes (101): Q41 — `useCreateHousehold` has no owner; the creation screen carries the mutation, Q46 — The Settings read retry has no busy state, Q56 — `household:changed` is in the contract, the bindings and the consumer, and has no producer, @tanstack/react-query, applyRabbitChange(), applyWeightChange(), invalidateRabbitListsAndRows(), observe() (+93 more)
 
 ### Community 44 - "desktop-settings.spec.ts"
 Cohesion: 0.13
@@ -461,6 +497,10 @@ Nodes (13): Asset Approval Checklist, Asset Organization Guide, Brand Guidelines
 Cohesion: 0.06
 Nodes (31): app, security, windows, build, beforeBuildCommand, beforeDevCommand, devUrl, frontendDist (+23 more)
 
+### Community 47 - "SaveCause"
+Cohesion: 0.19
+Nodes (11): a_stub_failure_names_the_placeholder_key_and_a_classified_unknown_does_not(), ALL_CAUSES, an_unknown_content_refusal_keeps_its_cause_and_names_its_own_key(), CausePolicy, CommandError, every_cause_reports_through_its_own_message_key(), every_named_constructor_applies_its_own_causes_policy(), HOUSEHOLD_CONTENT_UNLOADED_MESSAGE_KEY (+3 more)
+
 ### Community 48 - "compilerOptions"
 Cohesion: 0.10
 Nodes (20): compilerOptions, esModuleInterop, isolatedModules, jsx, lib, module, moduleDetection, moduleResolution (+12 more)
@@ -470,16 +510,16 @@ Cohesion: 0.12
 Nodes (23): a_supplied_instant_is_stored_unchanged(), a_timestamp_defaults_to_now(), accepted_answer(), account(), at(), collection(), EPOCH, feed() (+15 more)
 
 ### Community 50 - "DesignSystemGenerator"
-Cohesion: 0.06
-Nodes (12): DesignSystemGenerator, apply_decision_rules(), _object_without_duplicates(), parse_decision_rules(), _validate_action(), TestReasoningMatch, read_rows(), split_values() (+4 more)
+Cohesion: 0.08
+Nodes (6): DesignSystemGenerator, TestReasoningMatch, read_rows(), TestGeneratedCatalogContract, TestLandingAndStackContract, TestReasoningContract
 
 ### Community 51 - "json"
 Cohesion: 0.08
 Nodes (14): format_brief(), format_results(), main(), format_output(), generate_design_brief(), generate_css_for_background(), get_background_image(), get_curated_images() (+6 more)
 
-### Community 52 - "read.rs"
-Cohesion: 0.15
-Nodes (35): ItemId, block_on_ready(), a_blank_household_id_is_refused_as_invalid_input(), a_corrupt_or_absent_store_degrades_to_never_loaded(), a_failed_persistence_write_does_not_fail_the_load(), a_failed_refresh_leaves_the_loaded_copy_exactly_as_it_was(), a_feed_describing_another_household_does_not_replace_the_local_copy(), a_full_answer_that_omits_an_item_replaces_the_copy() (+27 more)
+### Community 52 - "tests/diagnostics.rs"
+Cohesion: 0.14
+Nodes (19): SaveGate, a_health_payload_shaped_save_failure_leaves_only_counts_and_timestamps(), ANALYTICS_TRANSPORTS, assert_payload_carries_content(), at(), content_values(), DECLARED_SAVE_FAILURE_KEYS, diagnostics_carry_no_content() (+11 more)
 
 ### Community 53 - "Embed Tokens Script"
 Cohesion: 0.17
@@ -495,7 +535,7 @@ Nodes (12): $type, $value, bg, bg, padding, shadow, card, bg (+4 more)
 
 ### Community 56 - "css-invariants.ts"
 Cohesion: 0.13
-Nodes (25): checkTokenInvariants(), closingBrace(), ContrastPair, contrastRatio(), createThemeResolver(), crossContextRedefinitions(), CssDeclaration, CssReference (+17 more)
+Nodes (23): closingBrace(), ContrastPair, contrastRatio(), createThemeResolver(), crossContextRedefinitions(), CssDeclaration, CssReference, linearChannel() (+15 more)
 
 ### Community 57 - "Brand Context Injection"
 Cohesion: 0.31
@@ -505,9 +545,17 @@ Nodes (10): extractColorsFromTable(), extractCoreAttributes(), extractHexColors(
 Cohesion: 0.20
 Nodes (10): fast, normal, slow, $type, $value, $type, $value, duration (+2 more)
 
+### Community 59 - "identity_and_unit.rs"
+Cohesion: 0.11
+Nodes (9): account(), default_unit_follows_the_device_region(), household_id(), remove_temp_data_dir(), resolved_account_name_is_shown_read_only(), shipped_commands(), temp_data_dir(), unit_choice_is_stored_on_the_device() (+1 more)
+
 ### Community 60 - "package.json"
-Cohesion: 0.12
-Nodes (16): name, private, type, @biomejs/biome, jsdom, react-dom, @tanstack/router-plugin, @tauri-apps/cli (+8 more)
+Cohesion: 0.13
+Nodes (15): name, private, type, @biomejs/biome, jsdom, @tanstack/router-plugin, @tauri-apps/cli, @testing-library/dom (+7 more)
+
+### Community 61 - "design_system.py"
+Cohesion: 0.05
+Nodes (20): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_master_md(), format_page_override_md(), _generate_intelligent_overrides(), hex_to_ansi(), persist_design_system() (+12 more)
 
 ### Community 62 - "Brand Token Sync Script"
 Cohesion: 0.29
@@ -517,13 +565,13 @@ Nodes (8): adjustBrightness(), { execFileSync }, extractColorsFromMarkdown(), fs
 Cohesion: 0.36
 Nodes (9): flattenTokens(), fs, generateCSS(), generateTailwind(), main(), parseArgs(), path, resolveReference() (+1 more)
 
-### Community 64 - "@tanstack/react-router"
-Cohesion: 0.07
-Nodes (37): @tanstack/react-query, @tanstack/react-router, AppShell(), AppShellProps, DataAttributes, NavigationArrangement, NavigationDestination, Sidebar() (+29 more)
+### Community 64 - "Shared types"
+Cohesion: 0.17
+Nodes (17): 1. Contract, Commands, Events, IPC contract — frozen in task 1.3, Shared types, 1. Contract and security surface, AccountUserId, CollectionItem (+9 more)
 
-### Community 65 - "scaffold-files.ts"
-Cohesion: 0.20
-Nodes (12): bindingsFile, FORBIDDEN_NAMES, forbiddenNamesInCode(), rawStringHashes(), stripRustComments(), CommandResult, describeCommand(), readRepositoryFile() (+4 more)
+### Community 65 - "save-retry.ts"
+Cohesion: 0.06
+Nodes (62): Q48 — The pending entry surface's only announced text is the primitive's fallback, Q49 — The save-retry store is built and tested but intentionally unmounted, 7. Follow-up fixes (owner-approved 2026-10-21), createHousehold(), Attempt, CreateOperation, HouseholdOnboardingScreen(), retryHandle() (+54 more)
 
 ### Community 66 - "Component Specs & States"
 Cohesion: 0.22
@@ -546,20 +594,32 @@ Cohesion: 0.28
 Nodes (6): Q1 which entry is the previous entry on a shared timestamp, Q2 the drop alert as a pure derivation over the current entry set, DASH-4 (weight part) Rabbits with a weight-drop alert are flagged on the dashboard, RAB-5 Every field of an active rabbit's profile is editable and shared, WT-7 A weight drop beyond the threshold raises an alert and flags the rabbit, Task 2.13 Implement the drop-alert derivation
 
 ### Community 71 - "probe.rs"
-Cohesion: 0.11
-Nodes (13): REACHABILITY_PROBE_TIMEOUT, ALL_OUTCOMES, an_account_check_that_gets_no_answer_is_reported_as_its_own_outcome(), probe(), probe_answered(), ProbeOutcome, AccountUnanswered, Answered (+5 more)
+Cohesion: 0.06
+Nodes (17): OFFLINE_FAILURE_THRESHOLD, REACHABILITY_PROBE_TIMEOUT, READ_REFRESH_TIMEOUT, SAVE_ATTEMPT_TIMEOUT, ALL_OUTCOMES, an_account_check_that_gets_no_answer_is_reported_as_its_own_outcome(), probe(), probe_answered() (+9 more)
 
 ### Community 72 - "Requirements"
 Cohesion: 0.05
 Nodes (36): project-toolchain Specification, Purpose, Requirement: Bindings are generated reproducibly and drift fails the build, Requirement: Continuous integration runs the same gate as the definition of done, Requirement: The app boots on the iOS simulator and on macOS, Requirement: The design system is established and its status recorded before dependent UI work, Requirement: The route tree is generated reproducibly and drift fails the build, Requirement: The test harness runs at both form-factor baselines (+28 more)
 
+### Community 73 - "household_creation.rs"
+Cohesion: 0.16
+Nodes (14): a_name_with_surrounding_whitespace_is_created_and_kept_as_supplied(), a_replayed_create_request_returns_the_existing_household(), accepted_answer(), account(), blank_name_is_rejected(), create(), create_the_first_household(), CREATED_AT (+6 more)
+
+### Community 74 - "weight_entry_detail.rs"
+Cohesion: 0.11
+Nodes (24): accepted_household(), account(), at(), CREATE_RABBIT, CREATED_AT, DEFAULT_THRESHOLD_PERCENT, detail_of(), draft_at() (+16 more)
+
 ### Community 75 - "validate_data.py"
-Cohesion: 0.06
-Nodes (44): read_rows(), TestAccessibilityGuidance, TestChartsTypographyAndIcons, TestCurrentReactGuidance, TestSemanticColors, TestGeneratedCatalogContract, _catalog_date(), _check_app_interface_contract() (+36 more)
+Cohesion: 0.04
+Nodes (47): read_rows(), TestAccessibilityGuidance, TestChartsTypographyAndIcons, TestCurrentReactGuidance, TestSemanticColors, read_rows(), read_rows(), TestTextLayoutDataContracts (+39 more)
 
 ### Community 76 - "store.rs"
-Cohesion: 0.26
-Nodes (22): a_choice_is_still_in_effect_for_a_store_that_reads_it_again(), a_device_with_no_file_has_no_choice_and_that_is_not_a_failure(), a_file_a_later_version_extended_still_reads_this_preference(), a_file_this_version_did_not_write_is_a_failure_rather_than_a_default(), a_first_write_creates_the_data_directory(), a_malformed_file_does_not_block_storing_a_choice(), a_stored_choice_is_honoured_without_reading_the_region(), a_stored_choice_is_the_effective_unit_whatever_the_region_states() (+14 more)
+Cohesion: 0.05
+Nodes (64): a_locale_without_a_territory_states_no_system(), a_metric_territory_states_the_metric_system(), a_territory_less_environment_value_does_not_shadow_a_readable_platform_region(), default_system_locale(), environment_locale(), measurement_system(), measurement_system_from_locale(), measurement_system_from_sources() (+56 more)
+
+### Community 77 - "commands/weight.rs"
+Cohesion: 0.25
+Nodes (20): a_confirmed_outlier_is_saved_with_its_true_value(), a_create_for_an_archived_rabbit_is_refused_and_writes_and_publishes_nothing(), a_delete_for_an_archived_rabbits_entry_is_refused_and_writes_and_publishes_nothing(), a_negative_value_is_refused_and_writes_and_publishes_nothing(), a_successful_create_publishes_exactly_one_created_for_the_entry(), a_successful_delete_publishes_exactly_one_deleted_for_the_entry(), a_successful_edit_publishes_exactly_one_updated_for_the_entry(), a_value_exactly_at_the_bound_is_saved_without_confirmation() (+12 more)
 
 ### Community 78 - "default.json"
 Cohesion: 0.29
@@ -582,12 +642,12 @@ Cohesion: 0.19
 Nodes (14): $type, $value, $type, $value, $type, $value, primitive, radius (+6 more)
 
 ### Community 83 - "merge.rs"
-Cohesion: 0.18
-Nodes (30): a_batch_that_mixes_winners_and_losers_reports_each_item_once(), a_collection_describing_another_household_is_refused_whole(), a_merge_leaves_the_loaded_at_marker_alone(), a_merge_requires_a_loaded_copy_and_never_creates_one(), a_newer_version_replaces_the_stored_row(), a_stored_unparseable_version_yields_to_a_parseable_delivered_one(), a_write_to_an_immutable_item_is_refused_and_changes_nothing(), an_equal_instant_duplicate_in_one_batch_keeps_the_last_supplied_row() (+22 more)
+Cohesion: 0.09
+Nodes (56): a_batch_that_mixes_winners_and_losers_reports_each_item_once(), a_collection_describing_another_household_is_refused_whole(), a_merge_leaves_the_loaded_at_marker_alone(), a_merge_requires_a_loaded_copy_and_never_creates_one(), a_newer_version_replaces_the_stored_row(), a_stored_unparseable_version_yields_to_a_parseable_delivered_one(), a_write_to_an_immutable_item_is_refused_and_changes_nothing(), an_equal_instant_duplicate_in_one_batch_keeps_the_last_supplied_row() (+48 more)
 
-### Community 84 - "records.rs"
-Cohesion: 0.15
-Nodes (19): at(), DECLARED_KEYS, DiagnosticRecord, DiagnosticSubject, Household, Request, every_constructor_records_the_outcome_and_identifier_it_names(), every_constructor_serialises_exactly_its_declared_keys() (+11 more)
+### Community 84 - "commands/rabbit.rs"
+Cohesion: 0.09
+Nodes (65): get_diagnostics_summary(), a_blank_household_id_is_refused_as_validation_rather_than_answered_with_an_empty_list(), a_blank_rabbit_id_is_refused(), a_confirmed_deletion_removes_the_rabbit_and_its_data(), a_deletion_of_a_row_with_unknown_content_is_refused_and_publishes_nothing(), a_list_refuses_rather_than_presenting_a_partial_one(), a_profile_is_read_from_the_local_copy_and_never_probes_the_service(), a_read_of_a_row_with_unknown_content_is_refused() (+57 more)
 
 ### Community 85 - "Frontend IPC & Errors"
 Cohesion: 0.40
@@ -597,17 +657,17 @@ Nodes (5): Feature Folder Structure, Frontend IPC Rules, Rust Error Conventions,
 Cohesion: 0.40
 Nodes (5): Mobile-first CSS Rules, Platform Handling, Adaptive Router Layout, Hash History Setup, Test Viewports
 
-### Community 87 - "AppState"
-Cohesion: 0.17
-Nodes (14): a_blank_name_is_refused_before_the_account_is_checked(), a_substituted_double_drives_the_real_create_path(), accepted_answer(), account(), at(), household(), no_account_token(), request_id() (+6 more)
+### Community 87 - "read.rs"
+Cohesion: 0.11
+Nodes (44): a_blank_household_id_is_refused_as_invalid_input(), a_corrupt_or_absent_store_degrades_to_never_loaded(), a_failed_persistence_write_does_not_fail_the_load(), a_failed_refresh_leaves_the_loaded_copy_exactly_as_it_was(), a_feed_describing_another_household_does_not_replace_the_local_copy(), a_foreign_row_is_dropped_and_does_not_stop_a_known_row_from_being_read(), a_foreign_row_is_neither_written_back_nor_a_tombstone(), a_full_answer_that_omits_an_item_replaces_the_copy() (+36 more)
 
 ### Community 89 - "ADDED Requirements"
 Cohesion: 0.07
 Nodes (29): ADDED Requirements, Requirement: Bindings are generated reproducibly and drift fails the build, Requirement: The app boots on the iOS simulator and on macOS, Requirement: The design system is established and its status recorded before dependent UI work, Requirement: The route tree is generated reproducibly and drift fails the build, Requirement: The test harness runs at both form-factor baselines, Requirement: The toolchain is pinned exactly and supports both platforms, Requirement: Workspace builds from a clean checkout and the full gate passes (+21 more)
 
 ### Community 90 - "gate.rs"
-Cohesion: 0.14
-Nodes (27): a_2xx_the_boundary_cannot_read_is_never_a_completed_write(), a_rate_limited_account_check_refuses_the_write_before_it_is_sent(), a_reissued_write_is_a_completed_write_and_not_a_second_one(), a_save_the_service_accepted_reports_the_completed_write(), a_save_whose_probe_times_out_is_refused_with_timeout(), a_save_without_a_reachable_service_is_refused_with_connectivity(), a_save_without_a_valid_account_is_refused_with_no_account(), a_write_that_gets_no_outcome_in_the_bound_is_refused_with_timeout() (+19 more)
+Cohesion: 0.13
+Nodes (28): a_2xx_the_boundary_cannot_read_is_never_a_completed_write(), a_rate_limited_account_check_refuses_the_write_before_it_is_sent(), a_reissued_write_is_a_completed_write_and_not_a_second_one(), a_save_the_service_accepted_reports_the_completed_write(), a_save_whose_probe_times_out_is_refused_with_timeout(), a_save_without_a_reachable_service_is_refused_with_connectivity(), a_save_without_a_valid_account_is_refused_with_no_account(), a_write_that_gets_no_outcome_in_the_bound_is_refused_with_timeout() (+20 more)
 
 ### Community 92 - "Weight Validation Rules"
 Cohesion: 0.40
@@ -621,9 +681,9 @@ Nodes (4): Lifecycle and Connectivity Handling, Frontend State Management Matrix
 Cohesion: 0.50
 Nodes (3): Design Dials, AI Design System Generation, ui-ux-pro-max Query Contract
 
-### Community 95 - "argparse"
-Cohesion: 0.08
-Nodes (15): generate_html(), get_deliverable_info(), get_image_base64(), main(), _e(), generate_chart_slide(), generate_cta_slide(), generate_deck() (+7 more)
+### Community 95 - "ScriptedService"
+Cohesion: 0.06
+Nodes (24): answered_outcome(), completed_write_reply(), DoNothing, empty_read_reply(), envelope(), healthy_reply(), next(), RecordedCall (+16 more)
 
 ### Community 96 - "save-failure.spec.ts"
 Cohesion: 0.11
@@ -631,59 +691,55 @@ Nodes (17): ALLOWANCE_CAUSE_FAILURE, CONNECTIVITY_CAUSE_FAILURE, CreateAttempt, 
 
 ### Community 97 - "create.rs"
 Cohesion: 0.06
-Nodes (52): a_blank_name_is_refused_before_the_gate_is_called(), a_created_household_is_the_only_active_one(), a_gate_refusal_is_reported_unchanged(), a_replayed_request_id_returns_the_existing_household_and_never_a_second_one(), accepted_answer(), account(), an_accepted_answer_without_a_readable_household_is_never_a_success(), assigned_household() (+44 more)
+Nodes (53): a_blank_name_is_refused_before_the_gate_is_called(), a_created_household_is_the_only_active_one(), a_gate_refusal_is_reported_unchanged(), a_replayed_request_id_returns_the_existing_household_and_never_a_second_one(), accepted_answer(), account(), an_accepted_answer_without_a_readable_household_is_never_a_success(), assigned_household() (+45 more)
 
-### Community 98 - "xl"
-Cohesion: 0.67
-Nodes (4): xl, xl, $type, $value
+### Community 98 - "design_system.py"
+Cohesion: 0.05
+Nodes (15): _contrast_ratio(), _derive_dark_palette(), _filter_anti_patterns_for_mode(), _palette_is_dark(), _query_wants_dark(), _relative_luminance(), _resolve_color_mode(), _select_palette_for_mode() (+7 more)
 
-### Community 99 - "manifest-pins.ts"
-Cohesion: 0.18
-Nodes (17): backticked(), CARGO_SECTIONS, checkCargoPins(), checkNpmPins(), collectCargoPins(), collectNpmPins(), DesignPinTables, duplicates() (+9 more)
+### Community 99 - "BoundaryRefusal"
+Cohesion: 0.16
+Nodes (9): BoundaryRefusal, ForeignHousehold, Immutable, NonCanonical, Canonical, Canonical<T>, GuardedStore, id() (+1 more)
 
 ### Community 100 - "Owner Attribution Sharing"
 Cohesion: 0.50
 Nodes (4): Owner attribution as hard selection criterion (D-H16), Owner-attributed storage allowance (D-H7), No open questions (P3), HS-12 Shared content counts against the owner's allowance
 
-### Community 102 - "region.rs"
-Cohesion: 0.15
-Nodes (21): a_locale_without_a_territory_states_no_system(), a_metric_territory_states_the_metric_system(), a_territory_less_environment_value_does_not_shadow_a_readable_platform_region(), default_system_locale(), environment_locale(), measurement_system(), measurement_system_from_locale(), measurement_system_from_sources() (+13 more)
+### Community 102 - "weight_ranges.rs"
+Cohesion: 0.10
+Nodes (34): accepted_household(), account(), at(), CREATE_RABBIT, CREATED_AT, draft(), draft_at(), FUTURE (+26 more)
 
 ### Community 104 - "UI Styling Dependencies"
 Cohesion: 0.67
 Nodes (3): UI Styling Skill Python Dependencies, pytest, UI Styling Skill Test Requirements
 
-### Community 107 - "none"
-Cohesion: 0.67
-Nodes (4): $type, $value, none, none
+### Community 107 - "shadcn_add.py"
+Cohesion: 0.11
+Nodes (5): test_sync_parses_bundled_starter_template(), main(), _run(), test_flags_hardcoded_hex_sharing_line_with_token(), test_token_only_line_reports_no_violation()
 
-### Community 108 - "AppState"
-Cohesion: 0.14
-Nodes (8): a_later_snapshot_wins_over_an_older_in_flight_write(), a_merge_schedules_the_merged_copy_for_persistence(), AppState, lock(), remove_temp_data_dir(), restored_copies(), temp_data_dir(), wire_collection()
-
-### Community 109 - "household_creation.rs"
-Cohesion: 0.17
-Nodes (14): a_name_with_surrounding_whitespace_is_created_and_kept_as_supplied(), a_replayed_create_request_returns_the_existing_household(), accepted_answer(), account(), blank_name_is_rejected(), create(), create_the_first_household(), CREATED_AT (+6 more)
+### Community 108 - "weight_entries.rs"
+Cohesion: 0.15
+Nodes (40): a_confirmed_outlier_is_saved(), a_negative_value_is_rejected(), a_past_entry_is_corrected_and_the_change_is_shared(), a_past_entry_is_deleted_and_the_change_is_shared(), a_value_entered_in_kilograms_is_stored_as_grams(), a_weight_entry_carries_no_unit_of_its_own(), a_zero_value_is_rejected(), accepted_household() (+32 more)
 
 ### Community 110 - "service.rs"
-Cohesion: 0.10
+Cohesion: 0.09
 Nodes (11): a_well_formed_write_keeps_its_identity_function_and_body(), a_write_with_a_blank_identity_or_function_is_refused_as_invalid_input(), Answer, HTTP_BAD_REQUEST, HTTP_UNPROCESSABLE_CONTENT, only_an_answered_call_has_an_answer(), OUTCOME_ALLOWANCE_EXCEEDED, OUTCOME_APPLIED (+3 more)
 
-### Community 119 - "failure.rs"
-Cohesion: 0.20
-Nodes (9): a_stub_failure_names_the_placeholder_key_and_a_classified_unknown_does_not(), ALL_CAUSES, CausePolicy, CommandError, every_cause_reports_through_its_own_message_key(), every_named_constructor_applies_its_own_causes_policy(), named_constructor(), NOT_IMPLEMENTED_MESSAGE_KEY (+1 more)
+### Community 119 - "commands/identity.rs"
+Cohesion: 0.26
+Nodes (11): a_locally_known_member_name_is_the_fallback_for_a_known_account(), a_member_of_another_account_is_never_the_persons_name(), account(), assert_command_shape(), current_identity(), get_identity(), seed_member(), state_with() (+3 more)
 
-### Community 127 - "DisplayUnitStore"
-Cohesion: 0.16
-Nodes (11): choose(), decode(), DisplayUnitStore, effective(), encode(), is_older_than(), names_a_temporary(), PreferenceError (+3 more)
+### Community 127 - "lifecycle.rs"
+Cohesion: 0.07
+Nodes (32): a_probe_that_gets_no_answer_counts_towards_the_threshold(), a_re_evaluation_probes_with_the_reachability_bound(), a_re_evaluation_publishes_the_fresh_status_it_returns(), a_trigger_during_an_in_flight_re_evaluation_runs_exactly_one_follow_up(), a_trigger_whose_probe_gets_no_answer_publishes_no_refresh_for_a_retained_status(), a_trigger_with_a_reachable_service_and_an_active_household_publishes_one_refreshed(), a_trigger_with_an_invalid_account_publishes_no_household_change(), a_trigger_with_no_active_household_publishes_no_household_change() (+24 more)
 
-### Community 128 - "Implementation findings — tasks 3.1–3.3 and 5.1–5.5 (2026-10-20)"
-Cohesion: 0.09
-Nodes (22): Implementation findings — tasks 3.1–3.3 and 5.1–5.5 (2026-10-20), Q29 — The request-id retry invariant has no unit spec of its own, Q30 — `get_diagnostics_summary` lives in `settings/api.ts`, Q32 — Wall-clock resolution of `SAVE_ATTEMPT_TIMEOUT` is not proved by any test, Q33 — The relaunch read path is only proved by the read module's own unit tests, Q34 — `/` is now the household entry; the preview moved to `/design-preview`, Q35 — One commit carried two test tasks, Q36 — E2E remediation rode with task 3.3 (+14 more)
+### Community 128 - "@tanstack/react-router"
+Cohesion: 0.08
+Nodes (40): @tanstack/react-router, EntryErrorPlaceholder(), EntryPendingPlaceholder(), HouseholdEntryScreen(), hasHousehold(), HouseholdEntry, householdEntryDecision(), HouseholdPresence (+32 more)
 
 ### Community 129 - "Decisions"
-Cohesion: 0.11
-Nodes (19): D0.10 — Design-system status convention, D0.12 — An exhausted allowance must be reportable as its own condition (Q1), D0.13 — Concrete bounded times, as named constants (Q2), D0.14 — Client-generated request ids, deduplicated by the service (Q3), D0.15 — App identity (Q4), D0.17 — Biome, for lint and format (Q6), D0.18 — The `tauri-specta` release candidate is pinned, with `specta` (Q7), D0.19 — A branded placeholder icon, generated after the design tokens exist (Q8) (+11 more)
+Cohesion: 0.07
+Nodes (30): ADR 0001's follow-ups, mapped (task 1.1), Alternatives considered and rejected (task 1.1), D0.10 — Design-system status convention, D0.11 — The baseline is generated by the official Tauri v2 CLI, then refined, D0.12 — An exhausted allowance must be reportable as its own condition (Q1), D0.13 — Concrete bounded times, as named constants (Q2), D0.14 — Client-generated request ids, deduplicated by the service (Q3), D0.15 — App identity (Q4) (+22 more)
 
 ### Community 130 - "Requirements"
 Cohesion: 0.11
@@ -701,53 +757,49 @@ Nodes (17): product-quality Specification, Purpose, Requirement: Conflict resolu
 Cohesion: 0.11
 Nodes (17): Purpose, Requirement: Concurrent edits converge last-write-wins, Requirement: One logical collection per household, Requirement: Reads use previously loaded data when the service is unreachable, Requirement: Saves require the shared service and never pretend to succeed, Requirements, Scenario: A start with connectivity refreshes loaded data, Scenario: Convergence does not duplicate or fail (+9 more)
 
-### Community 135 - "devDependencies"
-Cohesion: 0.12
-Nodes (17): devDependencies, @biomejs/biome, jsdom, @playwright/test, @tanstack/router-plugin, @tauri-apps/cli, @testing-library/dom, @testing-library/jest-dom (+9 more)
+### Community 135 - "read_weight_entry"
+Cohesion: 0.35
+Nodes (9): a_blank_entry_id_is_refused_by_the_detail_read(), create_weight_entry(), delete_weight_entry(), deleted_weight_entry(), get_weight_entry(), read_weight_entry(), revised_weight_entry(), the_command_body_answers_the_entrys_detail_with_its_derived_flag() (+1 more)
 
-### Community 136 - "status.ts"
-Cohesion: 0.09
-Nodes (35): Q56 — `household:changed` is in the contract, the bindings and the consumer, and has no producer, Q57 — the foreground-return refresh is documented and unwired, Q58 — `error.unknown`'s copy is the bare message NFR-8 forbids, and it promises a retry that does not exist, Q59 — two review minors, Review findings — task 6.1 (2026-10-22, reviewer), observe(), release(), useAppEvents() (+27 more)
+### Community 136 - "rabbit-list.test.tsx"
+Cohesion: 0.03
+Nodes (70): getDashboard(), EmptyRabbitList(), EmptyRabbitListProps, ARCHIVED_RABBIT, BRAMBLE, BRAMBLE_ROW, CLOVER, CLOVER_ROW (+62 more)
 
-### Community 138 - "persist.rs"
-Cohesion: 0.18
-Nodes (21): a_corrupt_file_is_a_failure_rather_than_an_empty_device(), a_file_with_a_blank_identifier_is_malformed(), a_file_with_a_non_absolute_instant_is_malformed(), a_loaded_copy_round_trips_through_the_file(), a_never_loaded_collection_is_not_persisted(), a_second_store_over_the_same_directory_reads_what_the_first_wrote(), a_store_with_no_file_holds_no_copy_and_that_is_not_a_failure(), a_write_leaves_a_fresh_temporary_alone() (+13 more)
-
-### Community 139 - "PersistedHousehold"
-Cohesion: 0.17
-Nodes (11): persisted_household(), at(), decode(), item(), loaded(), persisted_household(), PersistedCollection, PersistedHousehold (+3 more)
+### Community 138 - "dashboard_rows.rs"
+Cohesion: 0.21
+Nodes (26): a_never_weighed_rabbit_sorts_last(), a_rabbit_with_no_entries_is_marked_as_never_weighed(), accepted_household(), account(), an_archived_rabbit_is_not_listed(), archived(), at(), both_active_rabbits_are_listed_with_their_details() (+18 more)
 
 ### Community 140 - "write_path.rs"
-Cohesion: 0.15
-Nodes (22): a_stalled_attempt_is_refused_with_timeout_and_carries_the_documented_bound(), an_intervening_success_resets_the_offline_count(), assert_refused(), at(), collection(), envelope(), healthy(), household_id() (+14 more)
+Cohesion: 0.14
+Nodes (23): a_stalled_attempt_is_refused_with_timeout_and_carries_the_documented_bound(), an_intervening_success_resets_the_offline_count(), assert_refused(), at(), collection(), envelope(), healthy(), household_id() (+15 more)
 
 ### Community 141 - "super"
-Cohesion: 0.17
-Nodes (10): CANONICAL_UNIT, effective_unit(), entry_and_display_are_one_value_preserving_pair(), GRAMS_PER_KILOGRAM, METRIC_EVERYDAY_UNIT, regional_unit(), to_canonical(), to_display() (+2 more)
+Cohesion: 0.14
+Nodes (4): BINDINGS_PATH, builder(), export_bindings(), the_contract_exports_to_typescript()
 
-### Community 142 - "ServiceReply"
-Cohesion: 0.09
-Nodes (18): completed_write_reply(), DoNothing, empty_read_reply(), envelope(), healthy_reply(), next(), RecordedCall, CheckAccount (+10 more)
+### Community 142 - "manifest-pins.ts"
+Cohesion: 0.16
+Nodes (19): checkTokenInvariants(), Rgb, backticked(), CARGO_SECTIONS, checkCargoPins(), checkNpmPins(), collectCargoPins(), collectNpmPins() (+11 more)
 
-### Community 143 - "tests/diagnostics.rs"
-Cohesion: 0.15
-Nodes (18): a_health_payload_shaped_save_failure_leaves_only_counts_and_timestamps(), ANALYTICS_TRANSPORTS, assert_payload_carries_content(), at(), content_values(), DECLARED_SAVE_FAILURE_KEYS, diagnostics_carry_no_content(), health_payload() (+10 more)
+### Community 143 - "state_with_one_rabbit"
+Cohesion: 0.34
+Nodes (12): a_live_row_with_unknown_content_refuses_the_detail_read(), a_long_note_is_returned_whole_and_no_photos_answer_an_empty_list(), a_tombstoned_entry_is_refused_as_an_unknown_entry(), at(), household(), profile(), rabbit_row(), state_with_an_archived_rabbit() (+4 more)
 
-### Community 144 - "sink.rs"
+### Community 144 - "devDependencies"
 Cohesion: 0.12
-Nodes (16): a_full_sink_drops_its_oldest_record_rather_than_growing(), a_save_failure_records_the_declared_keys_and_its_cause(), a_sink_of_capacity_zero_holds_nothing(), an_empty_sink_summarises_to_no_records_and_no_timestamps(), at(), DiagnosticSink, probed(), record() (+8 more)
+Nodes (17): devDependencies, @biomejs/biome, jsdom, @playwright/test, @tanstack/router-plugin, @tauri-apps/cli, @testing-library/dom, @testing-library/jest-dom (+9 more)
 
 ### Community 145 - "ADDED Requirements"
 Cohesion: 0.12
 Nodes (16): ADDED Requirements, product-quality — delta for add-shared-household-foundation, Requirement: Conflict resolution never fails and never duplicates, Requirement: Connectivity model: reachability-gated writes, loaded-data reads, Requirement: Every failure path states its cause, Requirement: Health and weight data stay private; diagnostics exclude content, Scenario: A failed save is visible and specific, Scenario: Concurrent edits resolve without failing (+8 more)
 
-### Community 146 - "HouseholdOnboardingScreen.tsx"
-Cohesion: 0.07
-Nodes (50): Q49 — The save-retry store is built and tested but intentionally unmounted, createHousehold(), Attempt, CreateOperation, HouseholdOnboardingScreen(), retryHandle(), run(), submit() (+42 more)
+### Community 146 - "persist.rs"
+Cohesion: 0.15
+Nodes (29): persisted_household(), a_corrupt_file_is_a_failure_rather_than_an_empty_device(), a_file_item_without_a_payload_reads_as_unknown_content(), a_file_with_a_blank_identifier_is_malformed(), a_file_with_a_non_absolute_instant_is_malformed(), a_loaded_copy_round_trips_through_the_file(), a_never_loaded_collection_is_not_persisted(), a_payload_round_trips_through_the_file() (+21 more)
 
-### Community 147 - "setup.ts"
-Cohesion: 0.04
-Nodes (67): @testing-library/react, @testing-library/user-event, PREVIEW_SECTIONS, renderPreviewScreen(), HOUSEHOLD, renderUnmatchedRoute(), SUMMARY, listHouseholds() (+59 more)
+### Community 147 - "unittest"
+Cohesion: 0.12
+Nodes (3): TestFixtureValidation, TestMetricMath, TestThresholdGate
 
 ### Community 148 - "fixtures.ts"
 Cohesion: 0.14
@@ -758,60 +810,60 @@ Cohesion: 0.12
 Nodes (16): ADDED Requirements, Requirement: Concurrent edits converge last-write-wins, Requirement: One logical collection per household, Requirement: Reads use previously loaded data when the service is unreachable, Requirement: Saves require the shared service and never pretend to succeed, Scenario: A start with connectivity refreshes loaded data, Scenario: Convergence does not duplicate or fail, Scenario: Every member resolves the same items (+8 more)
 
 ### Community 150 - "collection_identity.rs"
-Cohesion: 0.17
+Cohesion: 0.15
 Nodes (22): a_reissued_write_adds_no_second_item(), assert_one_copy_per_item(), at(), collection(), completed_answer(), every_member_resolves_the_same_items(), feed(), FIRST_VERSION (+14 more)
 
-### Community 151 - "cip/generate.py"
-Cohesion: 0.19
-Nodes (7): build_cip_prompt(), check_logo_required(), generate_cip_set(), generate_with_nano_banana(), load_env(), load_logo_image(), main()
+### Community 151 - "rabbits/mutations.ts"
+Cohesion: 0.04
+Nodes (74): dashboardKeys, archiveRabbit(), createRabbit(), deleteRabbit(), getRabbit(), listRabbits(), Operation, Outcome (+66 more)
 
 ### Community 152 - "Requirement: Display weight unit is per-device and applied at the boundary"
 Cohesion: 0.13
 Nodes (14): Purpose, Requirement: Current person's name is shown read-only with fallbacks, Requirement: Display weight unit is per-device and applied at the boundary, Requirement: Settings & Profile entry point on the dashboard, Requirements, Scenario: Changing the unit leaves stored values unchanged, Scenario: Default unit follows the device region, Scenario: Gear control opens Settings as its own screen (+6 more)
 
-### Community 153 - "e2e-fixture-consumption.spec.ts"
-Cohesion: 0.18
-Nodes (12): collectFiles(), E2E_DIRECTORY, exportsValue(), ImportBinding, ImportDeclaration, parseImportBindings(), parseImports(), parseSpecifier() (+4 more)
+### Community 153 - "sink.rs"
+Cohesion: 0.12
+Nodes (16): a_full_sink_drops_its_oldest_record_rather_than_growing(), a_save_failure_records_the_declared_keys_and_its_cause(), a_sink_of_capacity_zero_holds_nothing(), an_empty_sink_summarises_to_no_records_and_no_timestamps(), at(), DiagnosticSink, probed(), record() (+8 more)
 
-### Community 154 - "sync/mod.rs"
+### Community 154 - "types.rs"
+Cohesion: 0.17
+Nodes (29): a_rabbit_payload_is_the_envelope_save_item_submits(), a_row_serialises_unknown_content_as_null_and_reads_a_missing_field_as_unknown(), AccountUserId, CollectionItem, DashboardRow, DiagnosticsSummary, every_payload_variant_names_a_kind_this_version_models(), Grams (+21 more)
+
+### Community 155 - "scaffold-files.ts"
+Cohesion: 0.20
+Nodes (11): bindingsFile, FORBIDDEN_NAMES, forbiddenNamesInCode(), rawStringHashes(), stripRustComments(), CommandResult, describeCommand(), readAbsoluteFile() (+3 more)
+
+### Community 156 - "SaveCause"
 Cohesion: 0.13
-Nodes (3): OFFLINE_FAILURE_THRESHOLD, READ_REFRESH_TIMEOUT, SAVE_ATTEMPT_TIMEOUT
+Nodes (15): CommandError, RequestId, SaveCause, AllowanceExceeded, Connectivity, NoAccount, RateLimited, Timeout (+7 more)
 
-### Community 155 - "vitest"
-Cohesion: 0.27
-Nodes (8): vitest, checkConfigAgreement(), objectBlock(), parseTauriBuildTarget(), parseViteConfig(), TauriBuildTarget, ViteConfigFacts, stripComments()
+### Community 158 - "settings-households.component.test.tsx"
+Cohesion: 0.08
+Nodes (13): answerOtherReads(), BEACH, HOME, HOME_ACTIVE, householdsSection(), MockCall, MockHandler, REACHABLE (+5 more)
 
-### Community 156 - "csv"
-Cohesion: 0.07
-Nodes (14): detect_domain(), get_cip_brief(), _load_csv(), search(), search_all(), _search_csv(), detect_domain(), _load_csv() (+6 more)
+### Community 159 - "input"
+Cohesion: 0.29
+Nodes (8): padding-x, input, $type, $value, focus-ring, padding-x, $type, $value
 
-### Community 157 - "test_design_system_mode.py"
-Cohesion: 0.07
-Nodes (14): _contrast_ratio(), _derive_dark_palette(), _filter_anti_patterns_for_mode(), _palette_is_dark(), _query_wants_dark(), _relative_luminance(), _resolve_color_mode(), _select_palette_for_mode() (+6 more)
-
-### Community 159 - "ring"
-Cohesion: 0.67
-Nodes (3): ring, $type, $value
-
-### Community 160 - "http.rs"
-Cohesion: 0.14
-Nodes (7): ACCOUNT_PATH, HEALTH_PATH, HOUSEHOLD_CHANGES_RPC, HttpService, RPC_PREFIX, transport_reply(), HTTP_UNAUTHORIZED
-
-### Community 161 - "bindings.ts"
-Cohesion: 0.04
-Nodes (65): 1. Contract, 2. Backend (Rust), 3. Frontend logic, 4. Frontend UI, 5. Tests, 6. Review, Tasks — add-medication-tracking (P5), ADR 0001's follow-ups, mapped (task 1.1) (+57 more)
+### Community 161 - "scripts"
+Cohesion: 0.22
+Nodes (9): scripts, build, dev, gen:bindings, lint, tauri, test, test:e2e (+1 more)
 
 ### Community 162 - "ADDED Requirements"
 Cohesion: 0.14
 Nodes (13): ADDED Requirements, Requirement: Current person's name is shown read-only with fallbacks, Requirement: Display weight unit is per-device and applied at the boundary, Requirement: Settings & Profile entry point on the dashboard, Scenario: Changing the unit leaves stored values unchanged, Scenario: Default unit follows the device region, Scenario: Gear control opens Settings as its own screen, Scenario: Resolved account name is shown read-only (+5 more)
 
-### Community 163 - "settings.rs"
-Cohesion: 0.31
-Nodes (8): a_local_fault_carries_the_operation_identity_it_was_given(), a_local_fault_reports_the_unknown_cause_under_its_own_key_without_a_retry(), data_dir(), get_display_weight_unit(), local_fault_error(), off_thread(), set_display_weight_unit(), AppHandle
+### Community 163 - "failure_surface.rs"
+Cohesion: 0.19
+Nodes (15): a_failed_save_is_visible_and_specific(), account(), assert_check_service_reachability_shape(), assert_get_active_household_shape(), assert_get_identity_shape(), assert_get_service_status_shape(), assert_list_households_shape(), create_failure() (+7 more)
 
-### Community 164 - "DeviceSnapshot"
-Cohesion: 0.14
-Nodes (11): CollectionStore, GatedSink, PersistenceWriter, RecordingSink, restored_book(), SnapshotSink, WriterState, CollectionStoreError (+3 more)
+### Community 164 - "offline-launch.spec.ts"
+Cohesion: 0.25
+Nodes (4): HOUSEHOLD, HOUSEHOLD_SUMMARY, LOADED_LOCAL_COPY, UNREACHABLE
+
+### Community 165 - "NeuterStatus"
+Cohesion: 0.20
+Nodes (10): NeuterStatus, Intact, Neutered, Spayed, Unknown, RabbitProfile, Sex, Female (+2 more)
 
 ### Community 166 - "Tasks — add-household-sharing-hardening (P3)"
 Cohesion: 0.25
@@ -821,29 +873,49 @@ Nodes (7): 1. Contract and native surface, 2. Backend (Rust), 3. Frontend logic,
 Cohesion: 0.40
 Nodes (4): Reporting, Scope, The smallest complete change, Working agreement
 
-### Community 174 - "SettingsScreen.tsx"
-Cohesion: 0.05
-Nodes (108): Q45 — The Settings refresh re-reads the list but not the active household, Q48 — The pending entry surface's only announced text is the primitive's fallback, Q61 — non-blocking copy/doc nits from the final 6.1 review, 0. Workspace scaffold, 7. Follow-up fixes (owner-approved 2026-10-21), 8. Review fixes (owner-approved 2026-10-22), Manual verification, react (+100 more)
+### Community 169 - "test_core.py"
+Cohesion: 0.04
+Nodes (8): format_markdown(), generate_design_system(), TestBm25CoreBehavior, TestDiagnosticsContracts, TestDomainDetection, TestPersistence, TestSearchDomains, TestTokenizer
+
+### Community 171 - "rabbit_profiles.rs"
+Cohesion: 0.25
+Nodes (22): a_neutered_and_a_spayed_rabbit_are_recorded_distinctly(), a_profile_is_created_with_the_supplied_identifying_details(), accepted_household(), account(), at(), create(), CREATED_AT, date_of_birth_may_be_marked_unknown() (+14 more)
+
+### Community 172 - "e2e-fixture-consumption.spec.ts"
+Cohesion: 0.19
+Nodes (11): collectFiles(), E2E_DIRECTORY, exportsValue(), ImportBinding, ImportDeclaration, parseImportBindings(), parseImports(), parseSpecifier() (+3 more)
+
+### Community 173 - "archived_rabbit.rs"
+Cohesion: 0.11
+Nodes (41): A_LONG_TIME_LATER, accepted_household(), account(), ARCHIVE, archived_entries_cannot_be_edited_or_deleted(), archived_history_survives_an_arbitrary_interval(), archiving_discards_nothing(), assert_entry_write_refused() (+33 more)
+
+### Community 174 - ".admit"
+Cohesion: 0.43
+Nodes (5): a_non_canonical_value_is_refused_and_names_the_form_it_would_have_to_be_in(), a_value_already_in_its_canonical_form_is_admitted(), an_admitted_value_round_trips_unchanged_and_a_refusal_returns_no_value(), Lowercase, .FORM
+
+### Community 175 - "rabbit_lifecycle.rs"
+Cohesion: 0.16
+Nodes (30): a_saved_edit_including_the_threshold_is_shared_with_every_member(), accepted_household(), account(), ARCHIVE, at(), confirmed_deletion_removes_the_rabbit_and_its_data(), create_entry(), create_rabbit() (+22 more)
+
+### Community 176 - "logo/core.py"
+Cohesion: 0.12
+Nodes (6): BM25, detect_domain(), _load_csv(), search(), search_all(), _search_csv()
 
 ### Community 177 - "Requirement: Household-scoped isolation and canonical storage at the boundary"
 Cohesion: 0.17
 Nodes (11): data-integrity Specification, Purpose, Requirement: Household-scoped isolation and canonical storage at the boundary, Requirement: Timestamps are absolute instants defaulting to now, Requirements, Scenario: A supplied instant is stored unchanged, Scenario: A timestamp defaults to now, Scenario: Canonical representation survives presentation changes (+3 more)
 
-### Community 178 - "scripts"
-Cohesion: 0.22
-Nodes (9): scripts, build, dev, gen:bindings, lint, tauri, test, test:e2e (+1 more)
+### Community 178 - "DiagnosticOutcome"
+Cohesion: 0.33
+Nodes (5): DiagnosticOutcome, CollectionLoaded, ReachabilityProbed, SaveFailed, SaveSucceeded
 
 ### Community 179 - "D0.9 — The bindings pipeline ships with an empty command set"
 Cohesion: 0.18
 Nodes (11): D0.9 — The bindings pipeline ships with an empty command set, No ADR number is taken by section 0, One builder, mounted and exported, Task 0.12's outcome — the fmt carve-out closes, and the integration harness lands, The empty command/event set it ships with, The export entry point is a cargo example, not a test, The module shape and the empty macro form (task 0.4), The single regeneration entry point (+3 more)
 
-### Community 180 - "diagnostics/mod.rs"
-Cohesion: 0.14
-Nodes (7): lowercased_manifests(), neither_manifest_configures_a_third_party_analytics_transport(), DiagnosticOutcome, CollectionLoaded, ReachabilityProbed, SaveFailed, SaveSucceeded
-
-### Community 181 - "dependencies"
-Cohesion: 0.33
-Nodes (6): dependencies, react, react-dom, @tanstack/react-query, @tanstack/react-router, @tauri-apps/api
+### Community 180 - "$type"
+Cohesion: 0.60
+Nodes (5): $type, $value, border, border, border
 
 ### Community 182 - "Requirement: Household-scoped isolation and canonical storage at the boundary"
 Cohesion: 0.18
@@ -857,33 +929,37 @@ Nodes (8): Context, Design — add-shared-household-foundation (P0), Risks, Scaf
 Cohesion: 0.31
 Nodes (7): createFirstHousehold(), createHouseholdFromSettings(), householdNameField(), openEntry(), openSettingsFromDashboard(), RecorderWindow, screenTitle()
 
-### Community 186 - "commands/household.rs"
-Cohesion: 0.25
-Nodes (14): a_refused_create_publishes_nothing(), a_refused_switch_publishes_nothing(), a_successful_create_publishes_exactly_one_created_for_the_new_household(), a_successful_switch_publishes_switched_for_the_household_now_active(), accepted_create(), account(), create_household(), created_household() (+6 more)
+### Community 185 - "Requirement: Continuous integration runs the same gate as the definition of done"
+Cohesion: 0.40
+Nodes (5): Requirement: Continuous integration runs the same gate as the definition of done, Scenario: CI covers no platform beyond iOS and macOS, Scenario: CI fails on generated drift, Scenario: CI neither signs nor distributes, Scenario: CI runs the gate [macos]
+
+### Community 186 - "drop_alert.rs"
+Cohesion: 0.16
+Nodes (39): a_drop_exceeding_the_threshold_is_flagged(), a_drop_within_the_threshold_is_not_flagged(), accepted_household(), account(), assert_dashboard_flag_is_the_entry_derivation(), at(), change_threshold(), changing_the_threshold_rewrites_no_stored_entry() (+31 more)
 
 ### Community 187 - "events.rs"
+Cohesion: 0.08
+Nodes (23): HouseholdChanged, .NAME, HouseholdChangeKind, Created, Refreshed, Removed, Switched, HouseholdChangePublisher (+15 more)
+
+### Community 188 - "config-agreement.ts"
+Cohesion: 0.27
+Nodes (9): checkConfigAgreement(), objectBlock(), parseTauriBuildTarget(), parseViteConfig(), TauriBuildTarget, ViteConfigFacts, stripComments(), readRepositoryFile() (+1 more)
+
+### Community 189 - "radius"
+Cohesion: 0.60
+Nodes (5): radius, radius, radius, $type, $value
+
+### Community 190 - "member_access.rs"
 Cohesion: 0.11
-Nodes (12): HouseholdChanged, .NAME, HouseholdChangeKind, Created, Refreshed, Removed, Switched, HouseholdChangePublisher (+4 more)
-
-### Community 188 - "status.ts"
-Cohesion: 0.10
-Nodes (28): getDisplayWeightUnit(), getIdentity(), setDisplayWeightUnit(), DisplayWeightUnitFailure, DisplayWeightUnitKey, displayWeightUnitQueryOptions(), SetUnitOperation, UnitOutcome (+20 more)
-
-### Community 189 - "path"
-Cohesion: 0.10
-Nodes (7): BINDINGS_PATH, builder(), export_bindings(), assert_send_sync(), building_the_ipc_builder_creates_removes_or_rewrites_no_source_file(), repository_src_entries(), the_ipc_builder_hands_out_a_mountable_handler_and_survives_being_moved()
-
-### Community 190 - "offline-launch.spec.ts"
-Cohesion: 0.25
-Nodes (4): HOUSEHOLD, HOUSEHOLD_SUMMARY, LOADED_LOCAL_COPY, UNREACHABLE
+Nodes (36): a_joining_member_writes_into_the_same_shared_data(), a_member_edits_data_created_by_another_member(), accepted_household(), admit_membership(), at(), collection(), CREATE_HOUSEHOLD, create_rabbit() (+28 more)
 
 ### Community 191 - "ShadcnInstaller"
 Cohesion: 0.05
 Nodes (3): main(), ShadcnInstaller, TestShadcnInstaller
 
-### Community 193 - "json"
-Cohesion: 0.07
-Nodes (6): test_sync_parses_bundled_starter_template(), main(), _run(), test_flags_hardcoded_hex_sharing_line_with_token(), test_token_only_line_reports_no_violation(), TestMetricMath
+### Community 192 - "generate-slide.py"
+Cohesion: 0.13
+Nodes (11): _e(), generate_chart_slide(), generate_cta_slide(), generate_deck(), generate_metrics_slide(), generate_problem_slide(), generate_solution_slide(), generate_testimonial_slide() (+3 more)
 
 ### Community 194 - "button"
 Cohesion: 0.20
@@ -893,112 +969,204 @@ Nodes (10): fg, font-size, hover-bg, button, $type, $value, $type, $value (+2 mo
 Cohesion: 0.25
 Nodes (7): 1. Contract and measurement design, 2. Backend (Rust), 3. Frontend logic, 4. Frontend UI, 5. Tests, 6. Review, Tasks — add-read-path-performance (P6)
 
+### Community 196 - "cip/generate.py"
+Cohesion: 0.19
+Nodes (7): build_cip_prompt(), check_logo_required(), generate_cip_set(), generate_with_nano_banana(), load_env(), load_logo_image(), main()
+
 ### Community 197 - "add-shared-household-foundation"
 Cohesion: 0.25
 Nodes (7): add-shared-household-foundation, Dependencies, Dependency justifications (project rule 6), Impact, Settled decisions this change implements, What changes, Why
 
-### Community 198 - "input"
-Cohesion: 0.29
-Nodes (8): padding-x, input, $type, $value, focus-ring, padding-x, $type, $value
+### Community 198 - "Questions — add-shared-household-foundation (P0)"
+Cohesion: 0.22
+Nodes (8): 6.2 review — APPROVE (2026-10-22), Q60 — the neutral-cause copy is write-shaped on read surfaces, Q62 — the iOS-resume assertion is compiled by no gate command (minor, recorded), Questions — add-shared-household-foundation (P0), Second 6.1 review — task 8.4/8.5 (2026-10-22, reviewer), The three minors, Third 6.1 review — APPROVE with three carried minors (2026-10-22), Verification record — task 5.18 (2026-10-22, orchestrator)
 
-### Community 201 - "$type"
-Cohesion: 0.60
-Nodes (5): $type, $value, border, border, border
+### Community 199 - "storage_boundary.rs"
+Cohesion: 0.11
+Nodes (19): CanonicalForm, .FORM, a_removal_keeps_its_households_claim(), Amount, .FORM, at(), collection(), household_id() (+11 more)
 
-### Community 202 - "radius"
-Cohesion: 0.60
-Nodes (5): radius, radius, radius, $type, $value
+### Community 200 - "fs"
+Cohesion: 0.22
+Nodes (4): assert_send_sync(), building_the_ipc_builder_creates_removes_or_rewrites_no_source_file(), repository_src_entries(), the_ipc_builder_hands_out_a_mountable_handler_and_survives_being_moved()
 
-### Community 203 - "sync.rs"
-Cohesion: 0.17
+### Community 201 - "sync.rs"
+Cohesion: 0.18
 Nodes (11): assert_check_status_shape(), assert_get_status_shape(), check_service_reachability(), check_service_reachability_returns_and_publishes_the_trackers_new_status(), checked_status(), get_service_status(), get_service_status_answers_the_trackers_value_as_ok(), load_household() (+3 more)
 
-### Community 204 - "lg"
-Cohesion: 0.60
-Nodes (5): lg, $type, $value, lg, lg
+### Community 202 - "destructive"
+Cohesion: 0.67
+Nodes (3): destructive, $type, $value
 
-### Community 205 - "sm"
-Cohesion: 0.60
-Nodes (5): sm, sm, sm, $type, $value
+### Community 203 - "SettingsScreen.tsx"
+Cohesion: 0.04
+Nodes (153): Q45 — The Settings refresh re-reads the list but not the active household, Q61 — non-blocking copy/doc nits from the final 6.1 review, 0. Workspace scaffold, 8. Review fixes (owner-approved 2026-10-22), Manual verification, react, AppShell(), AppShellProps (+145 more)
+
+### Community 204 - "mock-ipc.ts"
+Cohesion: 0.09
+Nodes (17): Household, HouseholdCollection, HouseholdSummary, Identity, ServiceStatus, WeightUnit, commandHandlers, createdByRequestId (+9 more)
+
+### Community 205 - "DeviceSnapshot"
+Cohesion: 0.21
+Nodes (7): CollectionStoreError, Io, Malformed, decode(), DeviceSnapshot, validate_identifiers(), validate_instants()
 
 ### Community 206 - "padding-y"
 Cohesion: 0.67
 Nodes (4): padding-y, padding-y, $type, $value
 
-### Community 207 - "16"
-Cohesion: 0.67
-Nodes (3): $type, $value, 16
-
-### Community 210 - "D0.8 — Scaffold baseline and exact pins (section 0)"
-Cohesion: 0.33
-Nodes (6): Compatibility constraints (from the published metadata, not inferred), D0.8 — Scaffold baseline and exact pins (section 0), Exact pin set (task 0.2, TOOL-8), iOS and macOS support (TOOL-8, TOOL-1, TOOL-2), Materialised npm manifest (task 0.13), Pin provenance
-
-### Community 211 - "1"
-Cohesion: 0.67
-Nodes (3): $type, $value, 1
-
-### Community 214 - "3"
-Cohesion: 0.67
-Nodes (3): $type, $value, 3
-
-### Community 215 - "8"
-Cohesion: 0.67
-Nodes (3): $type, $value, 8
-
-### Community 216 - "destructive"
-Cohesion: 0.67
-Nodes (3): destructive, $type, $value
-
-### Community 217 - "destructive-foreground"
+### Community 207 - "destructive-foreground"
 Cohesion: 0.67
 Nodes (3): destructive-foreground, $type, $value
 
-### Community 218 - "Requirement: Continuous integration runs the same gate as the definition of done"
-Cohesion: 0.40
-Nodes (5): Requirement: Continuous integration runs the same gate as the definition of done, Scenario: CI covers no platform beyond iOS and macOS, Scenario: CI fails on generated drift, Scenario: CI neither signs nor distributes, Scenario: CI runs the gate [macos]
-
-### Community 220 - "muted"
+### Community 213 - "muted"
 Cohesion: 0.67
 Nodes (3): muted, $type, $value
 
-### Community 221 - "primary-foreground"
+### Community 216 - "primary-foreground"
 Cohesion: 0.67
 Nodes (3): primary-foreground, $type, $value
 
-### Community 222 - "secondary-foreground"
+### Community 217 - "ring"
+Cohesion: 0.67
+Nodes (3): ring, $type, $value
+
+### Community 218 - "Implementation findings — tasks 3.1–3.3 and 5.1–5.5 (2026-10-20)"
+Cohesion: 0.10
+Nodes (21): Implementation findings — tasks 3.1–3.3 and 5.1–5.5 (2026-10-20), Q29 — The request-id retry invariant has no unit spec of its own, Q30 — `get_diagnostics_summary` lives in `settings/api.ts`, Q31 — The held-set list and the active household are deliberately not household-keyed, Q32 — Wall-clock resolution of `SAVE_ATTEMPT_TIMEOUT` is not proved by any test, Q33 — The relaunch read path is only proved by the read module's own unit tests, Q34 — `/` is now the household entry; the preview moved to `/design-preview`, Q35 — One commit carried two test tasks (+13 more)
+
+### Community 219 - "secondary-foreground"
 Cohesion: 0.67
 Nodes (3): secondary-foreground, $type, $value
 
-### Community 226 - "D0.16 — Deployment targets are derived, not chosen (Q5)"
-Cohesion: 0.67
-Nodes (3): D0.16 — Deployment targets are derived, not chosen (Q5), The measured floor (task 0.7, `apple-native`), The shipped floor, raised by product decision (Q16, 2026-10-20)
+### Community 220 - "Verification record — task 0.26 (2026-10-22, orchestrator)"
+Cohesion: 0.40
+Nodes (5): Gate — all green, Q54 — The release build cannot run on this host (open; blocks task 0.26's release half), The built macOS artefact, The mock seam — checked in both directions, Verification record — task 0.26 (2026-10-22, orchestrator)
 
-### Community 228 - "Window"
+### Community 221 - "History — how Q10–Q12 were raised (2026-10-16, orchestrator)"
+Cohesion: 0.50
+Nodes (4): History — how Q10–Q12 were raised (2026-10-16, orchestrator), Q10 — Specialists could not execute shell commands in this harness, Q11 — `SETUP.md` did not exist, Q12 — Orchestrator gate-command permissions were incomplete
+
+### Community 222 - "get_weight_entries"
+Cohesion: 0.53
+Nodes (3): get_weight_entries(), read_weight_trend(), the_command_body_answers_the_rabbits_full_series()
+
+### Community 223 - "Resolutions (2026-10-16, product owner)"
+Cohesion: 0.50
+Nodes (4): Q10 — decided: fix the harness configuration first, then delegate, Q11 — decided: create `SETUP.md` now — done, Q12 — decided: extend the orchestrator's allow list, and close the specialist gaps the same way, Resolutions (2026-10-16, product owner)
+
+### Community 226 - "RabbitChangeKind"
+Cohesion: 0.33
+Nodes (6): RabbitChangeKind, Archived, Created, Deleted, Restored, Updated
+
+### Community 239 - "WeightRange"
+Cohesion: 0.40
+Nodes (5): WeightRange, All, Days30, Days7, Days90
+
+### Community 247 - "main.tsx"
+Cohesion: 0.19
+Nodes (11): react-dom, queryClient, bootstrap(), e2eIpcMockModules, installE2eIpcMockIfEnabled(), mountNode, renderApp(), Register (+3 more)
+
+### Community 252 - "block_on_ready"
+Cohesion: 0.05
+Nodes (121): a_refused_create_publishes_nothing(), a_refused_switch_publishes_nothing(), a_successful_create_publishes_exactly_one_created_for_the_new_household(), a_successful_switch_publishes_switched_for_the_household_now_active(), accepted_create(), account(), create_household(), created_household() (+113 more)
+
+### Community 254 - "D0.8 — Scaffold baseline and exact pins (section 0)"
+Cohesion: 0.33
+Nodes (6): Compatibility constraints (from the published metadata, not inferred), D0.8 — Scaffold baseline and exact pins (section 0), Exact pin set (task 0.2, TOOL-8), iOS and macOS support (TOOL-8, TOOL-1, TOOL-2), Materialised npm manifest (task 0.13), Pin provenance
+
+### Community 255 - "cip/core.py"
+Cohesion: 0.12
+Nodes (7): BM25, detect_domain(), get_cip_brief(), _load_csv(), search(), search_all(), _search_csv()
+
+### Community 258 - "Verification record — task 0.27 (2026-10-22, orchestrator)"
+Cohesion: 0.50
+Nodes (4): iOS — iOS 27.0 simulator (24A434), iPhone 18 Pro, macOS — macOS 27.0.1 (26A434), Q55 — `tauri ios dev` cannot drive this Xcode/runtime pairing (open; environment), Verification record — task 0.27 (2026-10-22, orchestrator)
+
+### Community 259 - "dependencies"
+Cohesion: 0.33
+Nodes (6): dependencies, react, react-dom, @tanstack/react-query, @tanstack/react-router, @tauri-apps/api
+
+### Community 260 - "bindings.ts"
+Cohesion: 0.10
+Nodes (17): RFC-3339, DashboardRow, EventEmit, HouseholdChangeKind, ItemPayload, makeEvent(), NeuterStatus, Rabbit (+9 more)
+
+### Community 262 - "Review findings — task 6.1 (2026-10-22, reviewer)"
+Cohesion: 0.50
+Nodes (4): Q57 — the foreground-return refresh is documented and unwired, Q58 — `error.unknown`'s copy is the bare message NFR-8 forbids, and it promises a retry that does not exist, Q59 — two review minors, Review findings — task 6.1 (2026-10-22, reviewer)
+
+### Community 264 - "ItemPayload"
+Cohesion: 0.50
+Nodes (4): ItemPayload, .KINDS, Rabbit, WeightEntry
+
+### Community 265 - "CollectionStore"
+Cohesion: 0.43
+Nodes (3): CollectionStore, is_older_than(), names_a_temporary()
+
+### Community 267 - "Tasks — add-medication-tracking (P5)"
+Cohesion: 0.29
+Nodes (6): 2. Backend (Rust), 3. Frontend logic, 4. Frontend UI, 5. Tests, 6. Review, Tasks — add-medication-tracking (P5)
+
+### Community 268 - "CollectionSource"
 Cohesion: 0.67
-Nodes (3): D0.21 — Task 0.6: an empty permission set and a strict CSP (Q13), D0.24 — Task 0.17: the test layer has its own config, and an empty suite stays red, Window
+Nodes (3): CollectionSource, Local, Service
+
+### Community 269 - "lg"
+Cohesion: 0.60
+Nodes (5): lg, $type, $value, lg, lg
+
+### Community 270 - "sm"
+Cohesion: 0.60
+Nodes (5): sm, sm, sm, $type, $value
+
+### Community 271 - "xl"
+Cohesion: 0.67
+Nodes (4): xl, xl, $type, $value
+
+### Community 272 - "none"
+Cohesion: 0.67
+Nodes (4): $type, $value, none, none
+
+### Community 273 - "16"
+Cohesion: 0.67
+Nodes (3): $type, $value, 16
+
+### Community 274 - "1"
+Cohesion: 0.67
+Nodes (3): $type, $value, 1
+
+### Community 275 - "3"
+Cohesion: 0.67
+Nodes (3): $type, $value, 3
+
+### Community 276 - "8"
+Cohesion: 0.67
+Nodes (3): $type, $value, 8
+
+### Community 277 - "WeightUnit"
+Cohesion: 0.67
+Nodes (3): WeightUnit, Grams, Kilograms
 
 ## Ambiguous Edges - Review These
 - `UI Styling Skill` → `Apache License 2.0`  [AMBIGUOUS]
   .opencode/skills/ui-styling/LICENSE.txt · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **193 isolated node(s):** `Metric`, `NonMetric`, `Unknown`, `app`, `Malformed` (+188 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1645 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **53 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **218 isolated node(s):** `app`, `Request`, `Poisoned`, `AllowanceExceeded`, `Connectivity` (+213 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2041 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **71 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `types` connect `types` to `settings.rs`, `commands/identity.rs`, `sync.rs`, `compilerOptions`, `commands/household.rs`, `path`?**
-  _High betweenness centrality (0.027) - this node is a cross-community bridge._
-- **Are the 61 inferred relationships involving `block_on_ready()` (e.g. with `create_with()` and `a_refused_create_publishes_nothing()`) actually correct?**
-  _`block_on_ready()` has 61 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `Metric`, `NonMetric`, `Unknown` to the rest of the system?**
-  _193 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `entry.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.14736842105263157 - nodes in this community are weakly interconnected._
-- **Why does `compilerOptions` connect `compilerOptions` to `types`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
+- **Why does `ScriptedService` connect `ScriptedService` to `domain/rabbit.rs`, `domain/weight.rs`, `dashboard_rows.rs`, `write_path.rs`, `state_with_one_rabbit`, `multiple_households.rs`, `read_path.rs`, `collection_identity.rs`, `dashboard.rs`, `failure_surface.rs`, `rabbit_profiles.rs`, `archived_rabbit.rs`, `rabbit_lifecycle.rs`, `timestamps.rs`, `tests/diagnostics.rs`, `drop_alert.rs`, `member_access.rs`, `probe.rs`, `sync.rs`, `household_creation.rs`, `weight_entry_detail.rs`, `commands/weight.rs`, `merge.rs`, `commands/rabbit.rs`, `read.rs`, `gate.rs`, `create.rs`, `weight_ranges.rs`, `weight_entries.rs`, `commands/identity.rs`, `block_on_ready`, `lifecycle.rs`?**
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+- **Are the 222 inferred relationships involving `block_on_ready()` (e.g. with `create_with()` and `a_cascade_stops_before_the_rabbit_when_a_tombstone_does_not_apply()`) actually correct?**
+  _`block_on_ready()` has 222 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `app`, `Request`, `Poisoned` to the rest of the system?**
+  _218 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `domain/rabbit.rs` be split into smaller, more focused modules?**
+  _Cohesion score 0.07471264367816093 - nodes in this community are weakly interconnected._
+- **Why does `block_on_ready()` connect `block_on_ready` to `domain/rabbit.rs`, `read_weight_entry`, `domain/weight.rs`, `dashboard_rows.rs`, `write_path.rs`, `state_with_one_rabbit`, `multiple_households.rs`, `read_path.rs`, `collection_identity.rs`, `dashboard.rs`, `failure_surface.rs`, `rabbit_profiles.rs`, `archived_rabbit.rs`, `rabbit_lifecycle.rs`, `timestamps.rs`, `tests/diagnostics.rs`, `drop_alert.rs`, `member_access.rs`, `probe.rs`, `sync.rs`, `household_creation.rs`, `weight_entry_detail.rs`, `commands/weight.rs`, `commands/rabbit.rs`, `read.rs`, `gate.rs`, `get_weight_entries`, `ScriptedService`, `create.rs`, `weight_ranges.rs`, `weight_entries.rs`, `lifecycle.rs`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `TailwindConfigGenerator` (e.g. with `TestGeneratedConfigIsValidJs` and `TestTailwindConfigGenerator`) actually correct?**
   _`TailwindConfigGenerator` has 2 INFERRED edges - model-reasoned connections that need verification._
 

@@ -1,7 +1,7 @@
 ---
 description: Owns GitHub Actions, iOS/macOS builds, signing, TestFlight and release automation.
 mode: subagent
-model: opencode-go/deepseek-v4.1-flash   # see "Model routing" in orchestrator.md
+model: deepseek/deepseek-flash # see "Model routing" in orchestrator.md
 permissions:
   - action: edit
     resource: "*"

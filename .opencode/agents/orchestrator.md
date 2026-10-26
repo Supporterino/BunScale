@@ -154,7 +154,7 @@ Report: files · tests (scenario covered) · commands run · skipped and why
 
 ## Model routing
 
-One model, fixed in the agent frontmatter (one place per agent): `opencode-go/deepseek-v4.1-flash` for all ten specialists. Do not override `model` per call.
+One model, fixed in the agent frontmatter (one place per agent): `deepseek/deepseek-flash` for all ten specialists. Do not override `model` per call.
 
 `orchestrator` inherits the session model on purpose: it holds the whole change in context.
 
