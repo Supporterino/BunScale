@@ -47,11 +47,12 @@
  * list row (the name and thumbnail it shows are unchanged). Another rabbit's
  * series and another household's rows are never touched (NFR-10).
  *
- * **There is no per-entry detail key to invalidate.** `./keys.ts` keys the
- * series and its ranges only, and no query reads `get_weight_entry` yet, so the
- * `delete`/`update` hook has nothing to name there; when the detail view lands
- * it adds `weightKeys.detail(entryId)` and that mutation names it. Inventing a
- * key now would seed an entry no query reads.
+ * **The entry detail is reached through the series, not named again (task
+ * 4.19).** `./keys.ts` keys one entry's detail under its rabbit's series prefix,
+ * so the `weightKeys.series(rabbitId)` invalidation above already refetches the
+ * detail an `update` or a `delete` touched. An explicit `weightKeys.detail(...)`
+ * call here would invalidate a subset of what is already invalid, and reading as
+ * if it did more is worse than not having it.
  *
  * **Failures take P0's one path**, exactly as task 3.4's rabbit writes do (D1,
  * SYNC-2): no optimistic write and no pending state, `onSuccess` is the only
@@ -259,8 +260,7 @@ function operationFor<Value>(
  *
  * One function rather than three because the three writes change the same two
  * reads only (`weightKeys.series` covers every window, so the trend and the
- * history are both refreshed and no other rabbit's is). No detail key exists to
- * name — see the header.
+ * history are both refreshed and no other rabbit's is).
  */
 function invalidateWeightWrite(client: QueryClient, scope: WriteScope): void {
   void client.invalidateQueries({
@@ -373,8 +373,9 @@ export function useCreateWeightEntry() {
  * is the whole editable set, as the command's replacement semantics require; a
  * `timestamp: null` keeps the entry's existing instant, so correcting a value
  * never restamps a back-dated entry (WT-5). The invalidation set is create's:
- * the corrected point and the flags derived from it can appear in any window,
- * and the dashboard row's last-weighed instant and alert can move.
+ * that rabbit's series, which the detail the correction started from sits under,
+ * so the corrected point, the flags derived from it, the dashboard row and the
+ * entry's own detail all refresh without a second key being named.
  */
 export function useUpdateWeightEntry() {
   return useWeightWrite<WeightEntry, UpdateWeightEntryVariables>(
@@ -393,10 +394,11 @@ export function useUpdateWeightEntry() {
  *
  * Start it with `mutate({ householdId, rabbitId, entryId })`. The answer is the
  * contract's `()`, so the ids come from the intent (`WriteScope`): the series
- * whose points and flags the removal changes and the dashboard row whose
- * last-weighed instant or alert it can move. There is no entry detail key to
- * invalidate (see the header); an unknown entry, or one of an archived rabbit,
- * is refused as `validation` and stays in this mutation's error (D1.5).
+ * whose points and flags the removal changes — its entry details included, which
+ * then cannot answer for an entry that no longer exists — and the dashboard row
+ * whose last-weighed instant or alert it can move. An unknown entry, or one of
+ * an archived rabbit, is refused as `validation` and stays in this mutation's
+ * error (D1.5).
  */
 export function useDeleteWeightEntry() {
   return useWeightWrite<null, DeleteWeightEntryVariables>(

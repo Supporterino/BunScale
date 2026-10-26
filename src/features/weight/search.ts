@@ -31,10 +31,12 @@
  * compares the list against the frozen four with `toEqual`, so dropping a
  * window fails the suite instead of silently validating to the default.
  *
- * **The weight form's binding is validated here too (task 4.18).** That search
- * is the same kind of state — a typed URL that must never fail a navigation —
- * so `validateWeightFormSearch` sits beside the range pair it hands back on the
- * way out of the form, rather than in the screen that renders it.
+ * **The two bindings that carry a rabbit are validated here too** — the weight
+ * form's (task 4.18) and one entry's detail (task 4.19). Both searches are the
+ * same kind of state as the range pair — a typed URL that must never fail a
+ * navigation — so `validateWeightFormSearch` and `validateWeightEntrySearch`
+ * sit beside the pair they hand back on their way out, rather than in the
+ * routes or screens that render them.
  */
 import type { getWeightEntries } from './api';
 
@@ -154,6 +156,56 @@ export function validateWeightFormSearch(
     mode: 'quick',
     // Without a rabbit there is no rabbit dashboard to return to; the default
     // keeps a malformed URL on the dashboard instead of a route with no id.
+    from: search.from === 'rabbit' && rabbit !== '' ? 'rabbit' : 'dashboard',
+  };
+}
+
+/**
+ * The weight entry detail's typed search (task 4.19; WT-8, D1.2).
+ *
+ * The range pair is carried for the reason the form carries it: Back returns to
+ * the surface the person left, so a `from: 'rabbit'` return lands on the windows
+ * it was left at (WT-6, D1.4). Unlike the form's, both windows are required
+ * here: the validator always fills them, and Back has to be given the pair —
+ * a detail that reached the route without one would have to invent a window.
+ * `from` reuses `WeightFormOrigin` rather than naming a second union: both
+ * bindings describe the same two surfaces, and one union means a surface added
+ * to one return cannot be missing from the other.
+ */
+export type WeightEntrySearch = WeightRangeSearch & {
+  /**
+   * The rabbit whose series the detail's cache key sits under (`./keys`'
+   * `detail`), and the scope the return uses. It is not an argument of
+   * `get_weight_entry`, which takes the entry id only.
+   */
+  rabbit: string;
+  /** Where Back — and 4.21's Edit and Delete — return. */
+  from: WeightFormOrigin;
+};
+
+/**
+ * Validate the detail's search without failing the navigation, exactly as the
+ * form's does: an absent or misspelled value becomes the ordinary default
+ * instead of an error page over a stale deep link.
+ *
+ * A blank `rabbit` is not defaulted away, and here that has a consequence the
+ * caller must know (`./keys`' `detail` records the key side): the cache entry
+ * becomes `['weights', 'series', '', 'detail', entryId]`, which no
+ * `series(rabbitId)` invalidation reaches. On a deep link without `?rabbit=`
+ * the entry still reads and renders, but its derived drop flag can keep the
+ * value a previous threshold produced. Task 4.21 must therefore read the
+ * rabbit from the entry it loaded before trusting that flag.
+ */
+export function validateWeightEntrySearch(
+  search: Record<string, unknown>,
+): WeightEntrySearch {
+  const rabbit = typeof search.rabbit === 'string' ? search.rabbit : '';
+
+  return {
+    ...validateWeightRangeSearch(search),
+    rabbit,
+    // Without a rabbit there is no rabbit dashboard to return to; the default
+    // keeps a malformed URL on the list instead of a route with no id.
     from: search.from === 'rabbit' && rabbit !== '' ? 'rabbit' : 'dashboard',
   };
 }

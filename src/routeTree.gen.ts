@@ -15,6 +15,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as WeightRouteImport } from './routes/weight'
 import { Route as RabbitsRabbitIdRouteImport } from './routes/rabbits.$rabbitId'
+import { Route as WeightsEntryIdRouteImport } from './routes/weights.$entryId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +47,11 @@ const RabbitsRabbitIdRoute = RabbitsRabbitIdRouteImport.update({
   path: '/rabbits/$rabbitId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeightsEntryIdRoute = WeightsEntryIdRouteImport.update({
+  id: '/weights/$entryId',
+  path: '/weights/$entryId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -54,6 +60,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/weight': typeof WeightRoute
   '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
+  '/weights/$entryId': typeof WeightsEntryIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +69,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/weight': typeof WeightRoute
   '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
+  '/weights/$entryId': typeof WeightsEntryIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,6 +79,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/weight': typeof WeightRoute
   '/rabbits/$rabbitId': typeof RabbitsRabbitIdRoute
+  '/weights/$entryId': typeof WeightsEntryIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,6 +90,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/weight'
     | '/rabbits/$rabbitId'
+    | '/weights/$entryId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -89,6 +99,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/weight'
     | '/rabbits/$rabbitId'
+    | '/weights/$entryId'
   id:
     | '__root__'
     | '/'
@@ -97,6 +108,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/weight'
     | '/rabbits/$rabbitId'
+    | '/weights/$entryId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -106,6 +118,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   WeightRoute: typeof WeightRoute
   RabbitsRabbitIdRoute: typeof RabbitsRabbitIdRoute
+  WeightsEntryIdRoute: typeof WeightsEntryIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -152,6 +165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RabbitsRabbitIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/weights/$entryId': {
+      id: '/weights/$entryId'
+      path: '/weights/$entryId'
+      fullPath: '/weights/$entryId'
+      preLoaderRoute: typeof WeightsEntryIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -162,6 +182,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   WeightRoute: WeightRoute,
   RabbitsRabbitIdRoute: RabbitsRabbitIdRoute,
+  WeightsEntryIdRoute: WeightsEntryIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

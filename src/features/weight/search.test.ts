@@ -22,6 +22,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_WEIGHT_RANGE,
+  validateWeightEntrySearch,
   validateWeightFormSearch,
   validateWeightRangeSearch,
   WEIGHT_RANGES,
@@ -247,6 +248,107 @@ describe('the weight form search', () => {
       history: DEFAULT_WEIGHT_RANGE,
       rabbit: RABBIT,
       mode: 'quick',
+      from: 'dashboard',
+    });
+  });
+});
+
+/*
+ * Task 4.19's typed search (WT-8, D1.2, D1.4).
+ *
+ * The entry detail is one route reached from a rabbit's history or the list, and
+ * its binding, origin and the dashboard's two windows are search parameters
+ * rather than screen state: Back returns to the surface the person left, at the
+ * windows it was left at (WT-6, D1.4). The validator has the same "never fail
+ * the navigation" shape as the form's above, and both windows are required in
+ * its result even though either may be absent from the URL, because Back cannot
+ * invent a window.
+ *
+ * A missing or blank `rabbit` is deliberately not defaulted away, and that
+ * matters beyond this file: `rabbit` scopes the detail's cache key through
+ * `weightKeys.detail(rabbitId, entryId)`, so an absent binding keys the entry as
+ * `['weights', 'series', '', 'detail', entryId]` — outside every
+ * `series(rabbitId)` prefix, which no threshold edit's invalidation reaches. The
+ * entry still reads and renders, but its derived drop flag can keep the value a
+ * previous threshold produced; task 4.21 must read the rabbit from the entry it
+ * loaded before trusting that flag (`./keys` records the same constraint).
+ */
+describe('the weight entry search', () => {
+  /** The rabbit whose series the detail's cache key sits under (WT-8). */
+  const RABBIT = 'rabbit-hazel';
+
+  it('round-trips a complete search, ranges included', () => {
+    expect(
+      validateWeightEntrySearch({
+        rabbit: RABBIT,
+        from: 'rabbit',
+        trend: 'days_7',
+        history: 'all',
+      }),
+    ).toEqual({
+      trend: 'days_7',
+      history: 'all',
+      rabbit: RABBIT,
+      from: 'rabbit',
+    });
+  });
+
+  it('defaults both windows when the deep link names neither', () => {
+    expect(validateWeightEntrySearch({ rabbit: RABBIT })).toMatchObject({
+      trend: DEFAULT_WEIGHT_RANGE,
+      history: DEFAULT_WEIGHT_RANGE,
+    });
+  });
+
+  it('defaults the origin to the dashboard when the search omits it', () => {
+    expect(validateWeightEntrySearch({ rabbit: RABBIT })).toMatchObject({
+      from: 'dashboard',
+    });
+  });
+
+  it('defaults the origin to the dashboard when the value is unknown', () => {
+    expect(
+      validateWeightEntrySearch({ rabbit: RABBIT, from: 'archived-list' }),
+    ).toMatchObject({ from: 'dashboard' });
+  });
+
+  it('keeps a missing or blank rabbit as the empty binding', () => {
+    // The read is the surface that refuses an unknown id; inventing one here
+    // would bind the detail to a rabbit the person did not open. Without a
+    // rabbit there is also no rabbit dashboard to return to, so the origin
+    // falls back to the list.
+    const missing = validateWeightEntrySearch({});
+    const blank = validateWeightEntrySearch({ rabbit: '', from: 'rabbit' });
+
+    expect(missing).toMatchObject({ rabbit: '', from: 'dashboard' });
+    expect(blank).toMatchObject({ rabbit: '', from: 'dashboard' });
+
+    // The key consequence: `weightKeys.detail('', entryId)` composes to
+    // `['weights', 'series', '', 'detail', entryId]`, which no
+    // `series(rabbitId)` invalidation reaches — `./keys.test.ts` pins that
+    // shape.
+  });
+
+  it('validates the range pair through the range schema', () => {
+    const search = { rabbit: RABBIT, trend: 'weekly', history: 'all' };
+
+    // The pair is the dashboard's contract, not a second copy of its windows.
+    expect(validateWeightEntrySearch(search)).toMatchObject(
+      validateWeightRangeSearch(search),
+    );
+    expect(validateWeightEntrySearch(search)).toMatchObject({
+      trend: DEFAULT_WEIGHT_RANGE,
+      history: 'all',
+    });
+  });
+
+  it('drops search fields it does not own', () => {
+    expect(
+      validateWeightEntrySearch({ rabbit: RABBIT, entryId: 'other' }),
+    ).toEqual({
+      trend: DEFAULT_WEIGHT_RANGE,
+      history: DEFAULT_WEIGHT_RANGE,
+      rabbit: RABBIT,
       from: 'dashboard',
     });
   });

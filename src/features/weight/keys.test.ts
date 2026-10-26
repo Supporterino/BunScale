@@ -56,4 +56,22 @@ describe('the weight key composition', () => {
       prefix,
     );
   });
+
+  it('nests an entry detail under its rabbit, so a threshold edit reaches it', async () => {
+    // Task 4.19: the detail key sits under `series(rabbitId)` because a rabbit
+    // write invalidates exactly that prefix, and the entry's drop flag is
+    // re-derived on read. A detail keyed outside it would keep the flag the
+    // previous threshold produced (D1.3, D1.13).
+    const client = createTestQueryClient();
+    const key = weightKeys.detail('rabbit-a', 'weight-1');
+
+    client.setQueryData(key, 'entry');
+    await client.invalidateQueries({ queryKey: weightKeys.series('rabbit-a') });
+
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(key.slice(0, weightKeys.series('rabbit-a').length)).toEqual(
+      weightKeys.series('rabbit-a'),
+    );
+    expect(key).not.toEqual(weightKeys.detail('rabbit-b', 'weight-1'));
+  });
 });

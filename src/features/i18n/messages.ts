@@ -296,6 +296,12 @@ export const P0_MESSAGES = {
     'This weight entry will be deleted for every member of the household. This cannot be undone.',
   'weight.entry.deleteConfirm.confirm': 'Delete entry',
   'weight.entry.deleteConfirm.cancel': 'Keep entry',
+  // The two keys task 4.19 adds for the UI tasks it unblocks: the entry
+  // detail's photos heading (4.21) and the rabbit-choice label the quick-entry
+  // picker needs (4.20). No other copy is added there — those surfaces name
+  // their own state.
+  'weight.detail.photos': 'Photos',
+  'weight.picker.label': 'Rabbit',
 
   // The rabbit dashboard's trend, its History section and the shared drop
   // marker (DASH-4, DASH-7, WT-6, WT-7).

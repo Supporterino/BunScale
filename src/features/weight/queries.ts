@@ -1,5 +1,5 @@
 /*
- * The ranged weight reads (task 3.3; WT-6, WT-7, D1.4).
+ * The weight reads (task 3.3; WT-6, WT-7, D1.4; the entry detail is task 4.19).
  *
  * `get_weight_entries` serves both ranged views that WT-6 defines: the trend
  * chart and the weight-only history call the one frozen read, each with its own
@@ -26,6 +26,18 @@
  * (NFR-8). This task adds **reads only**: the weight mutations are task 3.5 and
  * the `weight:changed` subscription is task 3.7.
  *
+ * **The entry detail is the third read (task 4.19, WT-8).** `get_weight_entry`
+ * answers one entry as the detail and the edit form present it: grams, the
+ * timestamp, the whole note, the photo references and the derived drop flag
+ * (I2). It takes only the entry id, but its cache entry is keyed under the
+ * entry's rabbit (`./keys`' `detail`), because a rabbit write's threshold edit
+ * invalidates that rabbit's series and nothing else — the constraint
+ * `./alerts.ts` records. The rabbit id therefore comes from the caller (the
+ * detail route's typed search, `4.19`), not from this read; nothing here guesses
+ * one. Like the series, it sets no `placeholderData`: carrying another entry's
+ * value into this key would show one person's entry under another's id while it
+ * loads.
+ *
  * Types are derived from the wrapper rather than imported from
  * `src/bindings.ts`, because only `api.ts` may import the generated bindings
  * (project hard rule 2) — and a derived type cannot drift from the wrapper it
@@ -34,7 +46,7 @@
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import type { CommandData, CommandFailure } from '../../lib/command-result';
 import { unwrapCommandResult } from '../../lib/command-result';
-import { getWeightEntries } from './api';
+import { getWeightEntries, getWeightEntry } from './api';
 import { weightKeys } from './keys';
 import type { WeightRange } from './search';
 
@@ -103,4 +115,62 @@ export function useWeightTrend(rabbitId: string, range: WeightRange) {
  */
 export function useWeightHistory(rabbitId: string, range: WeightRange) {
   return useQuery(weightSeriesQueryOptions(rabbitId, range));
+}
+
+/** `get_weight_entry`'s whole outcome, value and typed failure. */
+type WeightEntryOutcome = Awaited<ReturnType<typeof getWeightEntry>>;
+
+/**
+ * One entry as the detail view and the edit form present it (WT-8, DM-1).
+ *
+ * `value_grams` is the canonical stored value with no unit beside it; the
+ * surface formats it with the device's display unit (`./api`'s
+ * `formatDisplayWeight`). `has_weight_drop_alert` is the backend's derivation
+ * over the rabbit's full entry set (I2, D1.13), so the detail reads the flag
+ * instead of comparing values to a threshold.
+ */
+export type WeightEntry = CommandData<WeightEntryOutcome>;
+
+/**
+ * The detail read's error: the backend's `CommandError`, or an `Error` when the
+ * IPC call itself failed. The union makes a consumer narrow before it reads
+ * `cause`, `retryable` or `message_key`.
+ */
+export type WeightEntryFailure = CommandFailure<WeightEntryOutcome> | Error;
+
+/** The detail key's type, so the options cannot disagree with the factory. */
+type WeightEntryDetailKey = ReturnType<typeof weightKeys.detail>;
+
+/**
+ * One entry's detail, under the key its rabbit scopes (task 4.19; WT-8).
+ *
+ * `rabbitId` is the key's scope, not an argument of the command — it comes from
+ * the detail route's typed search, and it is what places this entry under the
+ * series prefix a threshold edit invalidates (`./keys` explains why). `entryId`
+ * is the one argument the read takes. A blank or unknown entry id is the
+ * backend's `validation` refusal, not an empty detail.
+ */
+export function weightEntryQueryOptions(rabbitId: string, entryId: string) {
+  return queryOptions<
+    WeightEntry,
+    WeightEntryFailure,
+    WeightEntry,
+    WeightEntryDetailKey
+  >({
+    queryKey: weightKeys.detail(rabbitId, entryId),
+    queryFn: () => getWeightEntry(entryId).then(unwrapCommandResult),
+  });
+}
+
+/**
+ * The weight entry detail's read (WT-8).
+ *
+ * Pass the route's `entryId` and the `rabbit` its search carries. The value it
+ * answers with is grams and the surface formats it; a failed read reaches the
+ * surface with its cause so the failure can be named with its own copy
+ * (NFR-8), and a reload of the same entry re-reads rather than serving a
+ * pre-write value.
+ */
+export function useWeightEntry(rabbitId: string, entryId: string) {
+  return useQuery(weightEntryQueryOptions(rabbitId, entryId));
 }
