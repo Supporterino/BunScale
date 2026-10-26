@@ -195,15 +195,16 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   control and appears here as well as on that list) (RAB-8, DM-4, DASH-7).
 - [x] 4.7 [frontend-ui] Build the per-row quick-weight control that opens the weight form pre-bound to
   that row's rabbit, as a directly visible touchable control within the row (DASH-9, WT-2, NFR-9).
-- [ ] 4.8 [frontend-ui] Build the quick-entry control with a rabbit picker that opens the same weight
-  form bound to the chosen rabbit (WT-2).
+- [x] 4.8 [frontend-ui] Build the quick-entry control with a rabbit picker that opens the same weight
+  form bound to the chosen rabbit (WT-2). **Delivered by 4.20** (the picker built there is this task's
+  control; the split exists because 4.8 stopped on the frozen primitive inventory — see Q12).
 - [x] 4.9 [frontend-ui] Build the weight entry form: value in the preferred display unit with **no
   unit picker**, editable timestamp defaulting to now, optional note, non-positive rejection and the
   out-of-bound confirmation (WT-1, WT-3, WT-4).
-- [ ] 4.10 [frontend-ui] Build the weight entry detail view: display-unit value, timestamp, full
+- [x] 4.10 [frontend-ui] Build the weight entry detail view: display-unit value, timestamp, full
   untruncated note, the drop-alert marker when it applies, the entry's photos as a full-width pager
   when present and none when absent, plus Edit opening the pre-filled form and a confirmed Delete
-  (WT-8).
+  (WT-8). **Delivered by 4.19 (read + route) and 4.21/4.22 (screen and history link)** — see Q12.
 - [x] 4.11 [frontend-ui] Build the rabbit dashboard: the weight trend chart with the 7d/30d/90d/all
   range control and **no baseline or healthy-range band** (D5), and the History section contributing
   the weight-only history entry point with its own independent range control and the drop-alert marker
