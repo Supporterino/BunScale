@@ -145,6 +145,29 @@
 }
 
 /*
+ * DASH-4's drop flag (task 4.12) is a line of its own under the row's detail,
+ * inside the text column: the trailing slot already belongs to the quick-weight
+ * control, and a fixed-phrase badge sharing the row's width would squeeze the
+ * name and date at 390 px instead of adding a line. It is `flex-start` so the
+ * pill keeps its own width in the column, and the small top margin separates it
+ * from the detail without floating it away from the text it qualifies.
+ */
+.bs-rabbit-row__flag {
+  display: flex;
+  align-self: flex-start;
+  margin-block-start: var(--space-1);
+}
+
+/*
+ * Dynamic Type, not a fixed-height label: the pill's own rule is `nowrap`, which
+ * at 2× preferred size would push "Weight drop warning" out of the text column.
+ * Inside this row the copy may wrap; the badge keeps its padding and radius.
+ */
+.bs-rabbit-row__flag .bs-badge {
+  white-space: normal;
+}
+
+/*
  * The dashboard's add control (task 4.3; RAB-4). It sits above the list or the
  * nothing-loaded fallback, at the trailing edge on the content measure, so the
  * same control reads as a toolbar action at both baselines. The empty state is

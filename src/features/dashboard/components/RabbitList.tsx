@@ -43,8 +43,14 @@
  * once the list has settled (4.16). This list therefore holds no form state and
  * no focus machinery of its own.
  *
- * **What this list still does not own.** DASH-4's per-row drop flag (task 4.12)
- * composes into the row's control slot.
+ * **DASH-4's per-row drop flag is the payload's flag, in the catalog's words**
+ * (task 4.12; DASH-4, WT-7). A flagged row composes the same marker 4.11's entry
+ * lists use — a `warning` badge carrying `weight.dropAlert` — so one state reads
+ * the same on the dashboard and in the weight history, and it is text rather
+ * than a colour-only dot. The selector is `dashboardRowHasDropAlert`, which
+ * reads the row's derived flag and never folds the points this device holds;
+ * an unflagged row passes no `flag` at all, so raising the threshold clears the
+ * marker on the next read with no local state to reset.
  *
  * **The row's open control is supplied, not invented.** DASH-6's destination is
  * the rabbit dashboard route, which the screen owns: it passes `onOpenRabbit`
@@ -54,9 +60,11 @@
  */
 import { useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
+import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { List } from '../../../components/ui/List';
 import { t } from '../../i18n';
+import { dashboardRowHasDropAlert } from '../../weight/alerts';
 import { useDashboardRows } from '../queries';
 import { EmptyRabbitList } from './EmptyRabbitList';
 import { RabbitRow } from './RabbitRow';
@@ -137,6 +145,11 @@ export function RabbitList({
           {data.map((row) => (
             <RabbitRow
               key={row.rabbit.id}
+              flag={
+                dashboardRowHasDropAlert(row) ? (
+                  <Badge tone="warning">{t('weight.dropAlert')}</Badge>
+                ) : undefined
+              }
               onLogWeight={() => {
                 logWeight(row.rabbit.id);
               }}

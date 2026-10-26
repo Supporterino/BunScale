@@ -52,9 +52,15 @@
  * for the list row, whose primitive has no leading-image slot; no style is
  * copied, only the class names.
  *
- * DASH-4's drop flag is 4.12's; this row only carries `flag` in the trailing
- * slot P0's row already has (`dashboardRowHasDropAlert` picks it, 4.12 paints
- * it).
+ * **DASH-4's drop flag is a second line in the text column, not a trailing
+ * slot** (task 4.12; DASH-4, WT-7). Two reasons. The trailing control slot is
+ * already the quick-weight control's (4.7), so a badge there would be a second
+ * flex item competing with it; and the badge's copy is a fixed phrase, so
+ * sharing the row's width would squeeze the rabbit's name and date at 390 px
+ * instead of adding a line. Under the detail it never touches a 44 pt target,
+ * it stays in the row button's reading order, and it is the caller's `flag`
+ * only when the payload flag is set — the row re-derives nothing
+ * (`dashboardRowHasDropAlert` is the selector, in `RabbitList`).
  */
 import { type ReactNode, useId, useState } from 'react';
 import { t } from '../../i18n';
@@ -78,8 +84,8 @@ export type RabbitRowProps = {
    */
   onOpen?: () => void;
   /**
-   * Trailing indicator, rendered in the list row's control slot. DASH-4's
-   * weight-drop flag is task 4.12's to compose and style.
+   * DASH-4's drop flag, rendered under the row's detail when the payload flags
+   * a drop. Supplied by the dashboard list; absent, the row presents nothing.
    */
   flag?: ReactNode;
   /**
@@ -111,10 +117,10 @@ export function RabbitRow({ row, onOpen, flag, onLogWeight }: RabbitRowProps) {
           {rabbit.name}
         </span>
         <span className="bs-list-row__detail">{lastWeighedDetail(row)}</span>
+        {flag === undefined ? null : (
+          <span className="bs-rabbit-row__flag">{flag}</span>
+        )}
       </span>
-      {flag === undefined ? null : (
-        <span className="bs-list-row__control">{flag}</span>
-      )}
     </>
   );
 
