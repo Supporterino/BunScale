@@ -217,7 +217,7 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
 - [ ] 4.14 [frontend-ui] Capture the consolidated P1 screenshot set at 390×844 and 1280×800 into
   `.artifacts/screens/`, and verify touch targets, safe areas and the adaptive layout on both
   baselines (DASH-1, DASH-9, DASH-7).
-- [ ] 4.15 [frontend-ui] **Added mid-change (Q6).** Render a P1 **read** failure as its own state on
+- [x] 4.15 [frontend-ui] **Added mid-change (Q6).** Render a P1 **read** failure as its own state on
   every screen it can hit — the dashboard, the rabbit and archived lists, the profile, the trend and
   the entry detail — with the cause-specific copy from 3.10 and a refresh that re-reads, instead of
   showing a failed read as "nothing loaded yet" or as an empty list. A **never-loaded** local set is
@@ -328,10 +328,10 @@ Every UI task (section 4) captures screenshots at **390×844 and 1280×800** int
   uses the regional default when no unit was chosen" (WT-3), "A zero value is rejected", "A negative
   value is rejected", "A value above the plausibility bound requires confirmation" (WT-4) and the
   WT-1 timestamp and note cases.
-- [ ] 5.13 [test-engineer] Component tests for the weight entry detail — covers "Edit opens the
+- [x] 5.13 [test-engineer] Component tests for the weight entry detail — covers "Edit opens the
   pre-filled form and Delete is confirmed" (WT-8), "An entry with no photos shows no pager" (WT-8),
   "An archived rabbit's entry detail is read-only" (WT-8) and the DM-4 archived read-only presentation.
-- [ ] 5.14 [test-engineer] Component tests for the rabbit dashboard and history, including the
+- [x] 5.14 [test-engineer] Component tests for the rabbit dashboard and history, including the
   screen-reader summary of the chart — covers "Selecting a rabbit opens its dashboard" (DASH-6), "The
   rabbit dashboard presents the weight trend and the history entry point", "The chart's range selection
   limits the presented trend", "An archived rabbit's dashboard is read-only" (DASH-7) and "The weight
