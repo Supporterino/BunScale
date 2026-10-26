@@ -222,13 +222,13 @@ function Harness({
   );
 }
 
-function renderDashboard() {
+function renderDashboard(initialSearch: WeightRangeSearch = DEFAULT_SEARCH) {
   const client = createTestQueryClient();
   const router = createTestRouter({ client });
 
   return renderWithQueryClient(
     <RouterContextProvider router={router}>
-      <Harness />
+      <Harness initialSearch={initialSearch} />
     </RouterContextProvider>,
     { client },
   );
@@ -384,6 +384,47 @@ describeAtBothBaselines('Rabbit dashboard (DASH-6, DASH-7)', () => {
     ).toBe(true);
   });
 
+  it('reads the windows the route search supplies (WT-6, D1.4)', async () => {
+    // The route's search is the source of truth: no control has been touched,
+    // so a dashboard that defaulted the windows itself would read 30 days.
+    renderDashboard({ trend: 'days_7', history: 'all' });
+
+    await waitForTrend(SEVEN_DAY_POINTS.length);
+
+    expect(
+      within(trendRegion()).getByRole('radio', {
+        name: t('weight.range.days_7'),
+      }),
+    ).toBeChecked();
+    expect(seriesTimestamps(trendRegion())).toEqual([NEWEST.timestamp]);
+    expect(
+      calls.some(
+        (call) =>
+          call.command === 'get_weight_entries' &&
+          call.args.rabbitId === RABBIT.id &&
+          call.args.range === 'days_7',
+      ),
+    ).toBe(true);
+    expect(rangeCalls()).not.toContain('days_30');
+
+    // The history's window comes from the same search, independently: the
+    // full history lists every entry, newest first.
+    await openHistory();
+
+    await waitFor(() => {
+      expect(historyRows(historyRegion())).toHaveLength(
+        FULL_HISTORY_POINTS.length,
+      );
+    });
+
+    expect(
+      within(historyRegion()).getByRole('radio', {
+        name: t('weight.range.all'),
+      }),
+    ).toBeChecked();
+    expect(rangeCalls()).toContain('all');
+  });
+
   it('keeps the history range independent of the trend range (WT-6)', async () => {
     renderDashboard();
 
@@ -506,17 +547,48 @@ describeAtBothBaselines('Rabbit dashboard (DASH-6, DASH-7)', () => {
 
     expect(markers).toHaveLength(1);
 
-    const flaggedRow = historyRows(history).find(
-      (row) => within(row).queryByText(t('weight.dropAlert')) !== null,
+    // A row opens its entry, so the link names which entry the row is drawn
+    // from. Reading the marker per entry shows it on the flagged one only: a
+    // marker on the oldest or the newest entry would still count as one above.
+    const rowsByEntry = new Map(
+      historyRows(history).map((row) => {
+        const href = within(row).getByRole('link').getAttribute('href') ?? '';
+
+        return [
+          new URL(href, 'http://localhost').pathname.split('/').pop(),
+          row,
+        ] as const;
+      }),
     );
 
-    expect(flaggedRow).toBeDefined();
+    expect(rowsByEntry.has(FLAGGED.id)).toBe(true);
     expect(
-      within(flaggedRow as HTMLElement).getByText(t('weight.dropAlert')),
+      within(rowsByEntry.get(FLAGGED.id) as HTMLElement).getByText(
+        t('weight.dropAlert'),
+      ),
     ).toBeVisible();
+    expect(
+      within(rowsByEntry.get(OLDEST.id) as HTMLElement).queryByText(
+        t('weight.dropAlert'),
+      ),
+    ).toBeNull();
+    expect(
+      within(rowsByEntry.get(NEWEST.id) as HTMLElement).queryByText(
+        t('weight.dropAlert'),
+      ),
+    ).toBeNull();
 
-    // The chart's accessible series carries the same marker (D1.7).
-    expect(trendRegion().textContent).toContain(t('weight.dropAlert'));
+    // The chart's accessible series carries the same marker on the same entry
+    // and no other (D1.7); the items are the payload's order, oldest first.
+    const series = within(trendRegion())
+      .getAllByRole('listitem')
+      .map((item) => item.textContent ?? '');
+
+    expect(series).toHaveLength(THIRTY_DAY_POINTS.length);
+    expect(
+      series.filter((entry) => entry.includes(t('weight.dropAlert'))),
+    ).toHaveLength(1);
+    expect(series[1]).toContain(t('weight.dropAlert'));
   });
 
   it('presents the marker from the payload flag, never from the values (WT-7)', async () => {

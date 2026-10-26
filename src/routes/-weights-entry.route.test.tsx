@@ -15,11 +15,17 @@
  *   - a loaded entry shows the value in the display unit, the timestamp, the
  *     whole note, the derived drop marker only when it is flagged, and its
  *     photos as a strip when it has any;
- *   - Edit opens the pre-filled form and Cancel returns without writing; Delete
- *     is confirmed, naming the consequence, and sends one identified removal
- *     (WT-5, WT-8);
+ *   - Edit opens the pre-filled form and Cancel returns without writing; a
+ *     confirmed save sends one identified update with the new value in canonical
+ *     grams (WT-5, WT-8, DM-1); Delete is confirmed, naming the consequence, and
+ *     sends one identified removal (WT-5, WT-8);
+ *   - the payload is the household's, so an entry another member reads is
+ *     presented with the same value, note and capabilities — the detail invents
+ *     no per-member view (HS-8; DM-4's retained data);
  *   - a failed read renders the cause's copy and still offers Back (Q11: a
- *     pushed screen is never a dead end);
+ *     pushed screen is never a dead end); a failed *profile* read names its
+ *     cause where the writes would be, with its own refresh, rather than
+ *     silently withholding Edit and Delete (NFR-8, D1.16);
  *   - Back returns to the rabbit dashboard with the windows the detail was
  *     opened at (WT-6, D1.4);
  *   - an archived rabbit's entry is presented read-only (RAB-8, D1.5).
@@ -120,6 +126,12 @@ const POINTS: WeightTrend['points'] = [
 
 /** The note the entry read answers with, and the proof the read reached it. */
 const NOTE = 'Morning weigh-in';
+
+/**
+ * The note a second member reads back: the payload the household share
+ * answers with, not a note invented for the member asking (HS-8, DM-4).
+ */
+const SHARED_NOTE = 'Weighed while the other member was away';
 
 /**
  * A note longer than a card would show if it truncated: the whole text is the
@@ -365,6 +377,151 @@ describe('the weight entry detail route (WT-8, D1.2)', () => {
     expect(
       calls.filter((call) => call.command === 'update_weight_entry'),
     ).toHaveLength(0);
+  });
+
+  it('saves one identified edit with the new value in canonical grams', async () => {
+    answers.set('get_display_weight_unit', () => 'kilograms');
+
+    // The confirming read answers with the corrected entry, so the detail the
+    // person returns to is the stored value rather than a local guess (D1).
+    let stored: WeightEntry = ENTRY;
+
+    answers.set('get_weight_entry', () => stored);
+    answers.set('update_weight_entry', () => {
+      stored = { ...ENTRY, value_grams: 1800 };
+
+      return stored;
+    });
+
+    await launch(ENTRY_PATH);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('weight.entry.edit') }),
+    );
+
+    fireEvent.change(
+      await screen.findByRole('textbox', {
+        name: `${t('weight.form.valueLabel')} (${t('settings.displayUnit.kilograms')})`,
+      }),
+      { target: { value: '1.8' } },
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: t('weight.form.save') }),
+    );
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'update_weight_entry'),
+      ).toHaveLength(1);
+    });
+
+    // WT-5, WT-8, DM-1: the correction is a whole-entry replacement, the value
+    // crosses the display-unit boundary as whole grams, the untouched timestamp
+    // and note are re-sent, and the write carries its operation identity.
+    const update = calls.find((call) => call.command === 'update_weight_entry');
+
+    expect(update?.args).toEqual({
+      entryId: ENTRY.id,
+      entry: {
+        value_grams: 1800,
+        timestamp: ENTRY.timestamp,
+        note: NOTE,
+        outlier_confirmed: false,
+      },
+      requestId: expect.any(String),
+    });
+    expect(typeof update?.args.requestId).toBe('string');
+
+    // The confirming read reaches the mounted detail under the entry's rabbit
+    // prefix, so the surface the person returns to shows the corrected value.
+    expect(await screen.findByText(/^1\.8\s*kg$/)).toBeVisible();
+  });
+
+  it('presents a second member the shared entry payload, with no reduced view', async () => {
+    // The active household says the person is a member who did not create it:
+    // the entry the first member recorded is the one they reach (HS-8).
+    answers.set('get_active_household', () => ({
+      ...HOUSEHOLD,
+      owner_member_id: 'member-1',
+      is_owner: false,
+    }));
+    answers.set('get_display_weight_unit', () => 'grams');
+    answers.set('get_weight_entry', () => ({
+      ...ENTRY,
+      value_grams: 845,
+      note: SHARED_NOTE,
+    }));
+
+    await launch(ENTRY_PATH);
+
+    // DM-4 keeps the entry readable, and its presentation is the payload's:
+    // the other member's value, timestamp and note, not a per-member copy.
+    expect(await screen.findByText(SHARED_NOTE)).toBeVisible();
+    expect(screen.getByText(/^845\s*g$/)).toBeVisible();
+    expect(
+      document.querySelector(`time[datetime="${ENTRY.timestamp}"]`),
+    ).not.toBeNull();
+
+    // The read names no member: the answer is the household's shared entry.
+    const entryRead = calls.find((call) => call.command === 'get_weight_entry');
+
+    expect(entryRead?.args).toEqual({ entryId: ENTRY.id });
+
+    // HS-8: no capability is withheld because of the member's role.
+    expect(
+      screen.getByRole('button', { name: t('weight.entry.edit') }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: t('weight.entry.delete') }),
+    ).toBeVisible();
+  });
+
+  it('names a failed profile read and offers its refresh in place of the writes', async () => {
+    answers.set('get_display_weight_unit', () => 'kilograms');
+    answers.set('get_rabbit', () => {
+      throw connectivityError();
+    });
+
+    await launch(ENTRY_PATH);
+
+    // The entry read succeeded, so its facts stay readable.
+    expect(await screen.findByText(NOTE)).toBeVisible();
+    expect(screen.getByText(/^2\s*kg$/)).toBeVisible();
+
+    // The read the writes depend on failed; its cause is named where the
+    // actions would be, with the retry a read has (NFR-8, D1.16).
+    expect(await screen.findByText(t('error.connectivity'))).toBeVisible();
+    expect(
+      screen.getByRole('heading', {
+        level: 2,
+        name: t('rabbit.loadFailed.title'),
+      }),
+    ).toBeVisible();
+
+    const refresh = screen.getByRole('button', { name: t('error.retry') });
+
+    expect(refresh).toBeVisible();
+
+    // While the archived state is unknown neither write is offered — and not
+    // silently: the cause and its refresh stand in their place.
+    expect(
+      screen.queryByRole('button', { name: t('weight.entry.edit') }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: t('weight.entry.delete') }),
+    ).toBeNull();
+
+    // The refresh re-reads the profile; once it answers, both actions appear.
+    answers.set('get_rabbit', () => RABBIT);
+    fireEvent.click(refresh);
+
+    expect(
+      await screen.findByRole('button', { name: t('weight.entry.edit') }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: t('weight.entry.delete') }),
+    ).toBeVisible();
+    expect(screen.queryByText(t('error.connectivity'))).toBeNull();
   });
 
   it('confirms the consequence before deleting once with the entry identity', async () => {
