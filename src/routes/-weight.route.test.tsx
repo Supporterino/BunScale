@@ -36,6 +36,7 @@ import {
   fireEvent,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -231,6 +232,28 @@ async function enterAndSave(value: string): Promise<void> {
     .click(screen.getByRole('button', { name: t('weight.form.save') }));
 }
 
+/**
+ * The bound rabbit's title in the dashboard row a return lands on, found by the
+ * row's `data-rabbit-id`. The toolbar's picker repeats every rabbit's name as
+ * an `<option>`, so the name is looked up inside the row rather than
+ * document-wide (task 4.20).
+ */
+async function rowTitle(): Promise<HTMLElement> {
+  const row = await waitFor(() => {
+    const found = document.querySelector<HTMLElement>(
+      `li[data-rabbit-id="${RABBIT.id}"]`,
+    );
+
+    if (found === null) {
+      throw new Error(`no dashboard row for "${RABBIT.name}"`);
+    }
+
+    return found;
+  });
+
+  return within(row).getByText(RABBIT.name);
+}
+
 describe('the weight form route (WT-2, DASH-9, D1.10)', () => {
   it('opens the form bound to the rabbit the search names', async () => {
     await launch('/weight?rabbit=rabbit-hazel&mode=quick&from=dashboard');
@@ -278,10 +301,10 @@ describe('the weight form route (WT-2, DASH-9, D1.10)', () => {
       focusRabbitId: RABBIT.id,
     });
 
-    expect(await screen.findByText(RABBIT.name)).toBeVisible();
+    expect(await rowTitle()).toBeVisible();
 
-    await waitFor(() => {
-      expect(screen.getByText(RABBIT.name).closest('button')).toHaveFocus();
+    await waitFor(async () => {
+      expect((await rowTitle()).closest('button')).toHaveFocus();
     });
   });
 

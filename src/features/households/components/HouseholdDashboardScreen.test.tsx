@@ -19,7 +19,7 @@
 import { RouterProvider } from '@tanstack/react-router';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
-import { act, cleanup, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
@@ -197,6 +197,27 @@ function addControl(): HTMLElement {
   return screen.getByRole('button', { name: t('rabbit.add') });
 }
 
+/**
+ * A rabbit's title in the dashboard's own list, found by the row's id. The
+ * toolbar's picker repeats every rabbit's name as an `<option>`, so the row is
+ * looked up by its `data-rabbit-id` rather than document-wide (task 4.20).
+ */
+async function rowTitle(rabbitId: string, name: string): Promise<HTMLElement> {
+  const row = await waitFor(() => {
+    const found = document.querySelector<HTMLElement>(
+      `li[data-rabbit-id="${rabbitId}"]`,
+    );
+
+    if (found === null) {
+      throw new Error(`no dashboard row for "${name}"`);
+    }
+
+    return found;
+  });
+
+  return within(row).getByText(name);
+}
+
 /** The dashboard's always-present polite region. */
 function dashboardAnnouncement(): string {
   return (
@@ -244,7 +265,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
 
     await launchDashboard();
 
-    expect(await screen.findByText(CREATED.name)).toBeVisible();
+    expect(await rowTitle(CREATED.id, CREATED.name)).toBeVisible();
 
     const user = userEvent.setup();
 
@@ -258,7 +279,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
 
     await user.click(screen.getByRole('button', { name: t('common.cancel') }));
 
-    expect(await screen.findByText(CREATED.name)).toBeVisible();
+    expect(await rowTitle(CREATED.id, CREATED.name)).toBeVisible();
     expect(
       screen.queryByRole('heading', { name: t('rabbit.form.createTitle') }),
     ).toBeNull();
@@ -273,7 +294,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
 
     const user = userEvent.setup();
 
-    await user.click(await screen.findByText(CREATED.name));
+    await user.click(await rowTitle(CREATED.id, CREATED.name));
 
     // The row's control now leads to the rabbit dashboard: the profile plus the
     // trend and the History section, not the profile alone (task 4.11).
@@ -317,7 +338,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
     await launchDashboard();
 
     const user = userEvent.setup();
-    const second = await screen.findByText('Hazel 2');
+    const second = await rowTitle('rabbit-hazel-2', 'Hazel 2');
 
     await user.click(second);
 
@@ -329,8 +350,10 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
 
     // Focus is restored by the rabbit's id, not by a name prefix: "Hazel" is a
     // prefix of "Hazel 2" and must not capture the return.
-    await waitFor(() => {
-      expect(screen.getByText('Hazel 2').closest('button')).toHaveFocus();
+    await waitFor(async () => {
+      expect(
+        (await rowTitle('rabbit-hazel-2', 'Hazel 2')).closest('button'),
+      ).toHaveFocus();
     });
   });
 
@@ -362,7 +385,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
 
     // `onSaved` closes the form and the invalidated dashboard read answers
     // with the new row.
-    expect(await screen.findByText(CREATED.name)).toBeVisible();
+    expect(await rowTitle(CREATED.id, CREATED.name)).toBeVisible();
     expect(
       screen.queryByRole('heading', { name: t('rabbit.form.createTitle') }),
     ).toBeNull();
@@ -497,7 +520,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
 
     const user = userEvent.setup();
 
-    await user.click(await screen.findByText(CREATED.name));
+    await user.click(await rowTitle(CREATED.id, CREATED.name));
 
     expect(
       await screen.findByRole('heading', { name: CREATED.name }),
@@ -585,7 +608,7 @@ describeAtBothBaselines('Dashboard rabbit creation (RAB-4)', () => {
 
     const user = userEvent.setup();
 
-    await user.click(await screen.findByText(CREATED.name));
+    await user.click(await rowTitle(CREATED.id, CREATED.name));
 
     expect(
       await screen.findByRole('heading', { name: CREATED.name }),

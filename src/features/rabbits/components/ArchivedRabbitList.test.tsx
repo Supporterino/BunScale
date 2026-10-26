@@ -329,10 +329,13 @@ describeAtBothBaselines('Archived rabbit list (RAB-6, RAB-7, RAB-10)', () => {
     });
     expect(screen.queryByText(t('rabbit.restore'))).toBeNull();
 
-    // …and the invalidated active-list read paints it again.
-    expect(
-      await within(screen.getByTestId('active-list')).findByText(WILLOW.name),
-    ).toBeVisible();
+    // …and the invalidated active-list read paints it again. The active list's
+    // toolbar picker repeats the name as an `<option>` too, so the row is read
+    // from that list rather than the whole panel (task 4.20).
+    const activePanel = within(screen.getByTestId('active-list'));
+    const activeList = await activePanel.findByRole('list');
+
+    expect(await within(activeList).findByText(WILLOW.name)).toBeVisible();
 
     // RAB-7, announcement: the empty state replaced rows, and its copy went
     // into the region that already existed.

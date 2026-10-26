@@ -52,6 +52,12 @@
  * an unflagged row passes no `flag` at all, so raising the threshold clears the
  * marker on the next read with no local state to reset.
  *
+ * **WT-2's second quick path is the toolbar's rabbit picker** (task 4.20;
+ * WT-2, NFR-9, Q12). It appears beside the add control once the read has rows —
+ * before that there is no rabbit to offer — and choosing one navigates through
+ * the same `logWeight` destination as a row's control, so both paths bind the
+ * form identically. The control itself is `RabbitPicker`, feature-local per Q12.
+ *
  * **The row's open control is supplied, not invented.** DASH-6's destination is
  * the rabbit dashboard route, which the screen owns: it passes `onOpenRabbit`
  * (task 4.16) and the row becomes a real button. Without a handler the row stays
@@ -67,6 +73,7 @@ import { t } from '../../i18n';
 import { dashboardRowHasDropAlert } from '../../weight/alerts';
 import { useDashboardRows } from '../queries';
 import { EmptyRabbitList } from './EmptyRabbitList';
+import { RabbitPicker } from './RabbitPicker';
 import { RabbitRow } from './RabbitRow';
 
 export type RabbitListProps = {
@@ -126,9 +133,13 @@ export function RabbitList({
        * RAB-4's non-zero-row half: present while the read is pending and while
        * it holds rows, so the form is reachable in every dashboard state. It
        * stays labelled but disabled when the caller supplies no destination,
-       * exactly as the empty state's action does.
+       * exactly as the empty state's action does. WT-2's picker joins it only
+       * once there are rabbits to choose.
        */}
       <div className="bs-dashboard__toolbar">
+        {data === undefined ? null : (
+          <RabbitPicker onChoose={logWeight} rows={data} />
+        )}
         <Button
           disabled={onAddRabbit === undefined}
           onClick={onAddRabbit}

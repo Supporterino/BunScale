@@ -168,15 +168,31 @@
 }
 
 /*
- * The dashboard's add control (task 4.3; RAB-4). It sits above the list or the
+ * The dashboard's add control (task 4.3; RAB-4) and the quick-entry rabbit
+ * picker beside it (task 4.20; WT-2, NFR-9). It sits above the list or the
  * nothing-loaded fallback, at the trailing edge on the content measure, so the
- * same control reads as a toolbar action at both baselines. The empty state is
+ * same controls read as a toolbar at both baselines. It wraps rather than
+ * shrinking the add control below its 44 pt target at 390 px; the empty state is
  * not wrapped in it: that state already carries its own prompt and one add
  * control per state is the point.
  */
 .bs-dashboard__toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-stack-sm);
   justify-content: flex-end;
+}
+
+/*
+ * The picker is a native `select` in the field class contract, so it needs no
+ * styling of its own — only permission to be narrower than a long rabbit's name.
+ * Without this the field's min-content width would push the add control to a
+ * second line on every long name; with it the platform truncates the option
+ * text and the toolbar keeps both targets.
+ */
+.bs-dashboard__picker {
+  min-width: 0;
 }
 
 /*

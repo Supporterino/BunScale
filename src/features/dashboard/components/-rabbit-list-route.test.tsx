@@ -167,7 +167,13 @@ async function launchDashboard() {
   await router.load();
   renderWithQueryClient(<RouterProvider router={router} />, { client });
 
-  await screen.findByText(HAZEL.name);
+  /*
+   * The toolbar's picker is rendered by the same resolved answer as the rows,
+   * and it is unique (the shell's navigation lists are not pickers); waiting
+   * for it avoids a rabbit name, which the picker repeats as an `<option>`
+   * (task 4.20).
+   */
+  await screen.findByRole('combobox', { name: t('weight.picker.label') });
 
   return router;
 }
@@ -179,15 +185,26 @@ function quickWeightControl(rabbit: Rabbit): HTMLElement {
   });
 }
 
-/** The `<li>` that contains a row's visible rabbit name. */
+/** The dashboard list's row for a rabbit, by the id the row carries. */
 function rowOf(rabbit: Rabbit): HTMLElement {
-  const row = screen.getByText(rabbit.name).closest('li');
+  const row = document.querySelector<HTMLElement>(
+    `li[data-rabbit-id="${rabbit.id}"]`,
+  );
 
   if (row === null) {
-    throw new Error(`"${rabbit.name}" is not inside a list row`);
+    throw new Error(`no dashboard row for "${rabbit.name}"`);
   }
 
   return row;
+}
+
+/** Wait for the dashboard read to paint a rabbit's row. */
+async function findRow(rabbit: Rabbit): Promise<HTMLElement> {
+  await waitFor(() => {
+    expect(rowOf(rabbit)).toBeInTheDocument();
+  });
+
+  return rowOf(rabbit);
 }
 
 describeAtBothBaselines('Dashboard quick-weight rows (DASH-9, WT-2)', () => {
@@ -195,7 +212,7 @@ describeAtBothBaselines('Dashboard quick-weight rows (DASH-9, WT-2)', () => {
     rows = [HAZEL_ROW, BRAMBLE_ROW];
 
     await launchDashboard();
-    await screen.findByText(BRAMBLE.name);
+    await findRow(BRAMBLE);
 
     // Each row's control is named by that row's rabbit plus the catalog's
     // action, so the literal example the task names holds for Hazel…
@@ -273,7 +290,7 @@ describeAtBothBaselines('Dashboard quick-weight rows (DASH-9, WT-2)', () => {
     rows = [HAZEL_ROW, BRAMBLE_ROW];
 
     const router = await launchDashboard();
-    await screen.findByText(BRAMBLE.name);
+    await findRow(BRAMBLE);
 
     await userEvent.setup().click(quickWeightControl(BRAMBLE));
 
