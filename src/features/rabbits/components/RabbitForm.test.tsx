@@ -24,8 +24,9 @@
  * a name and a sex only, with creation keeping the contract's default
  * threshold — and "Date of birth may be marked unknown" through the edit path,
  * where the pre-fill must carry the saved marker instead of inventing a date
- * (RAB-1, RAB-5). The dashboard's add control and empty-state prompt are
- * `rabbit-list.test.tsx`'s (5.10) and are not restated here.
+ * (RAB-1, RAB-5). The dashboard's add control and empty-state prompt are the
+ * list's own contract, asserted in `rabbit-list.test.tsx`; they are not
+ * restated here.
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import {

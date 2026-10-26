@@ -185,6 +185,21 @@ function saveControl(): HTMLElement {
   return screen.getByRole('button', { name: t('rabbit.form.save') });
 }
 
+/**
+ * The value beside the date-of-birth term, so a neighbouring field's rendering
+ * — the adoption date's placeholder, say — cannot answer for it.
+ */
+function dobValue(container: HTMLElement): HTMLElement {
+  const term = within(container).getByText(t('rabbit.form.dobLabel'));
+  const value = term.parentElement?.querySelector('dd');
+
+  if (value === null || value === undefined) {
+    throw new Error('the date of birth term has no value beside it');
+  }
+
+  return value;
+}
+
 describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
   it('shows every profile field and a directly visible edit control', async () => {
     reads.push(SAVED);
@@ -231,16 +246,17 @@ describeAtBothBaselines('Rabbit profile detail (RAB-5)', () => {
       await screen.findByRole('heading', { name: SAVED.name }),
     ).toBeVisible();
 
-    // RAB-1: the explicit marker is a presented value, not an absent field.
-    expect(screen.getByText(t('rabbit.dob.unknown'))).toBeVisible();
+    const dob = dobValue(container);
 
-    // It is not a placeholder date either: this profile has no instant to
-    // format, and the only absent value on it is the adoption date.
-    expect(container.querySelectorAll('time')).toHaveLength(0);
-    expect(screen.getAllByText('—')).toHaveLength(1);
-    // The sex and neuter status are recorded values, so "Unknown" here can
-    // only be the date of birth rather than a fifth, invented one.
-    expect(screen.getAllByText(t('rabbit.dob.unknown'))).toHaveLength(1);
+    /*
+     * RAB-1: the marker is presented as a value, not as an absent field. The
+     * fixture carries the marker and a null date together, and the detail
+     * renders "Unknown" for either, so this pins the outcome — a null date is
+     * not shown as a date or a placeholder — rather than the marker alone.
+     */
+    expect(within(dob).getByText(t('rabbit.dob.unknown'))).toBeVisible();
+    expect(dob.querySelector('time')).toBeNull();
+    expect(within(dob).queryByText('—')).toBeNull();
   });
 
   it('pre-fills every field, saves them all including the threshold, and returns with the confirmed values', async () => {
