@@ -1,6 +1,6 @@
 /*
  * The dashboard rabbit list at the component layer (task 5.10; DASH-1, DASH-2,
- * DASH-3).
+ * DASH-3, DASH-4, DASH-8, DASH-9).
  *
  * What this layer can decide, and what it cannot:
  *
@@ -16,6 +16,18 @@
  *     instant.
  *   - **DASH-2's indication replaces the date**, and a never-weighed row holds
  *     no `<time>` at all — the spec asks for "no date", not for a hidden one.
+ *   - **DASH-4's flag is the payload's flag, in the catalog's words.** A row
+ *     whose `has_weight_drop_alert` is set prints the warning phrase as text;
+ *     the unflagged row beside it prints nothing; and because the list keeps no
+ *     alert state of its own, a confirming read that answers an unflagged row
+ *     is all it takes for the marker to go — which is what raising the
+ *     threshold produces (3.4/3.9's refresh, WT-7's re-derivation).
+ *   - **DASH-9 adds here only what the route spec cannot see.**
+ *     `-rabbit-list-route.test.tsx` owns the control's destination, its typed
+ *     search binding and its sibling relation to the row's open control. This
+ *     file asserts the one row-wide part of "every dashboard row": a
+ *     never-weighed row carries the control too, so the affordance is not
+ *     conditional on a weigh-in existing.
  *   - **A read in flight is not an empty household.** Until the read answers the
  *     list presents the caller's fallback and states nothing about how many
  *     rabbits exist (DASH-8's empty state is task 4.2's claim).
@@ -38,6 +50,7 @@
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import {
+  act,
   cleanup,
   fireEvent,
   screen,
@@ -99,12 +112,15 @@ const RABBITS: readonly FixtureRabbit[] = [HAZEL, BRAMBLE, CLOVER];
  * `never_weighed` is a field of its own, not "the date happens to be null", so
  * the fixture sets both as the backend would: a never-weighed row carries no
  * instant. `thumbnail_ref: null` is P1's normal state — choosing a photo is
- * PHOTO-2 in P2 (design.md D1.11) — and the drop flag is 4.12's, so it is false
- * here and nothing asserts it.
+ * PHOTO-2 in P2 (design.md D1.11) — and `has_weight_drop_alert` is the derived
+ * flag of 2.14/WT-7, so it is a parameter: DASH-4's two states are this one row
+ * with the flag either way, and the fixture never decides what should be
+ * flagged.
  */
 function dashboardRow(
   rabbit: FixtureRabbit,
   lastWeighedAt: string | null,
+  hasWeightDropAlert = false,
 ): DashboardRow {
   return {
     rabbit: {
@@ -115,13 +131,16 @@ function dashboardRow(
     },
     last_weighed_at: lastWeighedAt,
     never_weighed: lastWeighedAt === null,
-    has_weight_drop_alert: false,
+    has_weight_drop_alert: hasWeightDropAlert,
   };
 }
 
 const HAZEL_ROW = dashboardRow(HAZEL, TODAY);
 const BRAMBLE_ROW = dashboardRow(BRAMBLE, LAST_WEEK);
 const CLOVER_ROW = dashboardRow(CLOVER, null);
+
+/** Hazel's row once an entry's drop exceeds her threshold (DASH-4, WT-7). */
+const HAZEL_FLAGGED_ROW = dashboardRow(HAZEL, TODAY, true);
 
 /** The order the read model produces: newest weigh-in first, never weighed last. */
 const SORTED_ROWS: DashboardRow[] = [HAZEL_ROW, BRAMBLE_ROW, CLOVER_ROW];
@@ -182,9 +201,18 @@ afterEach(async () => {
   clearMocks();
 });
 
+/**
+ * The rows' own list. The toolbar's picker repeats every rabbit's name as an
+ * `<option>`, so a rabbit name is looked up here rather than document-wide
+ * (task 4.20).
+ */
+function rowsList(): HTMLElement {
+  return screen.getByRole('list');
+}
+
 /** The row an accessible name resolves to: the `<li>` that contains it. */
 function rowOf(name: string): HTMLElement {
-  const title = screen.getByText(name);
+  const title = within(rowsList()).getByText(name);
   const row = title.closest('li');
 
   if (row === null) {
@@ -215,11 +243,11 @@ function renderedNames(): string[] {
 /** Mount the list and wait for the first row it presents. */
 async function showRows(firstName: string) {
   renderWithQueryClient(<RabbitList />);
-  await screen.findByText(firstName);
+  await within(await screen.findByRole('list')).findByText(firstName);
 }
 
 describeAtBothBaselines(
-  'Dashboard rabbit list (DASH-1, DASH-2, DASH-3)',
+  'Dashboard rabbit list (DASH-1, DASH-2, DASH-3, DASH-4, DASH-8, DASH-9)',
   () => {
     it('lists both active rabbits with their details', async () => {
       answer = SORTED_ROWS;
@@ -251,19 +279,59 @@ describeAtBothBaselines(
       }
     });
 
-    it('presents newest weigh-in first and never weighed last', async () => {
+    it('does not list an archived rabbit', async () => {
+      // DASH-1's second scenario: one archived rabbit beside one non-archived
+      // one. The mock's `list_rabbits` answer is the archived read and would
+      // present Willow; the dashboard's rows are the active list, so she never
+      // reaches this list while Hazel does.
+      answer = [HAZEL_ROW];
+
+      await showRows(HAZEL.name);
+
+      expect(renderedNames()).toEqual([HAZEL.name]);
+      expect(screen.queryByText(ARCHIVED_RABBIT.name)).toBeNull();
+    });
+
+    it('sorts the most recently weighed rabbit first', async () => {
       answer = SORTED_ROWS;
 
       await showRows(HAZEL.name);
 
-      expect(renderedNames()).toEqual([HAZEL.name, BRAMBLE.name, CLOVER.name]);
+      const names = renderedNames();
+
+      // DASH-3: weighed today above weighed a week ago.
+      expect(names.indexOf(HAZEL.name)).toBeLessThan(
+        names.indexOf(BRAMBLE.name),
+      );
+      expect(names).toEqual([HAZEL.name, BRAMBLE.name, CLOVER.name]);
+    });
+
+    it('sorts a never-weighed rabbit last', async () => {
+      /*
+       * A `DashboardRow` carries no creation order, so "created first" cannot be
+       * stated at this layer: the claim the list can make is that the
+       * never-weighed row arrives last and is presented below every weighed row,
+       * because it neither derives nor re-groups the payload's order.
+       */
+      answer = SORTED_ROWS;
+
+      await showRows(HAZEL.name);
+
+      const names = renderedNames();
+      const neverWeighed = names.indexOf(CLOVER.name);
+
+      expect(neverWeighed).toBe(names.length - 1);
+
+      for (const rabbit of [HAZEL, BRAMBLE]) {
+        expect(names.indexOf(rabbit.name)).toBeLessThan(neverWeighed);
+      }
     });
 
     it('reversing the payload reverses the rows', async () => {
       answer = REVERSED_ROWS;
 
       const first = renderWithQueryClient(<RabbitList />);
-      await screen.findByText(CLOVER.name);
+      await within(await screen.findByRole('list')).findByText(CLOVER.name);
 
       expect(renderedNames()).toEqual([CLOVER.name, BRAMBLE.name, HAZEL.name]);
 
@@ -272,7 +340,7 @@ describeAtBothBaselines(
       answer = SORTED_ROWS;
 
       renderWithQueryClient(<RabbitList />);
-      await screen.findByText(HAZEL.name);
+      await within(await screen.findByRole('list')).findByText(HAZEL.name);
 
       // The same three rows, rendered the other way round because the answer is
       // the other way round (DASH-3 is 2.14's derivation; this list only
@@ -296,6 +364,55 @@ describeAtBothBaselines(
       expect(rowOf(HAZEL.name).querySelector('time')).not.toBeNull();
     });
 
+    it('flags a rabbit with a flagged drop', async () => {
+      answer = [HAZEL_FLAGGED_ROW, BRAMBLE_ROW];
+
+      await showRows(HAZEL.name);
+
+      const flagged = rowOf(HAZEL.name);
+      const unflagged = rowOf(BRAMBLE.name);
+
+      // DASH-4: the row presents the warning, and it presents it as the
+      // catalog's phrase rather than as a colour-only dot.
+      expect(within(flagged).getByText(t('weight.dropAlert'))).toBeVisible();
+
+      // The row beside it is unflagged, so the marker is the row's own state and
+      // not something the list adds once any rabbit is flagged.
+      expect(within(unflagged).queryByText(t('weight.dropAlert'))).toBeNull();
+    });
+
+    it('clears the flag when the threshold is raised', async () => {
+      answer = [HAZEL_FLAGGED_ROW];
+
+      const { client } = renderWithQueryClient(<RabbitList />);
+
+      expect(await screen.findByText(t('weight.dropAlert'))).toBeVisible();
+
+      /*
+       * Raising the rabbit's threshold re-derives the flag on the backend and
+       * the rabbit write refreshes the dashboard rows (3.4, 3.9; D1.13), so the
+       * confirming read is the whole of what the list needs: it holds no alert
+       * state that could outlive the payload.
+       */
+      answer = [HAZEL_ROW];
+
+      await act(async () => {
+        await client.invalidateQueries({
+          queryKey: dashboardKeys.rows(HOUSEHOLD.id),
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText(t('weight.dropAlert'))).toBeNull();
+      });
+
+      // Only the flag cleared: the row is still present, with its date.
+      expect(rowOf(HAZEL.name).querySelector('time')).toHaveAttribute(
+        'dateTime',
+        TODAY,
+      );
+    });
+
     it('gives the thumbnail placeholder an accessible name', async () => {
       answer = SORTED_ROWS;
 
@@ -308,6 +425,27 @@ describeAtBothBaselines(
           }),
         ).toBeVisible();
       }
+    });
+
+    it('gives a never-weighed row its quick-weight control too', async () => {
+      answer = SORTED_ROWS;
+
+      renderWithQueryClient(<RabbitList />);
+
+      await within(await screen.findByRole('list')).findByText(CLOVER.name);
+
+      /*
+       * DASH-9 says every row. The route spec proves the control's destination
+       * and typed-search binding; what this layer adds is that a row with no
+       * weigh-in still carries it, so the affordance is the row's rather than a
+       * consequence of there being an entry to compare against.
+       */
+      const control = within(rowOf(CLOVER.name)).getByRole('button', {
+        name: `${CLOVER.name} ${t('weight.log')}`,
+      });
+
+      expect(control).toBeVisible();
+      expect(control).toBeEnabled();
     });
 
     it('prompts for the first rabbit with a visible add control', async () => {
@@ -347,7 +485,7 @@ describeAtBothBaselines(
 
       renderWithQueryClient(<RabbitList onAddRabbit={onAddRabbit} />);
 
-      await screen.findByText(HAZEL.name);
+      await within(await screen.findByRole('list')).findByText(HAZEL.name);
 
       const add = screen.getByRole('button', { name: t('rabbit.add') });
 

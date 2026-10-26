@@ -15,6 +15,16 @@
  * choice, the device region, then canonical grams), which is why changing that
  * answer is how "the form uses the regional default" is exercised here — the
  * form must never invent its own.
+ *
+ * **Task 5.12 (WT-1, WT-3, WT-4) extended this file with the cases the scenario
+ * set names and 4.9 did not yet pin:** "The note is optional" (saved without a
+ * note, and a whitespace-only note treated as none), the confirmation being
+ * released when a corrected value falls back under the bound, and "A confirmed
+ * outlier is saved" carrying the chosen timestamp and note alongside the value.
+ * The WT-1 timestamp cases and the value/unit cases already here are kept as
+ * 5.12's evidence too. 5.13 owns the edit-mode prefill and the confirmed Delete
+ * of the entry detail; 5.14 owns the dashboard, the trend/history ranges and the
+ * chart summary. Neither is asserted in this file.
  */
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
@@ -328,6 +338,111 @@ describeAtBothBaselines('Weight entry form (WT-1, WT-3, WT-4)', () => {
     });
   });
 
+  it('saves a confirmed outlier with the chosen timestamp and note (WT-1, WT-4)', async () => {
+    answers.push(() => ({
+      ...SAVED,
+      value_grams: 12_000,
+      timestamp: new Date('2026-01-02T09:30').toISOString(),
+      note: 'Morning check',
+    }));
+
+    const { onSaved } = renderForm();
+
+    await valueField();
+    fireEvent.change(screen.getByLabelText(t('weight.form.timestampLabel')), {
+      target: { value: '2026-01-02T09:30' },
+    });
+    fireEvent.change(
+      screen.getByRole('textbox', { name: t('weight.form.noteLabel') }),
+      { target: { value: 'Morning check' } },
+    );
+    typeAndSubmit('12');
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: t('weight.confirmOutlier.confirm'),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'create_weight_entry'),
+      ).toHaveLength(1);
+    });
+
+    // Confirming the value must not drop what else the person set (WT-1).
+    expect(entryOf()).toEqual({
+      value_grams: 12_000,
+      timestamp: new Date('2026-01-02T09:30').toISOString(),
+      note: 'Morning check',
+      outlier_confirmed: true,
+    });
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('asks for confirmation again after the value is corrected above the bound (WT-4)', async () => {
+    answers.push(() => ({ ...SAVED, value_grams: 15_000 }));
+
+    renderForm();
+
+    await valueField();
+    typeAndSubmit('12');
+
+    // The confirmation belongs to the value that was shown, not to the form.
+    expect(
+      await screen.findByText(t('weight.confirmOutlier.title')),
+    ).toBeVisible();
+
+    fireEvent.change(valueInput(), { target: { value: '15' } });
+
+    expect(screen.queryByText(t('weight.confirmOutlier.title'))).toBeNull();
+
+    fireEvent.click(submitButton());
+
+    expect(
+      await screen.findByText(t('weight.confirmOutlier.title')),
+    ).toBeVisible();
+    expect(
+      calls.filter((call) => call.command === 'create_weight_entry'),
+    ).toHaveLength(0);
+  });
+
+  it('saves a corrected value below the bound without asking for confirmation (WT-4)', async () => {
+    answers.push(() => ({ ...SAVED, value_grams: 5000 }));
+
+    const { onSaved } = renderForm();
+
+    await valueField();
+    typeAndSubmit('12');
+
+    expect(
+      await screen.findByText(t('weight.confirmOutlier.title')),
+    ).toBeVisible();
+
+    fireEvent.change(valueInput(), { target: { value: '5' } });
+    fireEvent.click(submitButton());
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'create_weight_entry'),
+      ).toHaveLength(1);
+    });
+
+    expect(entryOf()).toEqual({
+      value_grams: 5000,
+      timestamp: null,
+      note: null,
+      outlier_confirmed: false,
+    });
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('keeps the value after declining and asks again on the next submit (WT-4)', async () => {
     renderForm();
 
@@ -428,6 +543,49 @@ describeAtBothBaselines('Weight entry form (WT-1, WT-3, WT-4)', () => {
     });
 
     expect(entryOf()).toMatchObject({ note: 'Morning check' });
+  });
+
+  it('saves an entry with no note (WT-1)', async () => {
+    answers.push(() => SAVED);
+
+    const { onSaved } = renderForm();
+
+    await valueField();
+    typeAndSubmit('1.2');
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'create_weight_entry'),
+      ).toHaveLength(1);
+    });
+
+    // The note field was never touched: the entry is saved and carries none.
+    expect(entryOf()).toMatchObject({ note: null });
+
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('treats a whitespace-only note as no note (WT-1)', async () => {
+    answers.push(() => SAVED);
+
+    renderForm();
+
+    await valueField();
+    fireEvent.change(
+      screen.getByRole('textbox', { name: t('weight.form.noteLabel') }),
+      { target: { value: '   ' } },
+    );
+    typeAndSubmit('1.2');
+
+    await waitFor(() => {
+      expect(
+        calls.filter((call) => call.command === 'create_weight_entry'),
+      ).toHaveLength(1);
+    });
+
+    expect(entryOf()).toMatchObject({ note: null });
   });
 
   it('shows a validation refusal on the value field, not as a save (SYNC-2)', async () => {
